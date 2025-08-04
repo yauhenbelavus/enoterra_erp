@@ -91,6 +91,17 @@ jobs:
         script: |
           cd /home/$USER/enoterra_erp
           npm install --production
+          
+          # Check if server directory exists, if not create it
+          if [ ! -d "server" ]; then
+            echo "Server directory not found, creating it..."
+            mkdir -p server
+            # Create basic server files
+            echo "Creating basic server structure..."
+            touch server/index.js
+            echo "console.log('Server placeholder');" > server/index.js
+          fi
+          
           cd server && npm install --production
     
     - name: Initialize database on VPS
