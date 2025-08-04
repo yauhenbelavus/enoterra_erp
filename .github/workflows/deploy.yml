@@ -33,7 +33,7 @@ jobs:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
-        SOURCE: "dist/,server/"
+        SOURCE: "dist/,server/,ecosystem.config.js,setup_server.sh"
         TARGET: "/home/${{ secrets.REMOTE_USER }}/public_html/"
         EXCLUDE: "server/enoterra_erp.db"
         ARGS: "-avz --delete"
@@ -48,7 +48,21 @@ jobs:
           cd public_html
           npm install --production
           cd server && npm install --production
-          pm2 restart enoterra_erp || echo "PM2 not found, restart manually"
+    
+    - name: Initialize database on server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd public_html/server
+          if [ ! -f "enoterra_erp.db" ]; then
+            echo "Creating new database..."
+            node clean_database.mjs
+          else
+            echo "Database already exists"
+          fi
     
     - name: Run database migrations
       uses: appleboy/ssh-action@v1.0.3
@@ -62,4 +76,13 @@ jobs:
             node database_migrations.mjs
           else
             echo "No database migrations found"
-          fi 
+          fi
+    
+    - name: Restart application
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          pm2 restart enoterra_erp || echo "PM2 not found, restart manually" 
