@@ -27,6 +27,16 @@ jobs:
     - name: Build application
       run: npm run build
     
+    - name: Create directory on VPS
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Create directory structure
+          mkdir -p /home/$USER/enoterra_erp
+    
     - name: Deploy to VPS
       uses: easingthemes/ssh-deploy@main
       env:
@@ -46,18 +56,6 @@ jobs:
         script: |
           # Copy server files manually
           rsync -avz --exclude=enoterra_erp.db server/ /home/$USER/enoterra_erp/server/
-    
-    - name: Create directory structure
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Create directory structure
-          sudo mkdir -p /var/www
-          sudo chown $USER:$USER /var/www
-          mkdir -p /var/www/enoterra_erp
     
     - name: Install Node.js on VPS
       uses: appleboy/ssh-action@v1.0.3
