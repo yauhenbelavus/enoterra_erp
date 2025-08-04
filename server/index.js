@@ -635,7 +635,7 @@ app.post('/sheets', (req, res) => {
 });
 
 // Добавляем healthcheck endpoint для Railway
-app.get('/', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'Enoterra ERP Backend is running',
@@ -2503,6 +2503,14 @@ app.listen(PORT, () => {
 });
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
+
+// Настройка статических файлов для React приложения
+app.use(express.static(path.join(__dirname, '../dist')))
+
+// Fallback для SPA - все остальные маршруты ведут к index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'))
+})
 
 // API endpoint для получения продуктов заказа
 app.get('/api/orders/:id/products', (req, res) => {

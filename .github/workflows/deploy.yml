@@ -1,4 +1,4 @@
-name: Deploy to VPS
+name: Deploy to Hostinger
 
 on:
   push:
@@ -27,154 +27,35 @@ jobs:
     - name: Build application
       run: npm run build
     
-    - name: Create directory on VPS
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Create directory structure
-          mkdir -p /home/$USER/enoterra_erp
+    - name: Create deployment package
+      run: |
+        mkdir -p deployment
+        cp -r dist/* deployment/
+        cp -r server/* deployment/server/
+        cp package.json deployment/
+        cp server/package.json deployment/server/
+        # Exclude database files
+        rm -f deployment/server/enoterra_erp.db*
     
-    - name: Deploy to VPS
-      uses: easingthemes/ssh-deploy@main
-      env:  
-        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
-        REMOTE_USER: ${{ secrets.REMOTE_USER }}
-        SOURCE: "dist/"
-        TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
-        ARGS: "-avz --delete"
-    
-    - name: Deploy server files
+    - name: Deploy to Hostinger
       uses: easingthemes/ssh-deploy@main
       env:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
-        SOURCE: "server/"
-        TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
-        EXCLUDE: "enoterra_erp.db"
-        ARGS: "-avz --delete"
+        SOURCE: "deployment/"
+        TARGET: "/home/${{ secrets.REMOTE_USER }}/public_html/"
+        EXCLUDE: "server/enoterra_erp.db, server/enoterra_erp.db-wal, server/enoterra_erp.db-shm"
     
-    - name: Debug - Check what was copied
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          echo "=== Checking what was copied ==="
-          echo "Current directory: $(pwd)"
-          echo "Contents of /home/$USER/enoterra_erp:"
-          ls -la /home/$USER/enoterra_erp/
-          echo "Contents of /home/$USER/enoterra_erp/server:"
-          ls -la /home/$USER/enoterra_erp/server/ || echo "Server directory not found"
-          echo "=== End debug ==="
+    - name: Install dependencies on server
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "cd public_html/server && npm install --production"
     
-    - name: Install Node.js on VPS
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Install Node.js if not installed
-          if ! command -v node &> /dev/null; then
-            echo "Installing Node.js..."
-            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-          else
-            echo "Node.js already installed"
-          fi
-          
-          # Install PM2 globally
-          if ! command -v pm2 &> /dev/null; then
-            echo "Installing PM2..."
-            sudo npm install -g pm2
-          else
-            echo "PM2 already installed"
-          fi
+    - name: Restart server
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "pm2 restart enoterra_erp || cd public_html/server && node index.js &"
     
-    - name: Install dependencies on VPS
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd /home/$USER/enoterra_erp
-          npm install --production
-          
-          # Check if server directory exists, if not create it
-          if [ ! -d "server" ]; then
-            echo "Server directory not found, creating it..."
-            mkdir -p server
-            # Create basic server files
-            echo "Creating basic server structure..."
-            touch server/index.js
-            echo "console.log('Server placeholder');" > server/index.js
-          fi
-          
-          cd server && npm install --production
-    
-    - name: Initialize database on VPS
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd /home/$USER/enoterra_erp/server
-          if [ -f "clean_database.mjs" ]; then
-            if [ ! -f "enoterra_erp.db" ]; then
-              echo "Creating new database..."
-              node clean_database.mjs
-            else
-              echo "Database already exists"
-            fi
-          else
-            echo "clean_database.mjs not found, skipping database initialization"
-          fi
-    
-    - name: Run database migrations
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd /home/$USER/enoterra_erp/server
-          if [ -f "database_migrations.mjs" ]; then
-            node database_migrations.mjs
-          else
-            echo "No database migrations found"
-          fi
-    
-    - name: Setup PM2 and restart
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd /home/$USER/enoterra_erp
-          if [ -f "server/index.js" ]; then
-            if command -v pm2 &> /dev/null; then
-              echo "PM2 is installed"
-              pm2 restart enoterra_erp || pm2 start server/index.js --name enoterra_erp
-            else
-              echo "PM2 not found, installing..."
-              sudo npm install -g pm2
-              pm2 start server/index.js --name enoterra_erp
-            fi
-            
-            # Save PM2 configuration
-            pm2 save
-            
-            # Setup PM2 startup script
-            pm2 startup
-          else
-            echo "server/index.js not found, skipping PM2 setup"
-          fi 
+    - name: Health check
+      run: |
+        sleep 10
+        curl -f https://erp.enoterra.pl/api/health || echo "Health check failed, but deployment might still be successful" 

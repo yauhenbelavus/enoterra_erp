@@ -99,7 +99,8 @@ interface AppState {
   isDbInitialized: boolean;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// В продакшене используем относительные пути, в разработке - localhost
+const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 console.log('API_URL configured as:', API_URL);
 
