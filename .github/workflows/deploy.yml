@@ -33,10 +33,31 @@ jobs:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
-        SOURCE: "dist/,server/"
-        TARGET: "/var/www/enoterra_erp/"
-        EXCLUDE: "server/enoterra_erp.db"
+        SOURCE: "dist/"
+        TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
         ARGS: "-avz --delete"
+    
+    - name: Copy server files
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Copy server files manually
+          rsync -avz --exclude=enoterra_erp.db server/ /home/$USER/enoterra_erp/server/
+    
+    - name: Create directory structure
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # Create directory structure
+          sudo mkdir -p /var/www
+          sudo chown $USER:$USER /var/www
+          mkdir -p /var/www/enoterra_erp
     
     - name: Install Node.js on VPS
       uses: appleboy/ssh-action@v1.0.3
@@ -69,7 +90,7 @@ jobs:
         username: ${{ secrets.REMOTE_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
-          cd /var/www/enoterra_erp
+          cd /home/$USER/enoterra_erp
           npm install --production
           cd server && npm install --production
     
@@ -80,7 +101,7 @@ jobs:
         username: ${{ secrets.REMOTE_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
-          cd /var/www/enoterra_erp/server
+          cd /home/$USER/enoterra_erp/server
           if [ ! -f "enoterra_erp.db" ]; then
             echo "Creating new database..."
             node clean_database.mjs
@@ -95,7 +116,7 @@ jobs:
         username: ${{ secrets.REMOTE_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
-          cd /var/www/enoterra_erp/server
+          cd /home/$USER/enoterra_erp/server
           if [ -f "database_migrations.mjs" ]; then
             node database_migrations.mjs
           else
@@ -109,7 +130,7 @@ jobs:
         username: ${{ secrets.REMOTE_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
-          cd /var/www/enoterra_erp
+          cd /home/$USER/enoterra_erp
           if command -v pm2 &> /dev/null; then
             echo "PM2 is installed"
             pm2 restart enoterra_erp || pm2 start server/index.js --name enoterra_erp
