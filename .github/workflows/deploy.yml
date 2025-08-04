@@ -33,31 +33,10 @@ jobs:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
-        SOURCE: "dist/,server/,ecosystem.config.js,setup_server.sh"
+        SOURCE: "dist/,server/"
         TARGET: "/home/${{ secrets.REMOTE_USER }}/public_html/"
         EXCLUDE: "server/enoterra_erp.db"
         ARGS: "-avz --delete"
-    
-    - name: Copy additional files
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd public_html
-          echo "Copying ecosystem.config.js..."
-          if [ -f "ecosystem.config.js" ]; then
-            echo "ecosystem.config.js copied successfully"
-          else
-            echo "ecosystem.config.js not found in source"
-          fi
-          echo "Copying setup_server.sh..."
-          if [ -f "setup_server.sh" ]; then
-            echo "setup_server.sh copied successfully"
-          else
-            echo "setup_server.sh not found in source"
-          fi
     
     - name: Install dependencies on server
       uses: appleboy/ssh-action@v1.0.3
