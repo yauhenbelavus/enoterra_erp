@@ -1,0 +1,65 @@
+name: Deploy to Hostinger
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        npm install
+        cd server && npm install
+    
+    - name: Build application
+      run: npm run build
+    
+    - name: Deploy to Hostinger
+      uses: easingthemes/ssh-deploy@main
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+        REMOTE_USER: ${{ secrets.REMOTE_USER }}
+        SOURCE: "dist/,server/"
+        TARGET: "/home/${{ secrets.REMOTE_USER }}/public_html/"
+        EXCLUDE: "server/enoterra_erp.db"
+        ARGS: "-avz --delete"
+    
+    - name: Install dependencies on server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd public_html
+          npm install --production
+          cd server && npm install --production
+          pm2 restart enoterra_erp || echo "PM2 not found, restart manually"
+    
+    - name: Run database migrations
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd public_html/server
+          if [ -f "database_migrations.mjs" ]; then
+            node database_migrations.mjs
+          else
+            echo "No database migrations found"
+          fi 
