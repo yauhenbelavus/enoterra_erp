@@ -47,15 +47,16 @@ jobs:
         TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
         ARGS: "-avz --delete"
     
-    - name: Copy server files
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          # Copy server files manually
-          rsync -avz --exclude=enoterra_erp.db server/ /home/$USER/enoterra_erp/server/
+    - name: Deploy server files
+      uses: easingthemes/ssh-deploy@main
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+        REMOTE_USER: ${{ secrets.REMOTE_USER }}
+        SOURCE: "server/"
+        TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
+        EXCLUDE: "enoterra_erp.db"
+        ARGS: "-avz --delete"
     
     - name: Install Node.js on VPS
       uses: appleboy/ssh-action@v1.0.3
