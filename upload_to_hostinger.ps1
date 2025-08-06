@@ -4,9 +4,9 @@
 Write-Host "🚀 Starting Hostinger deployment..." -ForegroundColor Green
 
 # Конфигурация
-$HOSTINGER_USER = "your_username"
-$HOSTINGER_HOST = "your_hostinger_server.com"
-$REMOTE_PATH = "public_html"
+$HOSTINGER_USER = "root"  # или ваш SSH пользователь
+$HOSTINGER_HOST = "erp.enoterra.pl"  # или IP сервера
+$REMOTE_PATH = "/home/root/enoterra_erp"
 
 # Функция для вывода с цветом
 function Write-Status {

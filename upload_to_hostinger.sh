@@ -6,9 +6,9 @@
 echo "🚀 Starting Hostinger deployment..."
 
 # Конфигурация
-HOSTINGER_USER="your_username"
-HOSTINGER_HOST="your_hostinger_server.com"
-REMOTE_PATH="public_html"
+HOSTINGER_USER="root"  # или ваш SSH пользователь
+HOSTINGER_HOST="erp.enoterra.pl"  # или IP сервера
+REMOTE_PATH="/home/root/enoterra_erp"
 
 # Цвета для вывода
 RED='\033[0;31m'
