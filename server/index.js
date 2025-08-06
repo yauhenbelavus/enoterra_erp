@@ -144,12 +144,24 @@ const db = new sqlite.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CRE
       if (err) console.error('Error creating products table:', err);
       else console.log('Products table ready');
       
-      // Миграция: заменяем 0 на NULL в поле data_waznosci
-      db.run('UPDATE products SET data_waznosci = NULL WHERE data_waznosci = 0', (err) => {
+      // Миграция: заменяем 0 на NULL в поле data_waznosci (только если колонка существует)
+      db.run("PRAGMA table_info(products)", (err, rows) => {
         if (err) {
-          console.error('Error migrating products data_waznosci:', err);
+          console.error('Error checking products table schema:', err);
+          return;
+        }
+        
+        const hasDataWaznosci = rows.some(row => row.name === 'data_waznosci');
+        if (hasDataWaznosci) {
+          db.run('UPDATE products SET data_waznosci = NULL WHERE data_waznosci = 0', (err) => {
+            if (err) {
+              console.error('Error migrating products data_waznosci:', err);
+            } else {
+              console.log('Migration: replaced 0 with NULL in products data_waznosci field');
+            }
+          });
         } else {
-          console.log('Migration: replaced 0 with NULL in products data_waznosci field');
+          console.log('data_waznosci column does not exist in products table, skipping migration');
         }
       });
     });
