@@ -35,9 +35,11 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           # Create directory structure
-          mkdir -p /home/$USER/enoterra_erp
+          mkdir -p /home/$USER/enoterra_erp/logs
+          mkdir -p /home/$USER/enoterra_erp/server/uploads
+          mkdir -p /home/$USER/enoterra_erp/server/fonts
     
-    - name: Deploy to VPS
+    - name: Deploy frontend to VPS
       uses: easingthemes/ssh-deploy@main
       env:  
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -47,7 +49,7 @@ jobs:
         TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
         ARGS: "-avz --delete"
     
-    - name: Deploy server files
+    - name: Deploy server files to VPS
       uses: easingthemes/ssh-deploy@main
       env:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -55,8 +57,18 @@ jobs:
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
         SOURCE: "server/"
         TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
-        EXCLUDE: "enoterra_erp.db"
+        EXCLUDE: "enoterra_erp.db,enoterra_erp.db-wal,enoterra_erp.db-shm"
         ARGS: "-avz --delete"
+    
+    - name: Deploy ecosystem config
+      uses: easingthemes/ssh-deploy@main
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+        REMOTE_USER: ${{ secrets.REMOTE_USER }}
+        SOURCE: "ecosystem.config.cjs"
+        TARGET: "/home/${{ secrets.REMOTE_USER }}/enoterra_erp/"
+        ARGS: "-avz"
     
     - name: Debug - Check what was copied
       uses: appleboy/ssh-action@v1.0.3
@@ -66,11 +78,12 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           echo "=== Checking what was copied ==="
-          echo "Current directory: $(pwd)"
           echo "Contents of /home/$USER/enoterra_erp:"
           ls -la /home/$USER/enoterra_erp/
           echo "Contents of /home/$USER/enoterra_erp/server:"
-          ls -la /home/$USER/enoterra_erp/server/ || echo "Server directory not found"
+          ls -la /home/$USER/enoterra_erp/server/
+          echo "First 10 lines of server/index.js:"
+          head -10 /home/$USER/enoterra_erp/server/index.js
           echo "=== End debug ==="
     
     - name: Install Node.js on VPS
@@ -106,18 +119,7 @@ jobs:
         script: |
           cd /home/$USER/enoterra_erp
           npm install --production
-          
-          # Check if server directory exists, if not create it
-          if [ ! -d "server" ]; then
-            echo "Server directory not found, creating it..."
-            mkdir -p server
-            # Create basic server files
-            echo "Creating basic server structure..."
-            touch server/index.js
-            echo "console.log('Server placeholder');" > server/index.js
-          fi
-          
-          cd server && npm install --production
+          cd server && npm install --production && cd ..
     
     - name: Initialize database on VPS
       uses: appleboy/ssh-action@v1.0.3
@@ -135,7 +137,15 @@ jobs:
               echo "Database already exists"
             fi
           else
-            echo "clean_database.mjs not found, skipping database initialization"
+            echo "clean_database.mjs not found, creating basic database..."
+            node -e "
+            const sqlite3 = require('sqlite3').verbose();
+            const db = new sqlite3.Database('enoterra_erp.db');
+            db.serialize(() => {
+              db.run('CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, category TEXT, quantity INTEGER, price REAL, supplier TEXT, notes TEXT, created_at TEXT)');
+              console.log('Database initialized');
+            });
+            "
           fi
     
     - name: Run database migrations
@@ -152,54 +162,40 @@ jobs:
             echo "No database migrations found"
           fi
     
-               - name: Setup PM2 and restart
-             uses: appleboy/ssh-action@v1.0.3
-             with:
-               host: ${{ secrets.REMOTE_HOST }}
-               username: ${{ secrets.REMOTE_USER }}
-               key: ${{ secrets.SSH_PRIVATE_KEY }}
-               script: |
-                 cd /home/$USER/enoterra_erp
-                 if [ -f "server/index.js" ]; then
-                   if command -v pm2 &> /dev/null; then
-                     echo "PM2 is installed"
-                     
-                     # Stop existing process
-                     pm2 stop enoterra_erp 2>/dev/null || true
-                     pm2 delete enoterra_erp 2>/dev/null || true
-                     
-                     # Install dependencies
-                     npm install --production
-                     cd server && npm install --production && cd ..
-                     
-                     # Initialize database if needed
-                     if [ ! -f "server/enoterra_erp.db" ]; then
-                       echo "Initializing database..."
-                       if [ -f "server/clean_database.mjs" ]; then
-                         cd server && node clean_database.mjs && cd ..
-                       fi
-                     fi
-                     
-                     # Run migrations
-                     if [ -f "server/database_migrations.mjs" ]; then
-                       echo "Running migrations..."
-                       cd server && node database_migrations.mjs && cd ..
-                     fi
-                     
-                     # Start application
-                     pm2 start ecosystem.config.js
-                     pm2 save
-                     
-                     echo "Application started successfully!"
-                   else
-                     echo "PM2 not found, installing..."
-                     sudo npm install -g pm2
-                     pm2 start server/index.js --name enoterra_erp
-                     pm2 save
-                   fi
-                   
-                   # Setup PM2 startup script
-                   pm2 startup
-                 else
-                   echo "server/index.js not found, skipping PM2 setup"
-                 fi 
+    - name: Setup PM2 and restart
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.REMOTE_HOST }}
+        username: ${{ secrets.REMOTE_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd /home/$USER/enoterra_erp
+          if [ -f "server/index.js" ]; then
+            if command -v pm2 &> /dev/null; then
+              echo "PM2 is installed"
+              
+              # Stop existing process
+              pm2 stop enoterra_erp 2>/dev/null || true
+              pm2 delete enoterra_erp 2>/dev/null || true
+              
+              # Start application with ecosystem config
+              if [ -f "ecosystem.config.cjs" ]; then
+                pm2 start ecosystem.config.cjs
+              else
+                pm2 start server/index.js --name enoterra_erp --cwd /home/$USER/enoterra_erp
+              fi
+              pm2 save
+              
+              echo "Application started successfully!"
+            else
+              echo "PM2 not found, installing..."
+              sudo npm install -g pm2
+              pm2 start server/index.js --name enoterra_erp --cwd /home/$USER/enoterra_erp
+              pm2 save
+            fi
+            
+            # Setup PM2 startup script
+            pm2 startup
+          else
+            echo "server/index.js not found, skipping PM2 setup"
+          fi 
