@@ -1,0 +1,85 @@
+# Базы данных (НИКОГДА не коммитить!)
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# Конфигурационные файлы с секретами
+.env
+.env.local
+.env.production
+.env.development
+
+# Логи
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Резервные копии
+backup_*.db
+*.backup
+backup/
+
+# Зависимости
+node_modules/
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+
+# Сборка
+dist/
+build/
+out/
+
+# Временные файлы
+.tmp/
+.temp/
+.tmp/
+*.tmp
+*.temp
+
+# IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Операционная система
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Тестовые файлы
+coverage/
+.nyc_output/
+*.lcov
+
+# Локальные файлы разработки
+*.local
+local.*
+
+# Файлы загрузок
+uploads/
+public/uploads/
+
+# Отчеты совместимости
+compatibility_report.json
+
+# Скрипты отката (содержат пути к серверу)
+rollback.sh
+deploy.sh
+
+# Файлы с инструкциями по деплою
+DEPLOYMENT_INSTRUCTIONS.md
+DEPLOYMENT.md
+
+# Локальные настройки
+*.local
+local.*
