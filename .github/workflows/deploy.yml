@@ -27,6 +27,15 @@ jobs:
     - name: Build application
       run: npm run build
     
+    - name: Debug - Check files before deployment
+      run: |
+        echo "=== Files in repository ==="
+        ls -la
+        echo "=== Server files ==="
+        ls -la server/
+        echo "=== First 10 lines of server/index.js ==="
+        head -10 server/index.js
+    
     - name: Create directory on VPS
       uses: appleboy/ssh-action@v1.0.3
       with:
@@ -38,6 +47,7 @@ jobs:
           mkdir -p /home/$USER/enoterra_erp/logs
           mkdir -p /home/$USER/enoterra_erp/server/uploads
           mkdir -p /home/$USER/enoterra_erp/server/fonts
+          echo "Directories created successfully"
     
     - name: Deploy frontend to VPS
       uses: easingthemes/ssh-deploy@main
@@ -81,9 +91,9 @@ jobs:
           echo "Contents of /home/$USER/enoterra_erp:"
           ls -la /home/$USER/enoterra_erp/
           echo "Contents of /home/$USER/enoterra_erp/server:"
-          ls -la /home/$USER/enoterra_erp/server/
+          ls -la /home/$USER/enoterra_erp/server/ || echo "Server directory not found"
           echo "First 10 lines of server/index.js:"
-          head -10 /home/$USER/enoterra_erp/server/index.js
+          head -10 /home/$USER/enoterra_erp/server/index.js || echo "server/index.js not found"
           echo "=== End debug ==="
     
     - name: Install Node.js on VPS
@@ -118,8 +128,18 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           cd /home/$USER/enoterra_erp
+          echo "Installing root dependencies..."
           npm install --production
-          cd server && npm install --production && cd ..
+          
+          if [ -d "server" ]; then
+            echo "Installing server dependencies..."
+            cd server && npm install --production && cd ..
+          else
+            echo "ERROR: Server directory not found!"
+            echo "Current directory contents:"
+            ls -la
+            exit 1
+          fi
     
     - name: Initialize database on VPS
       uses: appleboy/ssh-action@v1.0.3
