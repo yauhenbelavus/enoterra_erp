@@ -1,85 +1,102 @@
-# Базы данных (НИКОГДА не коммитить!)
+# Базы данных
 *.db
 *.sqlite
 *.sqlite3
 *.sql
 
-# Конфигурационные файлы с секретами
-.env
-.env.local
-.env.production
-.env.development
-
-# Логи
-*.log
-logs/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Резервные копии
-backup_*.db
-*.backup
-backup/
-
 # Зависимости
 node_modules/
-npm-debug.log*
-yarn-error.log*
-yarn-debug.log*
 
 # Сборка
 dist/
 build/
-out/
+
+# Логи
+*.log
+logs/
 
 # Временные файлы
 .tmp/
-.temp/
-.tmp/
 *.tmp
-*.temp
 
-# IDE и редакторы
+# IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
-# Операционная система
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Тестовые файлы
+# Переменные окружения
+.env
+.env.local
+
+# Документация (кроме README)
+*.md
+!README.md
+
+# Скрипты настройки (кроме важных)
+*.sh
+*.ps1
+*.bat
+
+# Миграции и утилиты (кроме vite.config.ts)
+*.mjs
+!vite.config.ts
+
+# Конфигурационные файлы (кроме nginx.conf)
+*.conf
+!nginx.conf
+
+# Папки с документацией
+docs/
+documentation/
+
+# Папки с утилитами
+utils/
+scripts/
+
+# Папки с тестами
+test/
+tests/
+__tests__/
+
+# Папки с резервными копиями
+backup/
+backups/
+
+# Папки с отчетами
+reports/
 coverage/
-.nyc_output/
-*.lcov
 
-# Локальные файлы разработки
-*.local
-local.*
-
-# Файлы загрузок
+# Папки с загрузками
 uploads/
 public/uploads/
 
-# Отчеты совместимости
-compatibility_report.json
+# Папки с кэшем
+.cache/
+cache/
 
-# Скрипты отката (содержат пути к серверу)
-rollback.sh
-deploy.sh
+# Папки с временными файлами
+temp/
+.temp/
 
-# Файлы с инструкциями по деплою
-DEPLOYMENT_INSTRUCTIONS.md
-DEPLOYMENT.md
-
-# Локальные настройки
-*.local
-local.*
+# Исключения - важные файлы, которые НУЖНО включить
+!.github/
+!.github/workflows/
+!package.json
+!package-lock.json
+!server/package.json
+!server/package-lock.json
+!ecosystem.config.cjs
+!nginx.conf
+!vite.config.ts
+!tsconfig.json
+!tsconfig.app.json
+!tsconfig.node.json
+!tailwind.config.js
+!postcss.config.cjs
+!eslint.config.js
+!index.html
+!src/
+!server/
