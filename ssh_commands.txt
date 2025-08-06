@@ -1,0 +1,29 @@
+SSH команды для проверки сервера:
+
+1. Подключитесь к серверу:
+   ssh root@erp.enoterra.pl
+
+2. Проверьте наличие dist папки:
+   ls -la /home/root/enoterra_erp/dist/
+
+3. Проверьте структуру проекта:
+   ls -la /home/root/enoterra_erp/
+
+4. Проверьте статус PM2:
+   pm2 status
+
+5. Проверьте логи PM2:
+   pm2 logs enoterra_erp --lines 20
+
+6. Проверьте порт 3001:
+   netstat -tlnp | grep 3001
+
+7. Проверьте Nginx:
+   sudo systemctl status nginx
+
+8. Попробуйте перезапустить:
+   pm2 restart enoterra_erp
+
+9. Если нет dist папки:
+   mkdir -p /home/root/enoterra_erp/dist
+   echo "Test page" > /home/root/enoterra_erp/dist/index.html

@@ -371,7 +371,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Serve static files
 app.use(express.static(path.join(__dirname, '../dist')));
 
-// Fallback для SPA - все остальные маршруты ведут к index.html
+// Fallback для SPA - все остальные маршруты ведут к index.html (ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
