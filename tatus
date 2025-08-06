@@ -1,0 +1,5 @@
+[33m576ad4c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fix server issues: correct database query and fix route order
+[33m6fc6812[m Fix database migration: check if column exists before updating
+[33mbb64599[m Fix missing @pdf-lib/fontkit dependency in server
+[33m3ef7a9f[m Fix server files deployment: copy to server/ directory
+[33mbf54b06[m Fix deployment: add better error handling and debug steps
