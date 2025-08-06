@@ -145,23 +145,27 @@ const db = new sqlite.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CRE
       else console.log('Products table ready');
       
       // Миграция: заменяем 0 на NULL в поле data_waznosci (только если колонка существует)
-      db.run("PRAGMA table_info(products)", (err, rows) => {
+      db.all("PRAGMA table_info(products)", (err, rows) => {
         if (err) {
           console.error('Error checking products table schema:', err);
           return;
         }
         
-        const hasDataWaznosci = rows.some(row => row.name === 'data_waznosci');
-        if (hasDataWaznosci) {
-          db.run('UPDATE products SET data_waznosci = NULL WHERE data_waznosci = 0', (err) => {
-            if (err) {
-              console.error('Error migrating products data_waznosci:', err);
-            } else {
-              console.log('Migration: replaced 0 with NULL in products data_waznosci field');
-            }
-          });
+        if (rows && rows.length > 0) {
+          const hasDataWaznosci = rows.some(row => row.name === 'data_waznosci');
+          if (hasDataWaznosci) {
+            db.run('UPDATE products SET data_waznosci = NULL WHERE data_waznosci = 0', (err) => {
+              if (err) {
+                console.error('Error migrating products data_waznosci:', err);
+              } else {
+                console.log('Migration: replaced 0 with NULL in products data_waznosci field');
+              }
+            });
+          } else {
+            console.log('data_waznosci column does not exist in products table, skipping migration');
+          }
         } else {
-          console.log('data_waznosci column does not exist in products table, skipping migration');
+          console.log('Products table not found or empty, skipping migration');
         }
       });
     });
@@ -2519,11 +2523,6 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 // Настройка статических файлов для React приложения
 app.use(express.static(path.join(__dirname, '../dist')))
 
-// Fallback для SPA - все остальные маршруты ведут к index.html
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'))
-})
-
 // API endpoint для получения продуктов заказа
 app.get('/api/orders/:id/products', (req, res) => {
   const orderId = req.params.id;
@@ -2817,3 +2816,8 @@ app.put('/api/working-sheets/update', (req, res) => {
     res.json({ success: true, changes: this.changes });
   });
 });
+
+// Fallback для SPA - все остальные маршруты ведут к index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'))
+})
