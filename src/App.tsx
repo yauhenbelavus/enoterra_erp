@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, FileSpreadsheet, Plus } from 'lucide-react';
 import { ExcelFileUploadModal } from './components/ExcelFileUploadModal';
 import { ReplaceFileModal } from './components/ReplaceFileModal';
+import { ExcelViewer } from './components/ExcelViewer';
 import { AddProductModal } from './components/AddProductModal';
 import { DataTable } from './components/DataTable';
 import { ProductSearch } from './components/ProductSearch';
@@ -97,6 +98,8 @@ interface AppState {
   activeTab: 'inventory' | 'clients' | 'orders' | 'inventoryStatus';
   activeSubTab: 'przyjecie' | 'analiza' | 'kalendarz' | null;
   isDbInitialized: boolean;
+  showExcelViewer: boolean;
+  currentExcelFile: SheetData | null;
 }
 
 // В продакшене используем относительные пути, в разработке - localhost
@@ -126,7 +129,9 @@ function App() {
     productReceipts: [],
     activeTab: 'inventory',
     activeSubTab: 'przyjecie',
-    isDbInitialized: false
+    isDbInitialized: false,
+    showExcelViewer: false,
+    currentExcelFile: null
   });
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
@@ -322,20 +327,10 @@ function App() {
   };
 
   const handleFileClick = (sheet: SheetData) => {
-    // Если нажали на тот же файл, который уже активен - сворачиваем таблицу
-    if (appState.activeSheet?.fileName === sheet.fileName) {
-      setAppState(prev => ({
-        ...prev,
-        activeSheet: null,
-        showTable: false
-      }));
-      return;
-    }
-
     setAppState(prev => ({
       ...prev,
-      activeSheet: sheet,
-      showTable: true
+      showExcelViewer: true,
+      currentExcelFile: sheet
     }));
   };
 
@@ -397,6 +392,24 @@ function App() {
       setIsReplaceModalOpen(false);
       setIsExcelModalOpen(false);
     }
+  };
+
+  const handleExcelViewerBack = () => {
+    setAppState(prev => ({
+      ...prev,
+      showExcelViewer: false,
+      currentExcelFile: null
+    }));
+  };
+
+  const handleExcelViewerDelete = (fileName: string) => {
+    setAppState(prev => ({
+      ...prev,
+      showExcelViewer: false,
+      currentExcelFile: null,
+      sheets: prev.sheets.filter(s => s.fileName !== fileName),
+      sheetsData: prev.sheetsData.filter(s => s.fileName !== fileName)
+    }));
   };
 
   const handleAddProduct = async (data: { 
@@ -900,8 +913,18 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <Toaster position="top-right" />
+    <>
+      {appState.showExcelViewer && appState.currentExcelFile && (
+        <ExcelViewer
+          sheet={appState.currentExcelFile}
+          onBack={handleExcelViewerBack}
+          onDelete={handleExcelViewerDelete}
+        />
+      )}
+      
+      {!appState.showExcelViewer && (
+        <div className="min-h-screen bg-gray-100">
+          <Toaster position="top-right" />
       
       <ProductDetailsModal
         isOpen={isProductDetailsOpen}
@@ -1245,7 +1268,8 @@ function App() {
           )}
         </div>
       </div>
-    </div>
+    )}
+    </>
   );
 }
 
