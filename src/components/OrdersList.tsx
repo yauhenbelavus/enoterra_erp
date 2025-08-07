@@ -4,6 +4,7 @@ import Modal from 'react-modal';
 import toast from 'react-hot-toast';
 import { OrderDetailsModal } from './OrderDetailsModal';
 import { EditOrderModal } from './EditOrderModal';
+import { API_URL } from '../config';
 
 interface OrderProduct {
   id: number;
@@ -74,7 +75,7 @@ export const OrdersList: React.FC<OrdersListProps> = ({
       setIsLoading(true);
       setError(null);
       
-      const response = await fetch('/api/orders-with-products');
+      const response = await fetch(`${API_URL}/api/orders-with-products`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

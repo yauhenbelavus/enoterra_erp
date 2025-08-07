@@ -271,7 +271,7 @@ function App() {
   // Проверка наличия файла в базе
   const checkFileExistsInDb = async (fileName: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_URL}/check_file/${encodeURIComponent(fileName)}`);
+      const response = await fetch(`${API_URL}/api/check_file/${encodeURIComponent(fileName)}`);
       const data = await response.json();
       return data.exists;
     } catch {
@@ -297,7 +297,7 @@ function App() {
     };
 
     try {
-      await fetch(`${API_URL}/sheets`, {
+      await fetch(`${API_URL}/api/sheets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: newFileName, data: fileData })
@@ -644,7 +644,7 @@ function App() {
     kontakt: string 
   }) => {
     try {
-      const response = await fetch(`${API_URL}/clients`, {
+      const response = await fetch(`${API_URL}/api/clients`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -673,7 +673,7 @@ function App() {
 
   const handleDeleteClient = async (id: number) => {
     try {
-      const response = await fetch(`${API_URL}/clients/${id}`, {
+      const response = await fetch(`${API_URL}/api/clients/${id}`, {
         method: 'DELETE'
       });
 
@@ -702,7 +702,7 @@ function App() {
     kontakt: string;
   }) => {
     try {
-      const response = await fetch(`${API_URL}/clients/${data.id}`, {
+      const response = await fetch(`${API_URL}/api/clients/${data.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -774,8 +774,8 @@ function App() {
 
   const loadClientsFromDb = async (): Promise<Client[]> => {
     try {
-      console.log('🔍 Loading clients from:', `${API_URL}/clients`);
-      const response = await fetch(`${API_URL}/clients`);
+      console.log('🔍 Loading clients from:', `${API_URL}/api/clients`);
+      const response = await fetch(`${API_URL}/api/clients`);
       console.log('📡 Clients response status:', response.status);
       
       if (!response.ok) {
@@ -794,8 +794,8 @@ function App() {
 
   const loadProductsFromDb = async (): Promise<Product[]> => {
     try {
-      console.log('🔍 Loading products from:', `${API_URL}/products`);
-      const response = await fetch(`${API_URL}/products`);
+      console.log('🔍 Loading products from:', `${API_URL}/api/products`);
+      const response = await fetch(`${API_URL}/api/products`);
       console.log('📡 Products response status:', response.status);
       
       if (!response.ok) {
@@ -1124,7 +1124,7 @@ function App() {
                       <button
                         onClick={async () => {
                           try {
-                            await fetch(`${API_URL}/delete_file/${encodeURIComponent(sheet.fileName)}`, {
+                            await fetch(`${API_URL}/api/delete_file/${encodeURIComponent(sheet.fileName)}`, {
                               method: 'DELETE'
                             });
 

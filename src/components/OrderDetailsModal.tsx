@@ -1,6 +1,7 @@
   import React, { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import Modal from 'react-modal';
+import { API_URL } from '../config';
 
 interface OrderProduct {
   id: number;
@@ -65,7 +66,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, on
     
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/orders/${order.id}`);
+      const response = await fetch(`${API_URL}/api/orders/${order.id}`);
       if (!response.ok) {
         throw new Error('Failed to load order details');
       }
@@ -82,7 +83,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, on
     if (!order) return;
     
     try {
-      const response = await fetch(`/api/clients/${encodeURIComponent(order.klient)}`);
+      const response = await fetch(`${API_URL}/api/clients/${encodeURIComponent(order.klient)}`);
       if (response.ok) {
         const clientData = await response.json();
         setClient(clientData);
@@ -152,7 +153,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, on
     if (!order || !displayOrder) return;
     
     try {
-      const response = await fetch(`/api/orders/${order.id}/pdf`, {
+      const response = await fetch(`${API_URL}/api/orders/${order.id}/pdf`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -6,6 +6,7 @@ import { X, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
 import "react-datepicker/dist/react-datepicker.css";
 import "./DatePicker.css";
+import { API_URL } from '../config';
 
 registerLocale('pl', pl);
 
@@ -189,7 +190,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/working-sheets/update', {
+      const response = await fetch(`${API_URL}/api/working-sheets/update`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -222,7 +223,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
       // Создаем запись в price_history при изменении цены
       if (formData.cena && parseFloat(formData.cena) !== (item.cena || 0)) {
         try {
-          const priceHistoryResponse = await fetch('/api/price-history', {
+          const priceHistoryResponse = await fetch(`${API_URL}/api/price-history`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

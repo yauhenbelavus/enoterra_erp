@@ -3,6 +3,7 @@ import { Search, RefreshCw, Calendar, TrendingDown, ChevronLeft, ChevronRight, E
 import toast from 'react-hot-toast';
 import { Tooltip } from 'react-tooltip';
 import { EditInventoryModal } from './EditInventoryModal';
+import { API_URL } from '../config';
 
 // Глобальные стили для тултипов
 const tooltipStyles = `
@@ -191,7 +192,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
 
   const loadPriceHistory = async (productKod: string) => {
     try {
-      const response = await fetch(`/api/product-prices/${productKod}`);
+      const response = await fetch(`${API_URL}/api/product-prices/${productKod}`);
       if (response.ok) {
         const prices = await response.json();
         setPriceHistory(prev => ({ ...prev, [productKod]: prices }));
@@ -204,7 +205,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
   const loadAllPriceHistory = async () => {
     try {
       const promises = inventory.map(item => 
-        fetch(`/api/product-prices/${item.kod}`).then(res => res.json())
+        fetch(`${API_URL}/api/product-prices/${item.kod}`).then(res => res.json())
       );
       
       const allPrices = await Promise.all(promises);
@@ -228,7 +229,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
       
       // Загружаем данные из working_sheets
       console.log('Fetching working-sheets...');
-      const inventoryResponse = await fetch('/api/working-sheets');
+      const inventoryResponse = await fetch(`${API_URL}/api/working-sheets`);
       if (!inventoryResponse.ok) {
         throw new Error(`HTTP error! status: ${inventoryResponse.status}`);
       }
@@ -242,7 +243,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
 
       // Загружаем заказы
       console.log('Fetching orders...');
-      const ordersResponse = await fetch('/api/orders');
+      const ordersResponse = await fetch(`${API_URL}/api/orders`);
       if (!ordersResponse.ok) {
         throw new Error(`HTTP error! status: ${ordersResponse.status}`);
       }
@@ -252,7 +253,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
 
       // Загружаем продукты заказов
       console.log('Fetching orders-with-products...');
-      const orderProductsResponse = await fetch('/api/orders-with-products');
+      const orderProductsResponse = await fetch(`${API_URL}/api/orders-with-products`);
       if (!orderProductsResponse.ok) {
         throw new Error(`HTTP error! status: ${orderProductsResponse.status}`);
       }

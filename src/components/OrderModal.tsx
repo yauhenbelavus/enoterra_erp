@@ -6,6 +6,7 @@ import { pl } from 'date-fns/locale';
 import "react-datepicker/dist/react-datepicker.css";
 import "../components/DatePicker.css";
 import toast from 'react-hot-toast';
+import { API_URL } from '../config';
 
 registerLocale('pl', pl);
 
@@ -127,7 +128,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
 
       setIsLoading(true);
       try {
-        const response = await fetch(`/api/clients/search?q=${encodeURIComponent(searchQuery)}`);
+        const response = await fetch(`${API_URL}/api/clients/search?q=${encodeURIComponent(searchQuery)}`);
         if (!response.ok) throw new Error('Failed to fetch clients');
         const data = await response.json();
         setClients(data);
@@ -154,7 +155,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
       setIsProductLoading(true);
       try {
         const query = productSearchFields.find(f => f.id === activeSearchId)?.searchQuery || '';
-        const response = await fetch(`/api/products/search?query=${encodeURIComponent(query)}`);
+        const response = await fetch(`${API_URL}/api/products/search?query=${encodeURIComponent(query)}`);
         if (!response.ok) throw new Error('Failed to fetch products');
         const data = await response.json();
         setProducts(data);
@@ -287,7 +288,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/orders', {
+      const response = await fetch(`${API_URL}/api/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
