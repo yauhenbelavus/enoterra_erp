@@ -1,29 +1,7 @@
-# Исключаем все файлы и папки в корне
+# Исключаем ВСЕ файлы и папки в корне
 /*
 !/deploy/
 !/.gitignore
 
-# Исключаем все файлы и папки в deploy/ (но не саму папку)
-/deploy/*
-!/deploy/
-!/deploy/**
-
-# Исключаем все файлы и папки в других местах
-/src/
-/server/
-/dist/
-/node_modules/
-/build_*.js
-/deploy.js
-/package.json
-/package-lock.json
-/tsconfig*.json
-/vite.config.ts
-/tailwind.config.js
-/postcss.config.cjs
-/eslint.config.js
-/index.html
-/env.example
-/.bolt/
-/uploads/
+# Исключаем папку scripts (локальные скрипты)
 /scripts/

@@ -1,7 +1,7 @@
 <?php
 // Простой роутер для SPA
 $request_uri = $_SERVER['REQUEST_URI'];
-$file_path = __DIR__ . '/public' . $request_uri;
+$file_path = __DIR__ . $request_uri;
 
 if (file_exists($file_path) && is_file($file_path)) {
     // Отдаем статический файл
@@ -30,7 +30,6 @@ if (strpos($request_uri, '/api/') === 0) {
     
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $api_url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, $_SERVER['REQUEST_METHOD'] !== 'GET');
     curl_setopt($ch, CURLOPT_POSTFIELDS, file_get_contents('php://input'));
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
@@ -49,4 +48,4 @@ if (strpos($request_uri, '/api/') === 0) {
 
 // Для всех остальных запросов отдаем index.html
 header('Content-Type: text/html');
-readfile(__DIR__ . '/public/index.html');
+readfile(__DIR__ . '/index.html');

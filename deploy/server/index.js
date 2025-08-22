@@ -2669,7 +2669,7 @@ const consumeFromPriceHistory = (productKod, quantity, orderId = null) => {
           });
           
           // Обновляем ilosc_fixed в price_history (одновременное списание)
-          db.run(
+  db.run(
             'UPDATE price_history SET ilosc_fixed = ? WHERE id = ?',
             [newIloscFixed, batch.id],
             function(updateErr) {
@@ -2711,21 +2711,21 @@ const saveConsumptionsToDatabase = (orderId, consumptions, productKod) => {
       db.run(
         'INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES (?, ?, ?, ?, ?)',
         [orderId, productKod, consumption.batchId, consumption.quantity, consumption.price],
-        function(err) {
-          if (err) {
+    function(err) {
+      if (err) {
             console.error('❌ Error saving consumption record:', err);
             reject(err);
-            return;
-          }
+        return;
+      }
           
           savedCount++;
           if (savedCount === totalCount) {
             console.log(`✅ All ${totalCount} consumption records saved successfully`);
             resolve();
           }
-        }
-      );
-            });
+    }
+  );
+});
   });
 };
 
@@ -2846,7 +2846,7 @@ const restoreFIFOToExactBatches = (product, consumptions, callback) => {
       let processedConsumptions = 0;
       
       consumptions.forEach((consumption) => {
-        db.run(
+  db.run(
           'UPDATE price_history SET ilosc_fixed = ilosc_fixed + ? WHERE id = ?',
           [consumption.quantity, consumption.batch_id],
           function(historyUpdateErr) {
