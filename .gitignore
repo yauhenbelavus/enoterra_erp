@@ -5,3 +5,8 @@
 
 # Исключаем папку scripts (локальные скрипты)
 /scripts/
+
+# Исключаем зависимости и базу данных из deploy
+/deploy/server/node_modules/
+/deploy/server/*.db
+/deploy/server/*.sqlite
