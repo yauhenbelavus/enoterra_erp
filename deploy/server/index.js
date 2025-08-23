@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import fs from 'fs';
+import * as XLSX from 'xlsx';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3585,20 +3586,20 @@ async function generateOrderPDF(order, products, res) {
 
 }); // Закрываем блок db.serialize
 
-// Serve static files from dist (ПОСЛЕ uploads middleware)
-app.use(express.static(path.join(__dirname, '../dist')));
+// Serve static files from parent directory (frontend)
+app.use(express.static(path.join(__dirname, '..')));
 
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
 app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, '../dist/index.html');
+  const indexPath = path.join(__dirname, '../index.html');
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
 
 // Start server
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 80;
 app.listen(PORT, () => {
   console.log(`🚀 EnoTerra ERP Server running on port ${PORT}`);
-  console.log(`📂 Serving static files from: ${path.join(__dirname, '../dist')}`);
+  console.log(`📂 Serving static files from: ${path.join(__dirname, '..')}`);
   console.log(`💾 Database located at: ${dbPath}`);
 });
