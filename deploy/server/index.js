@@ -1,14 +1,9 @@
-import express from 'express';
-import cors from 'cors';
-import sqlite3 from 'sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import multer from 'multer';
-import fs from 'fs';
-
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const express = require('express');
+const cors = require('cors');
+const sqlite3 = require('sqlite3');
+const path = require('path');
+const multer = require('multer');
+const fs = require('fs');
 
 const app = express();
 
@@ -68,6 +63,15 @@ const db = new sqlite3.Database(dbPath);
 
 // Database initialization
 db.serialize(() => {
+  // Включаем поддержку внешних ключей
+  db.run('PRAGMA foreign_keys = ON', (err) => {
+    if (err) {
+      console.error('❌ Error enabling foreign keys:', err);
+    } else {
+      console.log('✅ Foreign keys enabled');
+    }
+  });
+  
   console.log('🗄️ Initializing database...');
   
   // Таблица клиентов
@@ -90,14 +94,15 @@ db.serialize(() => {
   // Таблица продуктов
   db.run(`CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kod TEXT UNIQUE NOT NULL,
+    kod TEXT NOT NULL,
     nazwa TEXT NOT NULL,
     kod_kreskowy TEXT,
     cena REAL DEFAULT 0,
-    cena_sprzedazy REAL DEFAULT 0,
     ilosc INTEGER DEFAULT 0,
-    data_waznosci DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ilosc_aktualna INTEGER DEFAULT 0,
+    receipt_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (receipt_id) REFERENCES product_receipts (id) ON DELETE CASCADE
   )`, (err) => {
     if (err) {
       console.error('❌ Error creating products table:', err);
@@ -135,6 +140,7 @@ db.serialize(() => {
     typ TEXT DEFAULT 'sprzedaz',
     product_kod TEXT,
     powod_zwrotu TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (orderId) REFERENCES orders (id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE SET NULL
   )`, (err) => {
@@ -142,6 +148,8 @@ db.serialize(() => {
       console.error('❌ Error creating order_products table:', err);
     } else {
       console.log('✅ Order products table ready');
+      
+
     }
   });
 
@@ -205,24 +213,7 @@ db.serialize(() => {
     }
   });
 
-  // Таблица истории цен
-  db.run(`CREATE TABLE IF NOT EXISTS price_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER,
-    kod TEXT NOT NULL,
-    nazwa TEXT NOT NULL,
-    cena REAL NOT NULL,
-    data_zmiany DATE NOT NULL,
-    ilosc_fixed INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE SET NULL
-  )`, (err) => {
-    if (err) {
-      console.error('❌ Error creating price_history table:', err);
-    } else {
-      console.log('✅ Price history table ready');
-    }
-  });
+  // Удалена таблица price_history (ilosc_fixed больше не используется)
 
   // Таблица потребления заказов (FIFO tracking)
   db.run(`CREATE TABLE IF NOT EXISTS order_consumptions (
@@ -243,6 +234,21 @@ db.serialize(() => {
   });
 
   console.log('🎉 All database tables initialized successfully');
+  
+  // Миграция: добавляем недостающие поля в таблицу products
+  db.all("PRAGMA table_info(products)", (err, columns) => {
+    if (err) {
+      console.error('❌ Error checking products table structure:', err);
+      return;
+    }
+    
+    const columnNames = columns.map(col => col.name);
+    console.log('📋 Current products columns:', columnNames);
+    
+
+    
+
+  });
 });
 
 // API Routes
@@ -345,8 +351,8 @@ app.post('/api/products', (req, res) => {
   }
   
   db.run(
-    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, cena_sprzedazy, ilosc, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [kod, nazwa, kod_kreskowy, cena || 0, cena_sprzedazy || 0, ilosc || 0, data_waznosci],
+    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, cena_sprzedazy, ilosc, ilosc_aktualna, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [kod, nazwa, kod_kreskowy, cena || 0, cena_sprzedazy || 0, ilosc || 0, ilosc || 0, data_waznosci],
     function(err) {
       if (err) {
         console.error('❌ Database error:', err);
@@ -378,10 +384,513 @@ app.get('/api/products/search', (req, res) => {
         return;
       }
       console.log(`✅ Found ${rows.length} products matching "${query}"`);
-      res.json(rows || []);
+      res.json({
+        products: rows || [],
+        query: query,
+        count: rows.length,
+        timestamp: new Date().toISOString()
+      });
     }
   );
 });
+
+// Получение информации о конкретном товаре по ID
+app.get('/api/products/:id', (req, res) => {
+  const { id } = req.params;
+  console.log(`📦 GET /api/products/${id} - Fetching product details`);
+  
+  db.get('SELECT * FROM products WHERE id = ?', [id], (err, row) => {
+    if (err) {
+      console.error('❌ Database error:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (!row) {
+      console.log(`❌ Product with ID ${id} not found`);
+      res.status(404).json({ error: 'Product not found' });
+      return;
+    }
+    
+    console.log(`✅ Found product: ${row.nazwa} (${row.kod})`);
+    res.json({
+      product: row,
+      selected: true,
+      timestamp: new Date().toISOString()
+    });
+  });
+});
+
+// Функция генерации PDF заказа
+async function generateOrderPDF(order, products, res) {
+  try {
+    const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+    
+    // Создаем новый PDF документ
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595.28, 841.89]); // A4 размер
+    
+    // Получаем стандартные шрифты с поддержкой Unicode
+    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    
+
+    
+    const { width, height } = page.getSize();
+    const margin = 50;
+    let yPosition = height - margin;
+    
+    // Цвета из HTML шаблона
+    const colors = {
+      background: rgb(0.976, 0.976, 0.976), // #f9fafb
+      white: rgb(1, 1, 1), // white
+      border: rgb(0.82, 0.82, 0.82), // #d1d5db
+      headerBg: rgb(0.95, 0.95, 0.95), // #f3f4f6
+      text: rgb(0.22, 0.22, 0.22), // #374151
+      textDark: rgb(0.12, 0.12, 0.12), // #1f2937
+      textLight: rgb(0.61, 0.64, 0.69), // #9ca3af
+      blue: rgb(0.2, 0.4, 0.8)
+    };
+    
+    // Основной контейнер (фон страницы)
+    page.drawRectangle({
+      x: 0,
+      y: 0,
+      width: width,
+      height: height,
+      color: colors.background
+    });
+    
+    // Белый контейнер с тенью (имитация box-shadow)
+    const containerMargin = 24;
+    const containerWidth = width - 2 * containerMargin;
+    const containerHeight = height - 2 * containerMargin;
+    
+    // Тень
+    page.drawRectangle({
+      x: containerMargin + 4,
+      y: containerMargin - 4,
+      width: containerWidth,
+      height: containerHeight,
+      color: rgb(0, 0, 0, 0.1)
+    });
+    
+    // Основной контейнер
+    page.drawRectangle({
+      x: containerMargin,
+      y: containerMargin,
+      width: containerWidth,
+      height: containerHeight,
+      color: colors.white
+    });
+    
+    // Заголовок документа
+    page.drawText('EnoTerra ERP - Zamówienie', {
+      x: containerMargin + 24,
+      y: height - containerMargin - 40,
+      size: 20,
+      font: helveticaBold,
+      color: colors.textDark
+    });
+    
+    yPosition = height - containerMargin - 80;
+    
+    // Информация о заказе
+    page.drawText(`Numer zamówienia: ${order.numer_zamowienia}`, {
+      x: containerMargin + 24,
+      y: yPosition,
+      size: 14,
+      font: helveticaBold,
+      color: colors.textDark
+    });
+    yPosition -= 25;
+    
+    page.drawText(`Data utworzenia: ${order.data_utworzenia || new Date().toLocaleDateString('pl-PL')}`, {
+      x: containerMargin + 24,
+      y: yPosition,
+      size: 12,
+      font: helveticaFont,
+      color: colors.text
+    });
+    yPosition -= 30;
+    
+    // Информация о клиенте
+    if (order.client_name) {
+      // Секция клиента
+      page.drawText('Dane klienta:', {
+        x: containerMargin + 24,
+        y: yPosition,
+        size: 14,
+        font: helveticaBold,
+        color: colors.textDark
+      });
+      yPosition -= 25;
+      
+      page.drawText(`Firma: ${order.firma || order.client_name}`, {
+        x: containerMargin + 24,
+        y: yPosition,
+        size: 12,
+        font: helveticaFont,
+        color: colors.text
+      });
+      yPosition -= 18;
+      
+      if (order.adres) {
+        page.drawText(`Adres: ${order.adres}`, {
+          x: containerMargin + 24,
+          y: yPosition,
+          size: 12,
+          font: helveticaFont,
+          color: colors.text
+        });
+        yPosition -= 18;
+      }
+      
+      if (order.kontakt) {
+        page.drawText(`Kontakt: ${order.kontakt}`, {
+          x: containerMargin + 24,
+          y: yPosition,
+          size: 12,
+          font: helveticaFont,
+          color: colors.text
+        });
+        yPosition -= 25;
+      }
+    }
+    
+    // Таблица продуктов
+    if (products && products.length > 0) {
+      yPosition -= 20;
+      // Секция продуктов
+      page.drawText('Produkty w zamówieniu:', {
+        x: containerMargin + 24,
+        y: yPosition,
+        size: 14,
+        font: helveticaBold,
+        color: colors.textDark
+      });
+      yPosition -= 30;
+      
+      // Заголовки таблицы
+      const tableX = containerMargin + 24;
+      const columns = [
+        { x: tableX, width: 80, title: 'Kod' },
+        { x: tableX + 90, width: 200, title: 'Nazwa' },
+        { x: tableX + 300, width: 100, title: 'Kod kreskowy' },
+        { x: tableX + 410, width: 60, title: 'Ilość' },
+        { x: tableX + 480, width: 80, title: 'Typ' }
+      ];
+      
+      // Фон для заголовков таблицы
+      page.drawRectangle({
+        x: tableX - 6,
+        y: yPosition - 6,
+        width: width - 2 * containerMargin - 36,
+        height: 25,
+        color: colors.headerBg
+      });
+      
+      // Рисуем заголовки
+      columns.forEach(col => {
+        page.drawText(col.title, {
+          x: col.x,
+          y: yPosition,
+          size: 10,
+          font: helveticaBold,
+          color: colors.text
+        });
+      });
+      yPosition -= 25;
+      
+      // Рисуем данные продуктов
+      products.forEach((product, index) => {
+        if (yPosition < margin + 100) {
+          // Добавляем новую страницу если не хватает места
+          page = pdfDoc.addPage([595.28, 841.89]);
+          yPosition = height - margin;
+        }
+        
+        // Фон для четных строк (как в HTML)
+        if (index % 2 === 1) {
+          page.drawRectangle({
+            x: tableX - 6,
+            y: yPosition - 2,
+            width: width - 2 * containerMargin - 36,
+            height: 19,
+            color: colors.background
+          });
+        }
+        
+        page.drawText(product.kod || '', {
+          x: columns[0].x,
+          y: yPosition,
+          size: 9,
+          font: helveticaFont,
+          color: colors.text
+        });
+        
+        page.drawText(product.product_name || product.nazwa || '', {
+          x: columns[1].x,
+          y: yPosition,
+          size: 9,
+          font: helveticaFont,
+          color: colors.text
+        });
+        
+        page.drawText(product.kod_kreskowy || '-', {
+          x: columns[2].x,
+          y: yPosition,
+          size: 9,
+          font: helveticaFont,
+          color: colors.text
+        });
+        
+        page.drawText(product.ilosc?.toString() || '0', {
+          x: columns[3].x,
+          y: yPosition,
+          size: 9,
+          font: helveticaFont,
+          color: colors.text
+        });
+        
+        page.drawText(product.typ || '-', {
+          x: columns[4].x,
+          y: yPosition,
+          size: 9,
+          font: helveticaFont,
+          color: colors.text
+        });
+        
+        yPosition -= 15;
+      });
+      
+      // Итого
+      yPosition -= 20;
+      // Итоговая секция
+      page.drawText(`Razem produktów: ${products.length}`, {
+        x: containerMargin + 24,
+        y: yPosition,
+        size: 12,
+        font: helveticaBold,
+        color: colors.textDark
+      });
+      yPosition -= 20;
+      
+      page.drawText(`Łączna ilość: ${order.laczna_ilosc || 0}`, {
+        x: containerMargin + 24,
+        y: yPosition,
+        size: 12,
+        font: helveticaBold,
+        color: colors.textDark
+      });
+    }
+    
+    // Футер
+    yPosition = containerMargin + 24;
+    page.drawText(`Wygenerowano: ${new Date().toLocaleString('pl-PL')}`, {
+      x: containerMargin + 24,
+      y: yPosition,
+      size: 8,
+      font: helveticaFont,
+      color: colors.textLight
+    });
+    
+    // Сохраняем PDF
+    const pdfBytes = await pdfDoc.save();
+    
+    // Отправляем PDF
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="order_${order.numer_zamowienia}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+    
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    
+    // Если ошибка связана с кодировкой, попробуем создать PDF без польских символов
+    if (error.message && error.message.includes('WinAnsi cannot encode')) {
+      console.log('Trying to generate PDF with ASCII characters...');
+      try {
+        // Создаем простую версию PDF без польских символов
+        const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage([595.28, 841.89]);
+        const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        
+        const { width, height } = page.getSize();
+        const margin = 50;
+        let yPosition = height - margin;
+        
+                 // Заголовок без польских символов
+         page.drawText('EnoTerra ERP - Zamowienie', {
+           x: margin,
+           y: yPosition,
+           size: 24,
+           font: helveticaBold,
+           color: rgb(0, 0, 0)
+         });
+         yPosition -= 40;
+         
+         page.drawText(`Numer zamowienia: ${order.numer_zamowienia}`, {
+           x: margin,
+           y: yPosition,
+           size: 14,
+           font: helveticaBold,
+           color: rgb(0, 0, 0)
+         });
+         yPosition -= 25;
+         
+         page.drawText(`Data utworzenia: ${order.data_utworzenia || new Date().toLocaleDateString('pl-PL')}`, {
+           x: margin,
+           y: yPosition,
+           size: 12,
+           font: helveticaFont,
+           color: rgb(0, 0, 0)
+         });
+         yPosition -= 30;
+         
+         if (order.client_name) {
+           page.drawText('Dane klienta:', {
+             x: margin,
+             y: yPosition,
+             size: 14,
+             font: helveticaBold,
+             color: rgb(0, 0, 0)
+           });
+           yPosition -= 20;
+           
+           page.drawText(`Firma: ${order.firma || order.client_name}`, {
+             x: margin,
+             y: yPosition,
+             size: 12,
+             font: helveticaFont,
+             color: rgb(0, 0, 0)
+           });
+           yPosition -= 18;
+         }
+         
+         if (products && products.length > 0) {
+           yPosition -= 20;
+           page.drawText('Produkty w zamowieniu:', {
+             x: margin,
+             y: yPosition,
+             size: 14,
+             font: helveticaBold,
+             color: rgb(0, 0, 0)
+           });
+           yPosition -= 25;
+           
+           const columns = [
+             { x: margin, width: 80, title: 'Kod' },
+             { x: margin + 90, width: 200, title: 'Nazwa' },
+             { x: margin + 300, width: 100, title: 'Kod kreskowy' },
+             { x: margin + 410, width: 60, title: 'Ilosc' },
+             { x: margin + 480, width: 80, title: 'Typ' }
+           ];
+          
+          columns.forEach(col => {
+            page.drawText(col.title, {
+              x: col.x,
+              y: yPosition,
+              size: 10,
+              font: helveticaBold,
+              color: rgb(0, 0, 0)
+            });
+          });
+          yPosition -= 20;
+          
+          products.forEach((product, index) => {
+            if (yPosition < margin + 100) {
+              page = pdfDoc.addPage([595.28, 841.89]);
+              yPosition = height - margin;
+            }
+            
+            page.drawText(product.kod || '', {
+              x: columns[0].x,
+              y: yPosition,
+              size: 9,
+              font: helveticaFont,
+              color: rgb(0, 0, 0)
+            });
+            
+            page.drawText(product.product_name || product.nazwa || '', {
+              x: columns[1].x,
+              y: yPosition,
+              size: 9,
+              font: helveticaFont,
+              color: rgb(0, 0, 0)
+            });
+            
+            page.drawText(product.kod_kreskowy || '-', {
+              x: columns[2].x,
+              y: yPosition,
+              size: 9,
+              font: helveticaFont,
+              color: rgb(0, 0, 0)
+            });
+            
+            page.drawText(product.ilosc?.toString() || '0', {
+              x: columns[3].x,
+              y: yPosition,
+              size: 9,
+              font: helveticaFont,
+              color: rgb(0, 0, 0)
+            });
+            
+            page.drawText(product.typ || '-', {
+              x: columns[4].x,
+              y: yPosition,
+              size: 9,
+              font: helveticaFont,
+              color: rgb(0, 0, 0)
+            });
+            
+            yPosition -= 15;
+          });
+          
+                     yPosition -= 20;
+           page.drawText(`Razem produktow: ${products.length}`, {
+             x: margin,
+             y: yPosition,
+             size: 12,
+             font: helveticaBold,
+             color: rgb(0, 0, 0)
+           });
+           yPosition -= 20;
+           
+           page.drawText(`Laczna ilosc: ${order.laczna_ilosc || 0}`, {
+             x: margin,
+             y: yPosition,
+             size: 12,
+             font: helveticaBold,
+             color: rgb(0, 0, 0)
+           });
+         }
+         
+         yPosition = margin;
+         page.drawText(`Wygenerowano: ${new Date().toLocaleString('pl-PL')}`, {
+           x: margin,
+           y: yPosition,
+           size: 8,
+           font: helveticaFont,
+           color: rgb(0.5, 0.5, 0.5)
+         });
+        
+        const pdfBytes = await pdfDoc.save();
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="order_${order.numer_zamowienia}.pdf"`);
+        res.send(Buffer.from(pdfBytes));
+        return;
+      } catch (fallbackError) {
+        console.error('Fallback PDF generation also failed:', fallbackError);
+        res.status(500).json({ error: 'Failed to generate PDF (encoding issue)' });
+        return;
+      }
+    }
+    
+    res.status(500).json({ error: 'Failed to generate PDF' });
+  }
+}
 
 // Orders API
 app.get('/api/orders', (req, res) => {
@@ -404,15 +913,18 @@ app.get('/api/orders', (req, res) => {
     const ordersWithProducts = [];
     
     orderRows.forEach((order) => {
-      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY created_at', [order.id], (err, productRows) => {
+      console.log(`🔍 Fetching products for order ${order.id} (${order.numer_zamowienia})`);
+      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [order.id], (err, productRows) => {
         if (err) {
           console.error(`❌ Error fetching products for order ${order.id}:`, err);
+          console.error(`❌ Error details:`, err.message);
           // Добавляем заказ без продуктов в случае ошибки
           ordersWithProducts.push({
             ...order,
             products: []
           });
         } else {
+          console.log(`✅ Found ${productRows?.length || 0} products for order ${order.id}`);
           ordersWithProducts.push({
             ...order,
             products: productRows || []
@@ -462,7 +974,7 @@ app.get('/api/orders/search', (req, res) => {
     const ordersWithProducts = [];
     
     orderRows.forEach((order) => {
-      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY created_at', [order.id], (err, productRows) => {
+      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [order.id], (err, productRows) => {
         if (err) {
           console.error(`❌ Error fetching products for order ${order.id}:`, err);
           ordersWithProducts.push({
@@ -502,6 +1014,52 @@ app.get('/api/orders/search', (req, res) => {
   });
 });
 
+// PDF Generation API
+app.get('/api/orders/:id/pdf', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Получаем данные заказа с продуктами
+    const orderQuery = `
+      SELECT o.*, c.firma, c.nazwa as client_name, c.adres, c.kontakt
+      FROM orders o
+      LEFT JOIN clients c ON o.klient = c.nazwa
+      WHERE o.id = ?
+    `;
+    
+    const orderProductsQuery = `
+      SELECT op.*, p.nazwa as product_name
+      FROM order_products op
+      LEFT JOIN products p ON op.kod = p.kod
+      WHERE op.orderId = ?
+    `;
+    
+    db.get(orderQuery, [id], (err, order) => {
+      if (err) {
+        console.error('Error fetching order:', err);
+        return res.status(500).json({ error: 'Failed to fetch order' });
+      }
+      
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+      
+      db.all(orderProductsQuery, [id], (err, products) => {
+        if (err) {
+          console.error('Error fetching order products:', err);
+          return res.status(500).json({ error: 'Failed to fetch order products' });
+        }
+        
+        // Генерируем PDF
+        generateOrderPDF(order, products, res);
+      });
+    });
+  } catch (error) {
+    console.error('Error in PDF generation:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/api/orders/:id', (req, res) => {
   const { id } = req.params;
   console.log(`📋 GET /api/orders/${id} - Fetching order by ID`);
@@ -521,7 +1079,7 @@ app.get('/api/orders/:id', (req, res) => {
     console.log(`✅ Found order: ${orderRow.numer_zamowienia}`);
     
     // Теперь получаем продукты для этого заказа
-    db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY created_at', [id], (err, productRows) => {
+    db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [id], (err, productRows) => {
       if (err) {
         console.error('❌ Database error fetching products:', err);
         res.status(500).json({ error: err.message });
@@ -608,17 +1166,19 @@ app.post('/api/orders', (req, res) => {
             const { kod, nazwa, ilosc, typ, kod_kreskowy } = product;
             
             // Сначала создаем запись в order_products
+            console.log(`📝 Creating order_products record for: ${kod} (orderId: ${orderId})`);
             db.run(
-              'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+              'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy) VALUES (?, ?, ?, ?, ?, ?)',
               [orderId, kod, nazwa, ilosc, typ || 'sztuki', kod_kreskowy || null],
               function(err) {
                 if (err) {
                   console.error(`❌ Error creating product ${index + 1}:`, err);
+                  console.error(`❌ Error details:`, err.message);
                   productsFailed++;
                   checkCompletion();
                 } else {
                   productsCreated++;
-                  console.log(`✅ Product ${index + 1} created for order ${orderId}`);
+                  console.log(`✅ Product ${index + 1} created for order ${orderId} with ID: ${this.lastID}`);
                   
                   // Теперь обновляем количество в working_sheets И в price_history (FIFO)
                   db.run(
@@ -633,14 +1193,31 @@ app.post('/api/orders', (req, res) => {
                         workingSheetsUpdated++;
                         
                         // Теперь списываем по FIFO из price_history с отслеживанием
-                        consumeFromPriceHistory(kod, ilosc, orderId)
-                          .then((result) => {
-                            console.log(`🎯 FIFO consumption for ${kod}: ${result.consumed} szt. consumed`);
+                        consumeFromProducts(kod, ilosc)
+                          .then(({ consumed, remaining, consumptions }) => {
+                            console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
+                            // Записываем списания партий в order_consumptions
+                            if (consumptions && consumptions.length > 0) {
+                              const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
+                              const values = consumptions.flatMap(c => [orderId, kod, c.batchId, c.qty, c.cena]);
+                              db.run(
+                                `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
+                                values,
+                                (consErr) => {
+                                  if (consErr) {
+                                    console.error('❌ Error saving order_consumptions:', consErr);
+                                  } else {
+                                    console.log(`✅ Saved ${consumptions.length} consumption rows for order ${orderId}`);
+                                  }
                       checkCompletion();
+                                }
+                              );
+                            } else {
+                              checkCompletion();
+                            }
                           })
                           .catch((fifoError) => {
                             console.error(`❌ FIFO consumption error for ${kod}:`, fifoError);
-                            // Даже если FIFO не сработал, заказ создан
                             checkCompletion();
                           });
                       }
@@ -660,7 +1237,9 @@ app.post('/api/orders', (req, res) => {
                   id: orderId, 
                   message: 'Order and all products added successfully',
                   productsCreated: productsCreated,
-                  workingSheetsUpdated: workingSheetsUpdated
+                  workingSheetsUpdated: workingSheetsUpdated,
+                  success: true,
+                  shouldClearForm: true
                 });
               } else {
                 console.log(`⚠️ Order created but ${productsFailed} products failed to create`);
@@ -669,7 +1248,9 @@ app.post('/api/orders', (req, res) => {
                   message: `Order created but ${productsFailed} products failed to create`,
                   productsCreated: productsCreated,
                   productsFailed: productsFailed,
-                  workingSheetsUpdated: workingSheetsUpdated
+                  workingSheetsUpdated: workingSheetsUpdated,
+                  success: false,
+                  shouldClearForm: false
                 });
               }
             }
@@ -890,21 +1471,18 @@ function restoreProductQuantitiesFromOrder(orderId, products, callback) {
         
         const quantityToRestore = Math.min(remainingQuantity, consumption.quantity);
         
-        // Восстанавливаем количество в price_history
-                db.run(
-          'UPDATE price_history SET ilosc_fixed = ilosc_fixed + ? WHERE id = ?',
-          [quantityToRestore, consumption.batch_id],
-          function(err) {
-            if (err) {
-              console.error(`❌ Error restoring quantity in price_history ${consumption.batch_id}:`, err);
-                    } else {
-              console.log(`✅ Restored ${quantityToRestore} units in price_history ${consumption.batch_id}`);
-            }
-            
+        // Восстанавливаем количество в products (FIFO)
+        restoreToProducts(product.kod, quantityToRestore)
+          .then(({ restored }) => {
+            console.log(`✅ Restored ${restored} units in products for ${product.kod}`);
             consumptionsProcessed++;
             checkProductCompletion();
-          }
-        );
+          })
+          .catch((err) => {
+            console.error(`❌ Error restoring quantity in products for ${product.kod}:`, err);
+            consumptionsProcessed++;
+            checkProductCompletion();
+          });
         
         remainingQuantity -= quantityToRestore;
       });
@@ -972,6 +1550,7 @@ app.put('/api/orders/:id', (req, res) => {
     }
     
     console.log(`🔄 Found ${oldOrderProducts.length} old products to restore in working_sheets`);
+    console.log(`🔍 Old order products:`, JSON.stringify(oldOrderProducts, null, 2));
     
     // Вычисляем общее количество всех продуктов
     const laczna_ilosc = products ? products.reduce((total, product) => total + (product.ilosc || 0), 0) : 0;
@@ -1025,6 +1604,9 @@ app.put('/api/orders/:id', (req, res) => {
       oldProductsMap[product.kod] = product;
     });
     
+    console.log(`🔍 Old products map:`, JSON.stringify(oldProductsMap, null, 2));
+    console.log(`🔍 New products:`, JSON.stringify(products, null, 2));
+    
     // Анализируем изменения для каждого продукта
     let productsProcessed = 0;
     let totalProducts = products.length;
@@ -1032,14 +1614,22 @@ app.put('/api/orders/:id', (req, res) => {
           products.forEach((product, index) => {
             const { kod, nazwa, ilosc, typ, kod_kreskowy } = product;
             const oldProduct = oldProductsMap[kod];
-      const oldQuantity = oldProduct ? oldProduct.ilosc : 0;
-      const quantityDiff = ilosc - oldQuantity;
+            const oldQuantity = oldProduct ? Number(oldProduct.ilosc) : 0;
+            const newQuantity = Number(ilosc);
+            const quantityDiff = newQuantity - oldQuantity;
+            
+            console.log(`🔍 Product comparison for ${kod}:`);
+            console.log(`  - New ilosc: ${newQuantity} (type: ${typeof newQuantity})`);
+            console.log(`  - Old ilosc: ${oldQuantity} (type: ${typeof oldQuantity})`);
+            console.log(`  - Old product found: ${oldProduct ? 'YES' : 'NO'}`);
+            console.log(`  - Quantity diff: ${quantityDiff}`);
       
-      console.log(`📊 Product ${kod}: was ${oldQuantity}, now ${ilosc}, diff: ${quantityDiff > 0 ? '+' : ''}${quantityDiff}`);
+              console.log(`📊 Product ${kod}: was ${oldQuantity}, now ${newQuantity}, diff: ${quantityDiff > 0 ? '+' : ''}${quantityDiff}`);
+        console.log(`🔍 Debug: oldProduct = ${JSON.stringify(oldProduct)}, quantityDiff calculation: ${newQuantity} - ${oldQuantity} = ${quantityDiff}`);
             
             // Создаем запись в order_products
             db.run(
-              'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+              'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy) VALUES (?, ?, ?, ?, ?, ?)',
               [id, kod, nazwa, ilosc, typ || 'sztuki', kod_kreskowy || null],
               function(err) {
                 if (err) {
@@ -1050,6 +1640,7 @@ app.put('/api/orders/:id', (req, res) => {
                   console.log(`✅ New product ${index + 1} created for order ${id}`);
                   
             // Обрабатываем изменения в количестве
+            console.log(`🔍 Processing quantity changes for ${kod}: quantityDiff = ${quantityDiff}`);
             if (quantityDiff !== 0) {
               if (quantityDiff > 0) {
                 // Количество увеличилось - списываем разницу
@@ -1068,10 +1659,27 @@ app.put('/api/orders/:id', (req, res) => {
                 });
               }
             } else {
-              // Количество не изменилось - ничего не делаем
-              console.log(`➡️ Product ${kod}: quantity unchanged, no updates needed`);
-              productsProcessed++;
-              checkCompletion();
+              // Количество не изменилось - проверяем синхронизацию с working_sheets
+              console.log(`➡️ Product ${kod}: quantity unchanged, checking working_sheets sync`);
+              db.get('SELECT ilosc FROM working_sheets WHERE kod = ?', [kod], (err, row) => {
+                if (err) {
+                  console.error(`❌ Error checking working_sheets for ${kod}:`, err);
+                  productsProcessed++;
+                  checkCompletion();
+                  return;
+                }
+                
+                if (!row) {
+                  console.log(`⚠️ Product ${kod} not found in working_sheets`);
+                  productsProcessed++;
+                  checkCompletion();
+                  return;
+                }
+                
+                console.log(`📊 working_sheets sync check: order quantity = ${ilosc}, working_sheets quantity = ${row.ilosc}`);
+                productsProcessed++;
+                checkCompletion();
+              });
             }
           }
         }
@@ -1092,8 +1700,11 @@ app.put('/api/orders/:id', (req, res) => {
   // Функция для обработки увеличения количества продукта
   function processQuantityIncrease(productKod, quantityDiff, callback) {
     console.log(`🔄 Processing quantity increase for ${productKod}: +${quantityDiff}`);
+    console.log(`🔍 processQuantityIncrease called with: productKod=${productKod}, quantityDiff=${quantityDiff}`);
+    console.log(`🔍 processQuantityIncrease: starting FIFO consumption...`);
     
     // Проверяем доступность товара
+    console.log(`🔍 processQuantityIncrease: checking availability in working_sheets for ${productKod}`);
     db.get('SELECT ilosc FROM working_sheets WHERE kod = ?', [productKod], (err, row) => {
       if (err) {
         console.error(`❌ Error checking availability for ${productKod}:`, err);
@@ -1108,6 +1719,7 @@ app.put('/api/orders/:id', (req, res) => {
       }
       
       const availableQuantity = row.ilosc;
+      console.log(`🔍 processQuantityIncrease: available quantity in working_sheets = ${availableQuantity}`);
       if (availableQuantity < quantityDiff) {
         console.error(`❌ Insufficient quantity for ${productKod}: need ${quantityDiff}, available ${availableQuantity}`);
         callback();
@@ -1116,23 +1728,53 @@ app.put('/api/orders/:id', (req, res) => {
       
       // Товар доступен, списываем разницу по FIFO
       console.log(`🎯 FIFO consumption for ${productKod}: ${quantityDiff} szt.`);
-      consumeFromPriceHistory(productKod, quantityDiff, id)
-        .then((result) => {
-          console.log(`✅ FIFO consumption complete for ${productKod}: ${result.consumed} szt. consumed`);
-          
-          // Обновляем working_sheets после FIFO списания
+      console.log(`🔍 processQuantityIncrease: calling consumeFromProducts...`);
+      consumeFromProducts(productKod, quantityDiff)
+        .then(({ consumed, remaining, consumptions }) => {
+          console.log(`🎯 FIFO consumption for ${productKod}: ${consumed} szt. consumed`);
+          // Записываем списания партий в order_consumptions
+          if (consumptions && consumptions.length > 0) {
+            const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
+            const values = consumptions.flatMap(c => [id, productKod, c.batchId, c.qty, c.cena]);
                     db.run(
-                      'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-            [quantityDiff, productKod],
-                      function(updateErr) {
-                        if (updateErr) {
-                console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+              `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
+              values,
+              (consErr) => {
+                if (consErr) {
+                  console.error('❌ Error saving order_consumptions:', consErr);
                         } else {
-                console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+                  console.log(`✅ Saved ${consumptions.length} consumption rows for order ${id}`);
               }
-              callback();
+                // Обновляем working_sheets после FIFO списания
+                db.run(
+                  'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                  [quantityDiff, productKod],
+                  function(updateErr) {
+                    if (updateErr) {
+                      console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+                    } else {
+                      console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+                    }
+                    callback();
+                  }
+                );
             }
           );
+          } else {
+            // Обновляем working_sheets даже если нет записей в order_consumptions
+            db.run(
+              'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+              [quantityDiff, productKod],
+              function(updateErr) {
+                if (updateErr) {
+                  console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+                } else {
+                  console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+                }
+                callback();
+              }
+            );
+          }
         })
         .catch((fifoError) => {
           console.error(`❌ FIFO consumption error for ${productKod}:`, fifoError);
@@ -1144,9 +1786,11 @@ app.put('/api/orders/:id', (req, res) => {
   // Функция для обработки уменьшения количества продукта
   function processQuantityDecrease(productKod, quantityDiff, callback) {
     console.log(`🔄 Processing quantity decrease for ${productKod}: -${quantityDiff}`);
+    console.log(`🔍 processQuantityDecrease: starting restoration process...`);
     
     // Получаем существующие записи в order_consumptions для этого продукта
-    db.all('SELECT * FROM order_consumptions WHERE order_id = ? AND product_kod = ? ORDER BY batch_id ASC', [id, productKod], (err, consumptions) => {
+    // Сортируем по batch_id DESC для LIFO возвратов (сначала новые партии)
+    db.all('SELECT * FROM order_consumptions WHERE order_id = ? AND product_kod = ? ORDER BY batch_id DESC', [id, productKod], (err, consumptions) => {
       if (err) {
         console.error(`❌ Error fetching consumptions for ${productKod}:`, err);
         callback();
@@ -1172,6 +1816,7 @@ app.put('/api/orders/:id', (req, res) => {
       }
       
       console.log(`📊 Found ${consumptions.length} consumptions for ${productKod}`);
+      console.log(`🔍 Consumptions details:`, JSON.stringify(consumptions, null, 2));
       
       // Восстанавливаем количество в price_history и уменьшаем/удаляем записи в order_consumptions
       let remainingToRestore = quantityDiff;
@@ -1184,8 +1829,11 @@ app.put('/api/orders/:id', (req, res) => {
           return;
         }
         
+        // Восстанавливаем то количество, которое было списано из этой партии
         const quantityToRestore = Math.min(remainingToRestore, consumption.quantity);
         const newQuantity = consumption.quantity - quantityToRestore;
+        
+        console.log(`🔍 Restoring from consumption ${consumption.id}: batch_id=${consumption.batch_id}, original_quantity=${consumption.quantity}, to_restore=${quantityToRestore}, new_quantity=${newQuantity}`);
         
         if (newQuantity > 0) {
           // Уменьшаем количество в существующей записи
@@ -1199,17 +1847,16 @@ app.put('/api/orders/:id', (req, res) => {
                 console.log(`✅ Updated consumption ${consumption.id}: ${consumption.quantity} → ${newQuantity}`);
               }
               
-              // Восстанавливаем в price_history
+              // Восстанавливаем в конкретную партию (batch_id)
               db.run(
-                'UPDATE price_history SET ilosc_fixed = ilosc_fixed + ? WHERE id = ?',
+                'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
                 [quantityToRestore, consumption.batch_id],
-                function(historyErr) {
-                  if (historyErr) {
-                    console.error(`❌ Error updating price_history ${consumption.batch_id}:`, historyErr);
+                function(restoreErr) {
+                  if (restoreErr) {
+                    console.error(`❌ Error restoring to batch ${consumption.batch_id}:`, restoreErr);
                   } else {
-                    console.log(`✅ Restored ${quantityToRestore} to price_history ${consumption.batch_id}`);
+                    console.log(`✅ Restored ${quantityToRestore} to batch ${consumption.batch_id} for ${productKod}`);
                   }
-                  
                   consumptionsProcessed++;
                   checkConsumptionCompletion();
                 }
@@ -1228,17 +1875,16 @@ app.put('/api/orders/:id', (req, res) => {
                 console.log(`🗑️ Deleted consumption ${consumption.id} (quantity became 0)`);
               }
               
-              // Восстанавливаем в price_history
+              // Восстанавливаем в конкретную партию (batch_id)
               db.run(
-                'UPDATE price_history SET ilosc_fixed = ilosc_fixed + ? WHERE id = ?',
+                'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
                 [quantityToRestore, consumption.batch_id],
-                function(historyErr) {
-                  if (historyErr) {
-                    console.error(`❌ Error updating price_history ${consumption.batch_id}:`, historyErr);
+                function(restoreErr) {
+                  if (restoreErr) {
+                    console.error(`❌ Error restoring to batch ${consumption.batch_id}:`, restoreErr);
                   } else {
-                    console.log(`✅ Restored ${quantityToRestore} to price_history ${consumption.batch_id}`);
+                    console.log(`✅ Restored ${quantityToRestore} to batch ${consumption.batch_id} for ${productKod}`);
                   }
-                  
                   consumptionsProcessed++;
                   checkConsumptionCompletion();
                 }
@@ -1411,7 +2057,7 @@ app.post('/api/order-products', (req, res) => {
   }
   
   db.run(
-    'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, created_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+    'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?, ?)',
     [orderId, kod, nazwa, ilosc, typ || 'sztuki'],
     function(err) {
       if (err) {
@@ -1665,162 +2311,166 @@ app.post('/api/product-receipts', upload.fields([
       
       // Автоматически добавляем товары в working_sheets
       let processedCount = 0;
-      let updatedCount = 0;
-      let insertedCount = 0;
+      let productsInserted = 0;
+      let workingSheetsUpdated = 0;
+      let workingSheetsInserted = 0;
       
-      products.forEach((product, index) => {
-        console.log(`🔄 Processing product ${index + 1}/${products.length}:`, product.kod);
-        
-        // Проверяем, есть ли товар с таким же кодом в working_sheets
-        db.get('SELECT * FROM working_sheets WHERE kod = ?', [product.kod], (err, existingProduct) => {
-          if (err) {
-            console.error('❌ Error checking existing product:', err);
-            return;
-          }
-          
-          if (existingProduct) {
-            // Проверяем, нужно ли обновить цену
-            const shouldUpdatePrice = product.cena && (
-              !existingProduct.cena || // У существующего товара нет цены
-              parseFloat(product.cena) !== parseFloat(existingProduct.cena) // Цена изменилась
-            );
+
+      
+            // Функция для последовательной обработки товаров при создании
+      const processProductsSequentially = async () => {
+        try {
+          for (const product of products) {
+            console.log(`📝 Processing product: ${product.kod}`);
             
-            if (shouldUpdatePrice) {
-              const oldPrice = existingProduct.cena || 0;
-              const newPrice = product.cena;
-              
-              if (existingProduct.cena) {
-                console.log(`💰 Price changed for ${product.kod}: ${existingProduct.cena}€ → ${newPrice}€`);
-              } else {
-                console.log(`💰 Setting first price for ${product.kod}: ${newPrice}€`);
-              }
-              
-              // Сохраняем старую цену в price_history (даже если была 0 или null)
-              // Важно: сохраняем количество, которое было по старой цене
-              const oldPriceData = {
-                ...existingProduct,
-                ilosc: existingProduct.ilosc // Количество по старой цене
-              };
-              
-              saveToPriceHistory(
-                oldPriceData, 
-                oldPrice, 
-                existingProduct.data_waznosci || new Date().toISOString().split('T')[0]
-              ).then(() => {
-                console.log(`✅ Old price (${oldPrice}€) saved to history for: ${product.kod}`);
-                
-                // Обновляем working_sheets новой ценой + количество
-                console.log(`📝 Updating product with new price: ${product.kod}`);
-                db.run(
-                  `UPDATE working_sheets SET 
-                    ilosc = ilosc + ?, 
-                    cena = ?, 
-                    updated_at = CURRENT_TIMESTAMP 
-                  WHERE kod = ?`,
-                  [
-                    product.ilosc,
-                    newPrice,
-                    product.kod
-                  ],
-                  function(updateErr) {
-                    if (updateErr) {
-                      console.error('❌ Error updating working_sheets with new price:', updateErr);
-                    } else {
-                      console.log(`✅ Updated product with new price: ${product.kod}`);
-                      updatedCount++;
+            // Создаем новую запись в таблице products для каждого продукта
+            console.log(`➕ Creating new product record: ${product.kod}`);
+            await new Promise((resolve, reject) => {
+              db.run(
+                'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [
+                  product.kod, 
+                  product.nazwa, 
+                  product.kod_kreskowy || null, 
+                  product.cena || 0,
+                  product.ilosc,
+                  product.ilosc, // ilosc_aktualna
+                  receiptId
+                ],
+                function(err) {
+                  if (err) {
+                    console.error('❌ Error inserting into products:', err);
+                    reject(err);
+                                      } else {
+                      console.log(`✅ Created new product record: ${product.kod} with ID: ${this.lastID}`);
+                      productsInserted++;
+                      resolve();
                     }
-                    processedCount++;
-                    checkCompletion();
-                  }
-                );
-              }).catch((error) => {
-                console.error('❌ Failed to save old price to history:', error);
-                
-                // Даже если не удалось сохранить в историю, обновляем working_sheets
-                console.log(`📝 Updating product with new price (without history): ${product.kod}`);
-                db.run(
-                  `UPDATE working_sheets SET 
-                    ilosc = ilosc + ?, 
-                    cena = ?, 
-                    updated_at = CURRENT_TIMESTAMP 
-                  WHERE kod = ?`,
-                  [
-                    product.ilosc,
-                    newPrice,
-                    product.kod
-                  ],
-                  function(updateErr) {
-                    if (updateErr) {
-                      console.error('❌ Error updating working_sheets with new price:', updateErr);
-                    } else {
-                      console.log(`✅ Updated product with new price: ${product.kod}`);
-                      updatedCount++;
-                    }
-                    processedCount++;
-                    checkCompletion();
                   }
                 );
               });
-            } else {
-              // Если цена не изменилась - только добавляем количество
-              console.log(`📝 Updating quantity for existing product: ${product.kod}`);
-            db.run(
-              'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-              [product.ilosc, product.kod],
-              function(updateErr) {
-                if (updateErr) {
-                    console.error('❌ Error updating quantity:', updateErr);
-                } else {
-                    console.log(`✅ Updated quantity for: ${product.kod}`);
-                  updatedCount++;
+            
+            // Обновляем working_sheets и создаем запись в price_history
+            console.log(`📝 Processing working_sheets for: ${product.kod}`);
+            await new Promise((resolve, reject) => {
+              db.get('SELECT * FROM working_sheets WHERE kod = ?', [product.kod], (err, existingProduct) => {
+                if (err) {
+                  console.error('❌ Error checking working_sheets:', err);
+                  reject(err);
+                  return;
                 }
-                processedCount++;
-                checkCompletion();
-              }
-            );
-            }
-          } else {
-            // Если товара нет - создаем новую запись со всеми полями
-            console.log(`➕ Creating new product: ${product.kod}`);
-            db.run(
-              'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-              [
-                product.kod, 
-                product.nazwa, 
-                product.ilosc, 
-                product.kod_kreskowy || null, 
-                product.typ || null, 
-                sprzedawca || null, 
-                product.cena || null,
-                product.dataWaznosci || null,
-                product.objetosc || null
-              ],
-              function(insertErr) {
-                if (insertErr) {
-                  console.error('❌ Error inserting into working_sheets:', insertErr);
-                } else {
-                  console.log(`✅ Created new product: ${product.kod}`);
-                  insertedCount++;
+                
+                if (existingProduct) {
+                  // Если товар существует - обновляем количество и цену
+                  console.log(`📝 Updating existing product: ${product.kod}`);
+                  
+                  const oldPrice = existingProduct.cena || 0;
+                  const newPrice = product.cena || 0;
+                  
+                  console.log(`💰 Price for ${product.kod}: oldPrice=${oldPrice}, newPrice=${newPrice}`);
+                  
+                  // Обновляем working_sheets
+                    db.run(
+                      `UPDATE working_sheets SET 
+                        ilosc = ilosc + ?, 
+                        cena = ? 
+                      WHERE kod = ?`,
+                      [product.ilosc, newPrice, product.kod],
+                      function(err) {
+                        if (err) {
+                          console.error('❌ Error updating working_sheets:', err);
+                          reject(err);
+                        } else {
+                        console.log(`✅ Updated working_sheets: ${product.kod}`);
+                          workingSheetsUpdated++;
+                        
+                        // Создаем ОДНУ запись в price_history для этой партии
+                        saveToPriceHistory(
+                          { 
+                            kod: product.kod,
+                            nazwa: product.nazwa,
+                            ilosc: product.ilosc
+                          }, 
+                          newPrice, 
+                          date  // Дата приемки
+                        ).then(() => {
+                          console.log(`✅ Created price_history record for: ${product.kod}`);
+                          resolve();
+                        }).catch((error) => {
+                          console.error('❌ Failed to save to price_history:', error);
+                          resolve(); // Продолжаем даже при ошибке
+                        });
+                        }
+                      }
+                    );
+                  } else {
+                  // Если товара нет - создаем новую запись в working_sheets
+                  console.log(`➕ Creating new product: ${product.kod}`);
+                  db.run(
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                      product.kod, 
+                      product.nazwa, 
+                      product.ilosc, 
+                      product.kod_kreskowy || null, 
+                      product.typ || null, 
+                      sprzedawca || null, 
+                      product.cena || 0,
+                      product.dataWaznosci || null,
+                      product.objetosc || null
+                    ],
+                    function(err) {
+                      if (err) {
+                        console.error('❌ Error inserting into working_sheets:', err);
+                        reject(err);
+                      } else {
+                        console.log(`✅ Created new working_sheets record: ${product.kod}`);
+                        workingSheetsInserted++;
+                        
+                        // Создаем ОДНУ запись в price_history для нового товара
+                        saveToPriceHistory(
+                          { 
+                            kod: product.kod,
+                            nazwa: product.nazwa,
+                            ilosc: product.ilosc
+                          }, 
+                          product.cena || 0, 
+                          date  // Дата приемки
+                        ).then(() => {
+                          console.log(`✅ Created price_history record for new product: ${product.kod}`);
+                        resolve();
+                        }).catch((error) => {
+                          console.error('❌ Failed to save to price_history:', error);
+                          resolve(); // Продолжаем даже при ошибке
+                        });
+                      }
+                    }
+                  );
                 }
-                processedCount++;
-                checkCompletion();
-              }
-            );
+              });
+            });
+            
+            processedCount++;
           }
-        });
-      });
-      
-      function checkCompletion() {
-        if (processedCount === products.length) {
-          console.log(`🎉 Processing complete: ${updatedCount} updated, ${insertedCount} inserted`);
+          
+          // Отправляем ответ
+          console.log(`🎉 Processing complete: ${workingSheetsUpdated} working_sheets updated, ${workingSheetsInserted} working_sheets inserted, ${productsInserted} products created`);
           res.json({ 
             id: receiptId, 
             message: 'Product receipt added successfully',
-            workingSheetsUpdated: updatedCount,
-            workingSheetsInserted: insertedCount
+            workingSheetsUpdated: workingSheetsUpdated,
+            workingSheetsInserted: workingSheetsInserted,
+            productsCreated: productsInserted
           });
+          
+        } catch (error) {
+          console.error('❌ Error during product processing:', error);
+          res.status(500).json({ error: 'Failed to process products' });
         }
-      }
+      };
+      
+      // Запускаем последовательную обработку
+      processProductsSequentially();
     }
   );
 });
@@ -1925,108 +2575,290 @@ app.put('/api/product-receipts/:id', upload.fields([
         console.log('✅ Product receipt updated with ID:', id);
         console.log('📎 Files saved (PUT):', { productInvoice: finalProductInvoice, transportInvoice: finalTransportInvoice });
         
-        // Обновляем товары в working_sheets
+        // Обновляем товары в working_sheets и products
         let processedCount = 0;
-        let updatedCount = 0;
-        let insertedCount = 0;
+        let workingSheetsUpdated = 0;
+        let productsUpdated = 0;
+        let productsInserted = 0;
         
-        // Сначала восстанавливаем старые количества
-        oldProducts.forEach((oldProduct) => {
-          console.log(`🔄 Restoring old product quantity: ${oldProduct.kod} (removing: ${oldProduct.ilosc})`);
-          db.run('UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?', [oldProduct.ilosc, oldProduct.kod], function(restoreErr) {
-            if (restoreErr) {
-              console.error('❌ Error restoring old quantities:', restoreErr);
-            } else {
-              console.log(`✅ Restored old quantity for: ${oldProduct.kod}`);
-            }
-          });
-        });
-        
-        // Теперь применяем новые данные (включая все поля)
-        products.forEach((product, index) => {
-          console.log(`🔄 Processing updated product ${index + 1}/${products.length}:`, product.kod);
-          
-          // Проверяем, есть ли товар с таким же кодом в working_sheets
-          db.get('SELECT * FROM working_sheets WHERE kod = ?', [product.kod], (err, existingProduct) => {
-            if (err) {
-              console.error('❌ Error checking existing product:', err);
-              return;
+        // Функция для последовательной обработки товаров
+        const processProductsSequentially = async () => {
+          try {
+            // Шаг 1: Удаляем старые записи продуктов из редактируемой приемки
+            console.log('🔄 Step 1: Removing old product records from edited receipt...');
+            console.log(`📋 Old products to remove: ${oldProducts.map(p => p.kod).join(', ')}`);
+            console.log(`📋 New products to keep: ${products.map(p => p.kod).join(', ')}`);
+            
+            for (const oldProduct of oldProducts) {
+              console.log(`🗑️ Processing old product: ${oldProduct.kod} (receipt_id: ${id})`);
+              
+              // Удаляем запись из products (НЕ трогаем working_sheets здесь!)
+              await new Promise((resolve, reject) => {
+                db.run('DELETE FROM products WHERE kod = ? AND receipt_id = ?', [oldProduct.kod, id], function(err) {
+                  if (err) {
+                    console.error(`❌ Error removing old product record ${oldProduct.kod}:`, err);
+                    reject(err);
+                  } else {
+                    console.log(`✅ Removed old product record: ${oldProduct.kod} (receipt_id: ${id}), rows affected: ${this.changes}`);
+                    resolve();
+                  }
+                });
+              });
             }
             
-            if (existingProduct) {
-              // Если товар существует - обновляем ВСЕ поля, включая количество
-              console.log(`📝 Updating existing product: ${product.kod} with all fields`);
-              db.run(
-                `UPDATE working_sheets SET 
-                  nazwa = ?, 
-                  ilosc = ?, 
-                  kod_kreskowy = ?, 
-                  typ = ?, 
-                  sprzedawca = ?, 
-                  cena = ?, 
-                  updated_at = CURRENT_TIMESTAMP 
-                WHERE kod = ?`,
-                [
-                  product.nazwa,
-                  product.ilosc,
-                  product.kod_kreskowy || null,
-                  product.typ || null,
-                  sprzedawca || null,
-                  product.cena || null,
-                  product.kod
-                ],
-                function(updateErr) {
-                  if (updateErr) {
-                    console.error('❌ Error updating working_sheets:', updateErr);
-                  } else {
-                    console.log(`✅ Updated product: ${product.kod} with all fields`);
-                    updatedCount++;
+            // Шаг 1.5: Проверяем и обновляем working_sheets ПОСЛЕ добавления новых продуктов
+            // (перенесем эту логику в конец)
+            
+                        // Шаг 2: Создаем новые записи в таблице products (working_sheets обновим в Шаге 3)
+            console.log('🔄 Step 2: Creating new product records and updating working_sheets...');
+            for (const product of products) {
+              console.log(`📝 Processing product: ${product.kod}`);
+              
+              // Обновляем существующую запись в таблице products или создаем новую
+              console.log(`📝 Processing product record: ${product.kod}`);
+              await new Promise((resolve, reject) => {
+                // Сначала проверяем, есть ли уже запись для этого продукта в этой приемке
+                db.get('SELECT * FROM products WHERE kod = ? AND receipt_id = ?', [product.kod, id], (err, existingProduct) => {
+                  if (err) {
+                    console.error('❌ Error checking existing product:', err.message);
+                    reject(err);
+                    return;
                   }
-                  processedCount++;
-                  checkCompletion();
-                }
-              );
-            } else {
-              // Если товара нет - создаем новую запись со всеми полями
-              console.log(`➕ Creating new product: ${product.kod}`);
-              db.run(
-                'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [
-                  product.kod, 
-                  product.nazwa, 
-                  product.ilosc, 
-                  product.kod_kreskowy || null, 
-                  product.typ || null, 
-                  sprzedawca || null, 
-                  product.cena || null,
-                  product.dataWaznosci || null,
-                  product.objetosc || null
-                ],
-                function(insertErr) {
-                  if (insertErr) {
-                    console.error('❌ Error inserting into working_sheets:', insertErr);
+                  
+                  if (existingProduct) {
+                    // Если запись существует - обновляем её
+                    console.log(`📝 Updating existing product record: ${product.kod}`);
+                    db.run(
+                      'UPDATE products SET nazwa = ?, kod_kreskowy = ?, cena = ?, ilosc = ? WHERE id = ?',
+                      [
+                        product.nazwa,
+                        product.kod_kreskowy || null,
+                        product.cena || 0,
+                        product.ilosc,
+                        existingProduct.id
+                      ],
+                      function(err) {
+                        if (err) {
+                          console.error('❌ Error updating product:', err.message);
+                          reject(err);
+                        } else {
+                                                  console.log(`✅ Updated existing product record: ${product.kod}`);
+                        productsUpdated++;
+                        resolve();
+                        }
+                      }
+                    );
                   } else {
-                    console.log(`✅ Created new product: ${product.kod}`);
-                    insertedCount++;
+                    // Если записи нет - создаем новую
+                    console.log(`➕ Creating new product record: ${product.kod}`);
+                    db.run(
+                      'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      [
+                        product.kod, 
+                        product.nazwa, 
+                        product.kod_kreskowy || null, 
+                        product.cena || 0,
+                        product.ilosc,
+                        product.ilosc, // ilosc_aktualna
+                        id
+                      ],
+                      function(err) {
+                        if (err) {
+                          console.error('❌ Error inserting into products:', err.message);
+                          reject(err);
+                        } else {
+                          console.log(`✅ Created new product record: ${product.kod} with ID: ${this.lastID}`);
+                          productsInserted++;
+                          resolve();
+                        }
+                      }
+                    );
                   }
-                  processedCount++;
-                  checkCompletion();
-                }
-              );
+                });
+              });
+              
+              // НЕ обновляем working_sheets здесь - это будет сделано в Шаге 3
+              console.log(`📝 Product ${product.kod} processed, working_sheets will be updated in Step 3`);
+              
+              processedCount++;
             }
-          });
-        });
-        
-        function checkCompletion() {
-          if (processedCount === products.length) {
-            console.log(`🎉 Update processing complete: ${updatedCount} updated, ${insertedCount} inserted`);
+            
+            // Шаг 3: Проверяем и обновляем working_sheets для всех товаров
+            console.log('🔄 Step 3: Processing working_sheets after all products updated...');
+            
+            // Получаем все уникальные коды товаров (старые + новые)
+            const allProductCodes = [...new Set([...oldProducts.map(p => p.kod), ...products.map(p => p.kod)])];
+            console.log(`📋 All product codes to process: ${allProductCodes.join(', ')}`);
+            
+            // Проверяем текущее состояние products таблицы
+            console.log('🔍 Current state of products table:');
+            for (const productCode of allProductCodes) {
+              await new Promise((resolve) => {
+                db.get('SELECT COUNT(*) as count FROM products WHERE kod = ?', [productCode], (err, result) => {
+                  if (err) {
+                    console.error(`❌ Error checking products for ${productCode}:`, err);
+                  } else {
+                    console.log(`  - ${productCode}: found in ${result.count} receipts`);
+                  }
+                  resolve();
+                });
+              });
+            }
+            
+            for (const productCode of allProductCodes) {
+              console.log(`🔍 Processing working_sheets for: ${productCode}`);
+              
+              // Проверяем, есть ли товар в products
+              await new Promise((resolve, reject) => {
+                db.get('SELECT COUNT(*) as count, SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
+                  if (err) {
+                    console.error(`❌ Error checking products for ${productCode}:`, err);
+                    reject(err);
+                    return;
+                  }
+                  
+                  const productCount = result.count || 0;
+                  const totalQuantity = result.total_ilosc || 0;
+                  console.log(`📊 Product ${productCode}: found in ${productCount} receipts, total quantity: ${totalQuantity}`);
+                  
+                  if (productCount === 0) {
+                    // Товар больше не существует ни в одной приемке - удаляем из working_sheets
+                    console.log(`🗑️ Product ${productCode} no longer exists in any receipt, removing from working_sheets`);
+                    db.run('DELETE FROM working_sheets WHERE kod = ?', [productCode], function(err) {
+                    if (err) {
+                        console.error(`❌ Error removing from working_sheets: ${productCode}`, err);
+                      reject(err);
+                      } else {
+                        console.log(`✅ Removed ${productCode} from working_sheets (no more receipts), rows affected: ${this.changes}`);
+                        resolve();
+                      }
+                    });
+                  } else {
+                    // Товар существует - обновляем или создаем запись в working_sheets
+                    console.log(`📝 Product ${productCode} exists in ${productCount} receipts, updating working_sheets`);
+                    
+                    // Получаем данные из исходного массива products (который пришел в запросе)
+                    const sourceProduct = products.find(p => p.kod === productCode);
+                    if (!sourceProduct) {
+                      console.error(`❌ ERROR: Product ${productCode} not found in source products array`);
+                      reject(new Error(`Product ${productCode} not found in source products array`));
+                      return;
+                    }
+                    
+                    console.log(`📝 Source product data for ${productCode}:`, {
+                      nazwa: sourceProduct.nazwa,
+                      typ: sourceProduct.typ,
+                      dataWaznosci: sourceProduct.dataWaznosci,
+                      objetosc: sourceProduct.objetosc
+                    });
+                    
+                    // Проверяем, есть ли запись в working_sheets
+                    db.get('SELECT * FROM working_sheets WHERE kod = ?', [productCode], (err, workingSheetRecord) => {
+                      if (err) {
+                        console.error(`❌ Error checking working_sheets for ${productCode}:`, err);
+                        reject(err);
+                        return;
+                      }
+                      
+                      if (workingSheetRecord) {
+                        // Обновляем существующую запись
+                        console.log(`📝 Updating existing working_sheets record for ${productCode}`);
+                        db.run(
+                          `UPDATE working_sheets SET 
+                            nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, 
+                            sprzedawca = ?, cena = ?, data_waznosci = ?, objetosc = ?
+                          WHERE kod = ?`,
+                          [
+                            sourceProduct.nazwa,
+                            totalQuantity,
+                            sourceProduct.kod_kreskowy || null,
+                            sourceProduct.typ || null,
+                            sprzedawca || null,
+                            sourceProduct.cena || 0,
+                            sourceProduct.dataWaznosci || null,
+                            sourceProduct.objetosc || null,
+                            productCode
+                          ],
+                          function(err) {
+                            if (err) {
+                              console.error(`❌ Error updating working_sheets for ${productCode}:`, err);
+                              reject(err);
+                            } else {
+                              console.log(`✅ Updated working_sheets for ${productCode}, rows affected: ${this.changes}`);
+                              workingSheetsUpdated++;
+                              resolve();
+                            }
+                          }
+                        );
+                      } else {
+                        // Создаем новую запись (если товар был удален, но потом добавлен обратно)
+                        console.log(`➕ Creating new working_sheets record for ${productCode}`);
+                        db.run(
+                          `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                          [
+                            productCode,
+                            sourceProduct.nazwa,
+                            totalQuantity,
+                            sourceProduct.kod_kreskowy || null,
+                            sourceProduct.typ || null,
+                            sprzedawca || null,
+                            sourceProduct.cena || 0,
+                            sourceProduct.dataWaznosci || null,
+                            sourceProduct.objetosc || null
+                          ],
+                          function(err) {
+                            if (err) {
+                              console.error(`❌ Error creating working_sheets for ${productCode}:`, err);
+                              reject(err);
+                            } else {
+                              console.log(`✅ Created working_sheets for ${productCode}, rows affected: ${this.changes}`);
+                              workingSheetsUpdated++;
+                              resolve();
+                            }
+                          }
+                        );
+                      }
+                    });
+                    }
+                  });
+                });
+            }
+            
+            // Шаг 4: Отправляем ответ
+            console.log(`🎉 Update processing complete: ${workingSheetsUpdated} working_sheets updated, ${productsUpdated} products updated, ${productsInserted} products created`);
+            
+            // Проверяем финальное состояние
+            console.log('🔍 Final state check:');
+            for (const product of products) {
+              console.log(`  - ${product.kod}: should be in products and working_sheets`);
+            }
+            for (const oldProduct of oldProducts) {
+              if (!products.find(p => p.kod === oldProduct.kod)) {
+                console.log(`  - ${oldProduct.kod}: should be REMOVED from products and working_sheets`);
+              }
+            }
+            
             res.json({ 
               message: 'Product receipt updated successfully',
-              workingSheetsUpdated: updatedCount,
-              workingSheetsInserted: insertedCount
+              workingSheetsUpdated: workingSheetsUpdated,
+              productsUpdated: productsUpdated,
+              productsCreated: productsInserted
             });
+            
+          } catch (error) {
+            console.error('❌ Error during product processing:', error);
+            res.status(500).json({ error: 'Failed to update working sheets' });
           }
-        }
+        };
+        
+        // Запускаем последовательную обработку и ждем завершения
+        processProductsSequentially().then(() => {
+          console.log('✅ All product processing completed successfully');
+        }).catch((error) => {
+          console.error('❌ Error during product processing:', error);
+          res.status(500).json({ error: 'Failed to update working sheets' });
+        });
       }
     );
   });
@@ -2036,110 +2868,134 @@ app.delete('/api/product-receipts/:id', (req, res) => {
   const { id } = req.params;
   console.log(`📦 DELETE /api/product-receipts/${id} - Deleting product receipt`);
   
-  // Сначала получаем данные приемки для удаления товаров из working_sheets
-  db.get('SELECT products FROM product_receipts WHERE id = ?', [id], (err, receipt) => {
+  // 1) Считываем строку приёмки вместе с товарами и датой
+  db.get('SELECT products, dataPrzyjecia FROM product_receipts WHERE id = ?', [id], (err, receiptRow) => {
     if (err) {
-      console.error('❌ Database error:', err);
-      res.status(500).json({ error: err.message });
-      return;
+      console.error('❌ DB error reading receipt:', err);
+      return res.status(500).json({ error: err.message });
     }
-    
-    if (!receipt) {
-      console.log(`❌ Product receipt with ID ${id} not found`);
+    if (!receiptRow) {
+      console.log(`❌ Receipt ${id} not found`);
       return res.status(404).json({ error: 'Product receipt not found' });
     }
     
-    const products = JSON.parse(receipt.products || '[]');
-    console.log(`🔄 Found ${products.length} products to remove from working_sheets`);
-    
-    // Удаляем приемку
-    db.run('DELETE FROM product_receipts WHERE id = ?', [id], function(err) {
-      if (err) {
-        console.error('❌ Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
+    const products = JSON.parse(receiptRow.products || '[]');
+    const receiptDate = receiptRow.dataPrzyjecia;
+    const receiptDateOnly = (receiptDate || '').toString().substring(0,10);
+    console.log(`🔍 ${products.length} product rows, date=${receiptDateOnly}`);
+
+    // 2) Удаляем связанные строки из products
+    db.run('DELETE FROM products WHERE receipt_id = ?', [id], function (prodErr) {
+      if (prodErr) {
+        console.error('❌ Error deleting products:', prodErr);
+        return res.status(500).json({ error: prodErr.message });
       }
-      
-      console.log('✅ Product receipt deleted with ID:', id);
-      
-      // Удаляем товары из working_sheets
-      let processedCount = 0;
-      let updatedCount = 0;
-      
-      products.forEach((product, index) => {
-        console.log(`🔄 Processing deletion for product ${index + 1}/${products.length}:`, product.kod);
-        
-        // Проверяем, есть ли товар в working_sheets
-        db.get('SELECT * FROM working_sheets WHERE kod = ?', [product.kod], (err, existingProduct) => {
-          if (err) {
-            console.error('❌ Error checking existing product:', err);
-            return;
-          }
-          
-          if (existingProduct) {
-            // При удалении приемки - восстанавливаем количество до состояния до создания этой приемки
-            const newQuantity = existingProduct.ilosc - product.ilosc;
-            console.log(`📝 Restoring product quantity: ${product.kod} (current: ${existingProduct.ilosc}, removing: ${product.ilosc}, new: ${newQuantity})`);
-            
-            if (newQuantity <= 0) {
-              // Если количество становится 0 или меньше - архивируем запись вместо удаления
-              console.log(`📦 Archiving product: ${product.kod} (quantity would be ${newQuantity} - archiving record)`);
-              db.run(
-                `UPDATE working_sheets SET 
-                  ilosc = 0, 
-                  archived = 1, 
-                  archived_at = CURRENT_TIMESTAMP 
-                WHERE kod = ?`,
-                [product.kod],
-                function(archiveErr) {
-                  if (archiveErr) {
-                    console.error('❌ Error archiving from working_sheets:', archiveErr);
-                  } else {
-                    console.log(`✅ Archived product: ${product.kod}`);
-                    updatedCount++;
-                  }
-                  processedCount++;
-                  checkCompletion();
-                }
-              );
-            } else {
-              // Если количество больше 0 - обновляем количество
-              console.log(`📝 Updating product quantity: ${product.kod} (new quantity: ${newQuantity})`);
-              db.run(
-                'UPDATE working_sheets SET ilosc = ? WHERE kod = ?',
-                [newQuantity, product.kod],
-                function(updateErr) {
-                  if (updateErr) {
-                    console.error('❌ Error updating working_sheets:', updateErr);
-                  } else {
-                    console.log(`✅ Updated product: ${product.kod} (new quantity: ${newQuantity})`);
-                    updatedCount++;
-                  }
-                  processedCount++;
-                  checkCompletion();
-                }
-              );
-            }
-          } else {
-            console.log(`⚠️ Product not found in working_sheets: ${product.kod}`);
-            processedCount++;
-            checkCompletion();
-          }
-        });
-      });
-      
-      function checkCompletion() {
-        if (processedCount === products.length) {
-          console.log(`🎉 Deletion processing complete: ${updatedCount} products updated`);
-          res.json({ 
-            message: 'Product receipt deleted successfully',
-            workingSheetsUpdated: updatedCount
-          });
+      console.log(`✅ Deleted ${this.changes} product rows`);
+
+      // 3) Удаляем из price_history для каждого товара
+      if (products.length === 0) {
+        console.log('💡 No products -> skip price_history deletion');
+        proceedToDeleteReceipt();
+          return;
         }
+        
+      let processed = 0;
+      let phDeleted = 0;
+      products.forEach(p => {
+        db.run(
+          'DELETE FROM price_history WHERE kod = ? AND created_at = ? AND ilosc_fixed = ?',
+          [p.kod, receiptDateOnly, p.ilosc],
+          function (phErr) {
+            if (phErr) {
+              console.error(`❌ price_history delete error for ${p.kod}:`, phErr);
+            } else {
+              console.log(`🗑️ price_history ${p.kod}: deleted ${this.changes}`);
+              phDeleted += this.changes;
+            }
+            processed++;
+            if (processed === products.length) {
+              console.log(`✅ price_history deletion done (${phDeleted} rows)`);
+              proceedToDeleteReceipt();
+            }
+          }
+        );
+      });
+
+      // 4) После очистки price_history удаляем саму приёмку и правим working_sheets
+      function proceedToDeleteReceipt() {
+        db.run('DELETE FROM product_receipts WHERE id = ?', [id], function (recErr) {
+          if (recErr) {
+            console.error('❌ Error deleting receipt:', recErr);
+            return res.status(500).json({ error: recErr.message });
+          }
+          console.log('✅ Product receipt row deleted');
+
+          // ==== перерасчёт working_sheets (старый код оставляем без изменений) ====
+          let processedWS = 0;
+          let wsDeleted = 0;
+          let wsUpdated = 0;
+
+          if (products.length === 0) {
+            return res.json({ message: 'Receipt deleted (empty)', workingSheetsDeleted: 0, workingSheetsUpdated: 0, priceHistoryDeleted: phDeleted });
+          }
+
+          products.forEach(product => {
+            db.get('SELECT * FROM working_sheets WHERE kod = ?', [product.kod], (wsErr, wsRow) => {
+              if (wsErr) {
+                console.error('❌ working_sheets read error:', wsErr);
+                finalize();
+                  return;
+                }
+                
+              if (!wsRow) {
+                finalize();
+                return;
+              }
+
+              // Сколько приёмок осталось
+              db.get('SELECT COUNT(*) as cnt FROM products WHERE kod = ?', [product.kod], (cntErr, cntRow) => {
+                if (cntErr) {
+                  console.error('❌ count error:', cntErr);
+                  finalize();
+                  return;
+                }
+
+                const leftReceipts = cntRow.cnt || 0;
+                if (leftReceipts === 0) {
+                  // удалить строку из working_sheets
+                  db.run('DELETE FROM working_sheets WHERE kod = ?', [product.kod], function (delErr) {
+                    if (!delErr) wsDeleted++;
+                    finalize();
+              });
+            } else {
+                  // пересчитать количество (и цену)
+                  db.get('SELECT SUM(ilosc) as total_ilosc, cena FROM products WHERE kod = ? ORDER BY id DESC LIMIT 1', [product.kod], (sumErr, sumRow) => {
+                    if (sumErr) return finalize();
+                    const qty = sumRow.total_ilosc || 0;
+                    const price = sumRow.cena || 0;
+                    db.run('UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?', [qty, price, product.kod], function (upErr) {
+                      if (!upErr) wsUpdated++;
+                      finalize();
+                    });
+                  });
+                }
+              });
+            });
+          });
+
+          function finalize() {
+            processedWS++;
+            if (processedWS === products.length) {
+              res.json({ message: 'Product receipt deleted successfully', workingSheetsDeleted: wsDeleted, workingSheetsUpdated: wsUpdated, priceHistoryDeleted: phDeleted });
+          }
+        }
+      });
       }
     });
   });
 });
+
+
 
 // Получить архивированные записи
 app.get('/api/working-sheets/archived', (req, res) => {
@@ -2578,7 +3434,7 @@ app.post('/api/original-sheets', (req, res) => {
 
 // Price History API
 app.get('/api/price-history', (req, res) => {
-  db.all('SELECT * FROM price_history ORDER BY data_zmiany DESC', (err, rows) => {
+  db.all('SELECT * FROM price_history ORDER BY created_at DESC', (err, rows) => {
     if (err) {
       console.error('Database error:', err);
       res.status(500).json({ error: err.message });
@@ -2588,12 +3444,35 @@ app.get('/api/price-history', (req, res) => {
   });
 });
 
+app.post('/api/price-history', (req, res) => {
+  console.log('📊 POST /api/price-history - Request body:', req.body);
+  let { kod, nazwa, cena, ilosc_fixed, created_at } = req.body;
+  if (!created_at) created_at = new Date().toISOString().substring(0,10);
+  
+  if (!kod || !nazwa || !cena) {
+    return res.status(400).json({ error: 'Kod, nazwa, and cena are required' });
+  }
+  
+  db.run(
+    'INSERT INTO price_history (kod, nazwa, cena, ilosc_fixed, created_at) VALUES (?, ?, ?, ?, ?)',
+    [kod, nazwa, cena, ilosc_fixed || 0, created_at],
+    function(err) {
+      if (err) {
+        console.error('Database error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ id: this.lastID, message: 'Price history added successfully' });
+    }
+  );
+});
+
 // Функция для списания товара по FIFO принципу с отслеживанием списаний
-const consumeFromPriceHistory = (productKod, quantity, orderId = null) => {
+const legacyConsumeFromPriceHistory = (productKod, quantity, orderId = null) => {
   return new Promise((resolve, reject) => {
     // Получаем все партии по FIFO (сначала старые)
     db.all(
-      'SELECT * FROM price_history WHERE kod = ? ORDER BY data_zmiany ASC',
+      'SELECT * FROM price_history WHERE kod = ? ORDER BY created_at ASC',
       [productKod],
       (err, batches) => {
         if (err) {
@@ -2729,45 +3608,6 @@ const saveConsumptionsToDatabase = (orderId, consumptions, productKod) => {
   });
 };
 
-// Функция для восстановления товара в FIFO (при уменьшении заказа)
-const restoreToPriceHistory = (productKod, quantity) => {
-  return new Promise((resolve, reject) => {
-    // Находим самую новую партию и восстанавливаем в неё
-    db.get(
-      'SELECT * FROM price_history WHERE kod = ? ORDER BY data_zmiany DESC LIMIT 1',
-      [productKod],
-      function(err, latestBatch) {
-        if (err) {
-          console.error('❌ Error finding latest batch for restoration:', err);
-          reject(err);
-          return;
-        }
-        
-        if (latestBatch) {
-          console.log(`🔄 Restoring ${quantity} szt. to latest batch ${latestBatch.id} for ${productKod}`);
-          
-          db.run(
-            'UPDATE price_history SET ilosc_fixed = ilosc_fixed + ? WHERE id = ?',
-            [quantity, latestBatch.id],
-            function(updateErr) {
-              if (updateErr) {
-                console.error('❌ Error updating price_history for restoration:', updateErr);
-                reject(updateErr);
-              } else {
-                console.log(`✅ Restored ${quantity} szt. to price_history for ${productKod}`);
-                resolve({ restored: quantity, batchId: latestBatch.id });
-              }
-            }
-          );
-        } else {
-          console.log(`⚠️ No price history found for ${productKod}, skipping FIFO restoration`);
-          resolve({ restored: 0, batchId: null });
-        }
-      }
-    );
-  });
-};
-
 // Функция для восстановления FIFO из таблицы order_consumptions при удалении заказа
 const restoreFIFOFromConsumptions = (orderId, orderProducts, callback) => {
   console.log(`🔄 Restoring FIFO for order ${orderId} from consumptions table`);
@@ -2894,18 +3734,26 @@ const restoreOnlyWorkingSheets = (products, callback) => {
   });
 };
 
-// Функция для сохранения старой цены в историю
+// Функция для сохранения записи в price_history
 const saveToPriceHistory = (existingProduct, oldPrice, oldDate) => {
+  console.log(`🔄 Attempting to save to price_history:`, {
+    kod: existingProduct.kod,
+    nazwa: existingProduct.nazwa,
+    cena: oldPrice,
+    data_zmiany: oldDate,
+    ilosc_fixed: existingProduct.ilosc
+  });
+  
   return new Promise((resolve, reject) => {
     db.run(
-      'INSERT INTO price_history (product_id, kod, nazwa, cena, data_zmiany, ilosc_fixed) VALUES (?, ?, ?, ?, ?, ?)',
-      [existingProduct.produkt_id || null, existingProduct.kod, existingProduct.nazwa, oldPrice, oldDate, existingProduct.ilosc],
+      'INSERT INTO price_history (kod, nazwa, cena, ilosc_fixed, created_at) VALUES (?, ?, ?, ?, ?)',
+      [existingProduct.kod, existingProduct.nazwa, oldPrice, existingProduct.ilosc, oldDate],
       function(err) {
         if (err) {
           console.error('❌ Error saving to price history:', err);
           reject(err);
         } else {
-          console.log(`✅ Saved old price to history: ${existingProduct.kod} - ${oldPrice}€ (${existingProduct.ilosc} szt.)`);
+          console.log(`✅ Saved to price history: ${existingProduct.kod} - ${oldPrice}€ (${existingProduct.ilosc} szt.)`);
           resolve(this.lastID);
         }
       }
@@ -2913,27 +3761,7 @@ const saveToPriceHistory = (existingProduct, oldPrice, oldDate) => {
   });
 };
 
-app.post('/api/price-history', (req, res) => {
-  const { product_id, kod, nazwa, cena, data_zmiany, ilosc_fixed } = req.body;
-  
-  if (!kod || !nazwa || !cena || !data_zmiany) {
-    return res.status(400).json({ error: 'Kod, nazwa, cena, and data_zmiany are required' });
-  }
-  
-  db.run(
-    'INSERT INTO price_history (product_id, kod, nazwa, cena, data_zmiany, ilosc_fixed) VALUES (?, ?, ?, ?, ?, ?)',
-    [product_id, kod, nazwa, cena, data_zmiany, ilosc_fixed || 0],
-    function(err) {
-      if (err) {
-        console.error('Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      res.json({ id: this.lastID, message: 'Price history added successfully' });
-    }
-  );
-});
-
+// DUPLICATE price-history endpoint - REMOVED
 
 
 // File Upload API
@@ -3321,268 +4149,110 @@ app.post('/api/sheets', (req, res) => {
   );
 });
 
-// PDF Generation API
-app.get('/api/orders/:id/pdf', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Получаем данные заказа с продуктами
-    const orderQuery = `
-      SELECT o.*, c.firma, c.nazwa as client_name, c.adres, c.kontakt
-      FROM orders o
-      LEFT JOIN clients c ON o.klient = c.nazwa
-      WHERE o.id = ?
-    `;
-    
-    const orderProductsQuery = `
-      SELECT op.*, p.nazwa as product_name
-      FROM order_products op
-      LEFT JOIN products p ON op.kod = p.kod
-      WHERE op.orderId = ?
-    `;
-    
-    db.get(orderQuery, [id], (err, order) => {
-      if (err) {
-        console.error('Error fetching order:', err);
-        return res.status(500).json({ error: 'Failed to fetch order' });
-      }
-      
-      if (!order) {
-        return res.status(404).json({ error: 'Order not found' });
-      }
-      
-      db.all(orderProductsQuery, [id], (err, products) => {
+
+
+
+
+// Функция для сохранения старой цены в историю
+const saveToPriceHistory = (existingProduct, oldPrice, oldDate) => {
+  console.log(`🔄 Attempting to save to price_history:`, {
+    kod: existingProduct.kod,
+    nazwa: existingProduct.nazwa,
+    cena: oldPrice,
+    data_zmiany: oldDate,
+    ilosc_fixed: existingProduct.ilosc
+  });
+  return new Promise((resolve, reject) => {
+    db.run(
+      'INSERT INTO price_history (kod, nazwa, cena, data_zmiany, ilosc_fixed) VALUES (?, ?, ?, ?, ?)',
+      [existingProduct.kod, existingProduct.nazwa, oldPrice, oldDate, existingProduct.ilosc],
+      function(err) {
         if (err) {
-          console.error('Error fetching order products:', err);
-          return res.status(500).json({ error: 'Failed to fetch order products' });
+          console.error('❌ Error saving to price history:', err);
+          reject(err);
+        } else {
+          console.log(`✅ Saved old price to history: ${existingProduct.kod} - ${oldPrice}€ (${existingProduct.ilosc} szt.)`);
+          resolve(this.lastID);
         }
-        
-        // Генерируем PDF
-        generateOrderPDF(order, products, res);
-      });
-    });
-  } catch (error) {
-    console.error('Error in PDF generation:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+      }
+    );
+  });
+};
+
+// API для работы с price_history
+app.get('/api/price-history', (req, res) => {
+  console.log('📊 GET /api/price-history - Fetching price history');
+  db.all('SELECT * FROM price_history ORDER BY created_at DESC', (err, rows) => {
+    if (err) {
+      console.error('❌ Database error:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    console.log(`✅ Found ${rows.length} price history records`);
+    res.json(rows || []);
+  });
 });
 
-// Функция генерации PDF заказа
-async function generateOrderPDF(order, products, res) {
-  try {
-    const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
-    
-    // Создаем новый PDF документ
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]); // A4 размер
-    
-    // Получаем стандартные шрифты
-    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    
-    const { width, height } = page.getSize();
-    const margin = 50;
-    let yPosition = height - margin;
-    
-    // Заголовок
-    page.drawText('EnoTerra ERP - Zamówienie', {
-      x: margin,
-      y: yPosition,
-      size: 24,
-      font: helveticaBold,
-      color: rgb(0, 0, 0)
-    });
-    yPosition -= 40;
-    
-    // Информация о заказе
-    page.drawText(`Numer zamówienia: ${order.numer_zamowienia}`, {
-      x: margin,
-      y: yPosition,
-      size: 14,
-      font: helveticaBold,
-      color: rgb(0, 0, 0)
-    });
-    yPosition -= 25;
-    
-    page.drawText(`Data utworzenia: ${order.data_utworzenia || new Date().toLocaleDateString('pl-PL')}`, {
-      x: margin,
-      y: yPosition,
-      size: 12,
-      font: helveticaFont,
-      color: rgb(0, 0, 0)
-    });
-    yPosition -= 30;
-    
-    // Информация о клиенте
-    if (order.client_name) {
-      page.drawText('Dane klienta:', {
-        x: margin,
-        y: yPosition,
-        size: 14,
-        font: helveticaBold,
-        color: rgb(0, 0, 0)
-      });
-      yPosition -= 20;
-      
-      page.drawText(`Firma: ${order.firma || order.client_name}`, {
-        x: margin,
-        y: yPosition,
-        size: 12,
-        font: helveticaFont,
-        color: rgb(0, 0, 0)
-      });
-      yPosition -= 18;
-      
-      if (order.adres) {
-        page.drawText(`Adres: ${order.adres}`, {
-          x: margin,
-          y: yPosition,
-          size: 12,
-          font: helveticaFont,
-          color: rgb(0, 0, 0)
-        });
-        yPosition -= 18;
-      }
-      
-      if (order.kontakt) {
-        page.drawText(`Kontakt: ${order.kontakt}`, {
-          x: margin,
-          y: yPosition,
-          size: 12,
-          font: helveticaFont,
-          color: rgb(0, 0, 0)
-        });
-        yPosition -= 25;
-      }
-    }
-    
-    // Таблица продуктов
-    if (products && products.length > 0) {
-      yPosition -= 20;
-      page.drawText('Produkty w zamówieniu:', {
-        x: margin,
-        y: yPosition,
-        size: 14,
-        font: helveticaBold,
-        color: rgb(0, 0, 0)
-      });
-      yPosition -= 25;
-      
-      // Заголовки таблицы
-      const columns = [
-        { x: margin, width: 80, title: 'Kod' },
-        { x: margin + 90, width: 200, title: 'Nazwa' },
-        { x: margin + 300, width: 100, title: 'Kod kreskowy' },
-        { x: margin + 410, width: 60, title: 'Ilość' },
-        { x: margin + 480, width: 80, title: 'Typ' }
-      ];
-      
-      // Рисуем заголовки
-      columns.forEach(col => {
-        page.drawText(col.title, {
-          x: col.x,
-          y: yPosition,
-          size: 10,
-          font: helveticaBold,
-          color: rgb(0, 0, 0)
-        });
-      });
-      yPosition -= 20;
-      
-      // Рисуем данные продуктов
-      products.forEach((product, index) => {
-        if (yPosition < margin + 100) {
-          // Добавляем новую страницу если не хватает места
-          page = pdfDoc.addPage([595.28, 841.89]);
-          yPosition = height - margin;
-        }
-        
-        page.drawText(product.kod || '', {
-          x: columns[0].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: rgb(0, 0, 0)
-        });
-        
-        page.drawText(product.product_name || product.nazwa || '', {
-          x: columns[1].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: rgb(0, 0, 0)
-        });
-        
-        page.drawText(product.kod_kreskowy || '-', {
-          x: columns[2].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: rgb(0, 0, 0)
-        });
-        
-        page.drawText(product.ilosc?.toString() || '0', {
-          x: columns[3].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: rgb(0, 0, 0)
-        });
-        
-        page.drawText(product.typ || '-', {
-          x: columns[4].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: rgb(0, 0, 0)
-        });
-        
-        yPosition -= 15;
-      });
-      
-      // Итого
-      yPosition -= 20;
-      page.drawText(`Razem produktów: ${products.length}`, {
-        x: margin,
-        y: yPosition,
-        size: 12,
-        font: helveticaBold,
-        color: rgb(0, 0, 0)
-      });
-      yPosition -= 20;
-      
-      page.drawText(`Łączna ilość: ${order.laczna_ilosc || 0}`, {
-        x: margin,
-        y: yPosition,
-        size: 12,
-        font: helveticaBold,
-        color: rgb(0, 0, 0)
-      });
-    }
-    
-    // Футер
-    yPosition = margin;
-    page.drawText(`Wygenerowano: ${new Date().toLocaleString('pl-PL')}`, {
-      x: margin,
-      y: yPosition,
-      size: 8,
-      font: helveticaFont,
-      color: rgb(0.5, 0.5, 0.5)
-    });
-    
-    // Сохраняем PDF
-    const pdfBytes = await pdfDoc.save();
-    
-    // Отправляем PDF
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="order_${order.numer_zamowienia}.pdf"`);
-    res.send(Buffer.from(pdfBytes));
-    
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    res.status(500).json({ error: 'Failed to generate PDF' });
+app.post('/api/price-history', (req, res) => {
+  console.log('📊 POST /api/price-history - Request body:', req.body);
+  let { kod, nazwa, cena, ilosc_fixed, created_at } = req.body;
+  if (!created_at) created_at = new Date().toISOString().substring(0,10);
+  
+  if (!kod || !nazwa || !cena) {
+    return res.status(400).json({ error: 'Kod, nazwa, and cena are required' });
   }
-}
+  
+  db.run(
+    'INSERT INTO price_history (kod, nazwa, cena, ilosc_fixed, created_at) VALUES (?, ?, ?, ?, ?)',
+    [kod, nazwa, cena, ilosc_fixed || 0, created_at],
+    function(err) {
+      if (err) {
+        console.error('Database error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json({ id: this.lastID, message: 'Price history added successfully' });
+    }
+  );
+});
+
+// Endpoint для очистки таблицы price_history
+app.delete('/api/price-history', (req, res) => {
+  console.log('🗑️ DELETE /api/price-history - Clearing price history table');
+  
+  // Сначала проверим количество записей
+  db.get('SELECT COUNT(*) as count FROM price_history', (err, row) => {
+    if (err) {
+      console.error('❌ Error checking price_history table:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    const count = row ? row.count : 0;
+    console.log(`📊 Found ${count} records in price_history table`);
+    
+    if (count === 0) {
+      console.log('💡 Table is already empty');
+      res.json({ message: 'Table is already empty', deletedCount: 0 });
+      return;
+    }
+    
+    // Очищаем таблицу
+    db.run('DELETE FROM price_history', function(err) {
+      if (err) {
+        console.error('❌ Error clearing price_history table:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      console.log(`✅ Successfully deleted ${this.changes} records from price_history table`);
+      res.json({ 
+        message: 'Price history table cleared successfully', 
+        deletedCount: this.changes 
+      });
+    });
+  });
+});
 
 }); // Закрываем блок db.serialize
 
@@ -3599,7 +4269,7 @@ app.get('*', (req, res) => {
 // Start server
 const PORT = process.env.PORT || 80;
 app.listen(PORT, () => {
-  console.log(`🚀 EnoTerra ERP Server running on port ${PORT}`);
-  console.log(`📂 Serving static files from: ${path.join(__dirname, '..')}`);
-  console.log(`💾 Database located at: ${dbPath}`);
+  console.log('🚀 EnoTerra ERP Server running on port ' + PORT);
+  console.log('📂 Serving static files from: ' + path.join(__dirname, '..'));
+  console.log('💾 Database located at: ' + dbPath);
 });
