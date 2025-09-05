@@ -1664,8 +1664,8 @@ app.put('/api/orders/:id', (req, res) => {
               db.get('SELECT ilosc FROM working_sheets WHERE kod = ?', [kod], (err, row) => {
                 if (err) {
                   console.error(`❌ Error checking working_sheets for ${kod}:`, err);
-                  productsProcessed++;
-                  checkCompletion();
+              productsProcessed++;
+              checkCompletion();
                   return;
                 }
                 
@@ -1745,19 +1745,19 @@ app.put('/api/orders/:id', (req, res) => {
                         } else {
                   console.log(`✅ Saved ${consumptions.length} consumption rows for order ${id}`);
               }
-                // Обновляем working_sheets после FIFO списания
-                db.run(
-                  'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                  [quantityDiff, productKod],
-                  function(updateErr) {
-                    if (updateErr) {
-                      console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
-                    } else {
-                      console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
-                    }
-                    callback();
-                  }
-                );
+          // Обновляем working_sheets после FIFO списания
+                    db.run(
+                      'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+            [quantityDiff, productKod],
+                      function(updateErr) {
+                        if (updateErr) {
+                console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+                        } else {
+                console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+              }
+              callback();
+            }
+          );
             }
           );
           } else {
@@ -4167,7 +4167,7 @@ const saveToPriceHistory = (existingProduct, oldPrice, oldDate) => {
       'INSERT INTO price_history (kod, nazwa, cena, data_zmiany, ilosc_fixed) VALUES (?, ?, ?, ?, ?)',
       [existingProduct.kod, existingProduct.nazwa, oldPrice, oldDate, existingProduct.ilosc],
       function(err) {
-        if (err) {
+      if (err) {
           console.error('❌ Error saving to price history:', err);
           reject(err);
         } else {
@@ -4183,7 +4183,7 @@ const saveToPriceHistory = (existingProduct, oldPrice, oldDate) => {
 app.get('/api/price-history', (req, res) => {
   console.log('📊 GET /api/price-history - Fetching price history');
   db.all('SELECT * FROM price_history ORDER BY created_at DESC', (err, rows) => {
-    if (err) {
+        if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
       return;
