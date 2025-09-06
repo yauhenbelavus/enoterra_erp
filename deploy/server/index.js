@@ -4274,7 +4274,7 @@ app.use(express.static(__dirname));
 
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
 app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'index.html');
+  const indexPath = path.join(__dirname, '../index.html');
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
