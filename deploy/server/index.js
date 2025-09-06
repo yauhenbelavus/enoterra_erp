@@ -4365,10 +4365,3 @@ app.get('*', (req, res) => {
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
-
-// Start server (use existing PORT from original file)
-app.listen(PORT, () => {
-  console.log('🚀 EnoTerra ERP Server running on port ' + PORT);
-  console.log('📂 Serving static files from: ' + path.join(__dirname, '..'));
-  console.log('💾 Database located at: ' + dbPath);
-});
