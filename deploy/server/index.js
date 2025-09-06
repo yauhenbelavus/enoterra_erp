@@ -4256,6 +4256,106 @@ app.delete('/api/price-history', (req, res) => {
 
 }); // Закрываем блок db.serialize
 
+// Test endpoints - только для разработки и тестирования
+if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+  try {
+    const { setupTestEndpoints } = require('./test-endpoints');
+    setupTestEndpoints(app, db);
+    console.log('🧪 Test endpoints enabled for development/test environment');
+  } catch (error) {
+    console.log('⚠️ Could not load test endpoints:', error.message);
+  }
+} else {
+  console.log('🚀 Production mode - test endpoints disabled');
+}
+
+// Serve static files from current directory (frontend)
+app.use(express.static(__dirname));
+
+// ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, 'index.html');
+  console.log('Serving SPA fallback:', indexPath);
+  res.sendFile(indexPath);
+});
+
+// Start server
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`🚀 EnoTerra ERP Server running on port ${PORT}`);
+  console.log(`📂 Serving static files from: ${__dirname}`);
+  console.log(`💾 Database located at: ${dbPath}`);
+});
+
+// ===== NEW CONSUME FROM PRODUCTS (FIFO) =====
+function consumeFromProducts(productKod, quantity) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      'SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 ORDER BY created_at ASC, id ASC',
+      [productKod],
+      (err, batches) => {
+        if (err) return reject(err);
+        if (batches.length === 0) return resolve({ consumed: 0, remaining: quantity, consumptions: [] });
+
+        let remaining = quantity;
+        const consumptions = [];
+
+        const next = () => {
+          if (remaining <= 0 || batches.length === 0) {
+            return resolve({ consumed: quantity - remaining, remaining, consumptions });
+          }
+
+          const batch = batches.shift();
+          const take = Math.min(batch.ilosc_aktualna, remaining);
+          const newLeft = batch.ilosc_aktualna - take;
+
+          db.run('UPDATE products SET ilosc_aktualna = ? WHERE id = ?', [newLeft, batch.id], function (upErr) {
+            if (upErr) return reject(upErr);
+            consumptions.push({ batchId: batch.id, qty: take, cena: batch.cena });
+            remaining -= take;
+            next();
+          });
+        };
+        next();
+      }
+    );
+  });
+}
+
+// === Test endpoint ===
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/test-consume', (req, res) => {
+    const { kod, quantity } = req.body;
+    consumeFromProducts(kod, quantity)
+      .then(r => res.json(r))
+      .catch(e => {
+        console.error(e);
+        res.status(500).json({ error: e.message });
+      });
+  });
+}
+
+// Helper: restore quantity back to newest batch
+const restoreToProducts = (productKod, quantity) => {
+  return new Promise((resolve, reject) => {
+    db.get(
+      'SELECT * FROM products WHERE kod = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+      [productKod],
+      (err, batch) => {
+        if (err) return reject(err);
+        if (!batch) return resolve({ restored: 0 });
+
+        const newQty = (batch.ilosc_aktualna || 0) + quantity;
+        db.run(
+          'UPDATE products SET ilosc_aktualna = ? WHERE id = ?',
+          [newQty, batch.id],
+          upErr => (upErr ? reject(upErr) : resolve({ restored: quantity, batchId: batch.id }))
+        );
+      }
+    );
+  });
+};
+
 // Serve static files from parent directory (frontend)
 app.use(express.static(path.join(__dirname, '..')));
 
@@ -4266,8 +4366,7 @@ app.get('*', (req, res) => {
   res.sendFile(indexPath);
 });
 
-// Start server
-const PORT = process.env.PORT || 80;
+// Start server (use existing PORT from original file)
 app.listen(PORT, () => {
   console.log('🚀 EnoTerra ERP Server running on port ' + PORT);
   console.log('📂 Serving static files from: ' + path.join(__dirname, '..'));
