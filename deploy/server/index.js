@@ -29,7 +29,9 @@ const storage = multer.diskStorage({
   filename: function (req, file, cb) {
     // Заменяем пробелы на подчеркивания для избежания проблем с URL
     const safeName = file.originalname.replace(/\s+/g, '_');
-    cb(null, Date.now() + '-' + safeName);
+    // Добавляем случайный компонент для избежания конфликтов при одновременной загрузке
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    cb(null, Date.now() + '-' + randomSuffix + '-' + safeName);
   }
 });
 
@@ -60,6 +62,9 @@ app.use('/uploads', (req, res, next) => {
 // Database setup
 const dbPath = path.join(__dirname, 'enoterra_erp.db');
 const db = new sqlite3.Database(dbPath);
+
+// Устанавливаем таймаут для операций с базой данных
+db.configure('busyTimeout', 30000); // 30 секунд
 
 // Database initialization
 db.serialize(() => {
@@ -213,7 +218,7 @@ db.serialize(() => {
     }
   });
 
-  // Удалена таблица price_history (ilosc_fixed больше не используется)
+  // Используется только таблица products для FIFO-списаний
 
   // Таблица потребления заказов (FIFO tracking)
   db.run(`CREATE TABLE IF NOT EXISTS order_consumptions (
@@ -1169,7 +1174,7 @@ app.post('/api/orders', (req, res) => {
             console.log(`📝 Creating order_products record for: ${kod} (orderId: ${orderId})`);
             db.run(
               'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy) VALUES (?, ?, ?, ?, ?, ?)',
-              [orderId, kod, nazwa, ilosc, typ || 'sztuki', kod_kreskowy || null],
+              [orderId, kod, nazwa, ilosc, typ || 'sprzedaz', kod_kreskowy || null],
               function(err) {
                 if (err) {
                   console.error(`❌ Error creating product ${index + 1}:`, err);
@@ -1180,7 +1185,7 @@ app.post('/api/orders', (req, res) => {
                   productsCreated++;
                   console.log(`✅ Product ${index + 1} created for order ${orderId} with ID: ${this.lastID}`);
                   
-                  // Теперь обновляем количество в working_sheets И в price_history (FIFO)
+                  // Теперь обновляем количество в working_sheets
                   db.run(
                     'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
                     [ilosc, kod],
@@ -1192,7 +1197,7 @@ app.post('/api/orders', (req, res) => {
                         console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${ilosc})`);
                         workingSheetsUpdated++;
                         
-                        // Теперь списываем по FIFO из price_history с отслеживанием
+                        // Теперь списываем по FIFO из products с отслеживанием
                         consumeFromProducts(kod, ilosc)
                           .then(({ consumed, remaining, consumptions }) => {
                             console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
@@ -1598,10 +1603,11 @@ app.put('/api/orders/:id', (req, res) => {
     
     console.log(`🔄 Processing quantity changes for ${products.length} products`);
     
-    // Создаем map старых продуктов для быстрого поиска
+    // Создаем map старых продуктов для быстрого поиска (по коду + типу)
     const oldProductsMap = {};
     oldOrderProducts.forEach(product => {
-      oldProductsMap[product.kod] = product;
+      const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
+      oldProductsMap[key] = product;
     });
     
     console.log(`🔍 Old products map:`, JSON.stringify(oldProductsMap, null, 2));
@@ -1613,16 +1619,18 @@ app.put('/api/orders/:id', (req, res) => {
           
           products.forEach((product, index) => {
             const { kod, nazwa, ilosc, typ, kod_kreskowy } = product;
-            const oldProduct = oldProductsMap[kod];
+            const key = `${kod}_${typ || 'sprzedaz'}`;
+            const oldProduct = oldProductsMap[key];
             const oldQuantity = oldProduct ? Number(oldProduct.ilosc) : 0;
             const newQuantity = Number(ilosc);
             const quantityDiff = newQuantity - oldQuantity;
             
-            console.log(`🔍 Product comparison for ${kod}:`);
-            console.log(`  - New ilosc: ${newQuantity} (type: ${typeof newQuantity})`);
-            console.log(`  - Old ilosc: ${oldQuantity} (type: ${typeof oldQuantity})`);
-            console.log(`  - Old product found: ${oldProduct ? 'YES' : 'NO'}`);
+            console.log(`🔍 Product comparison for ${kod} (${typ || 'sprzedaz'}):`);
+            console.log(`  - Search key: ${key}`);
+            console.log(`  - New product: ${kod} x${newQuantity} (${typ || 'sprzedaz'})`);
+            console.log(`  - Old product: ${oldProduct ? `${oldProduct.kod} x${oldProduct.ilosc} (${oldProduct.typ || 'sprzedaz'})` : 'NOT FOUND'}`);
             console.log(`  - Quantity diff: ${quantityDiff}`);
+            console.log(`  - Action: ${quantityDiff > 0 ? 'INCREASE' : quantityDiff < 0 ? 'DECREASE' : 'NO CHANGE'}`);
       
               console.log(`📊 Product ${kod}: was ${oldQuantity}, now ${newQuantity}, diff: ${quantityDiff > 0 ? '+' : ''}${quantityDiff}`);
         console.log(`🔍 Debug: oldProduct = ${JSON.stringify(oldProduct)}, quantityDiff calculation: ${newQuantity} - ${oldQuantity} = ${quantityDiff}`);
@@ -1630,7 +1638,7 @@ app.put('/api/orders/:id', (req, res) => {
             // Создаем запись в order_products
             db.run(
               'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy) VALUES (?, ?, ?, ?, ?, ?)',
-              [id, kod, nazwa, ilosc, typ || 'sztuki', kod_kreskowy || null],
+              [id, kod, nazwa, ilosc, typ || 'sprzedaz', kod_kreskowy || null],
               function(err) {
                 if (err) {
                   console.error(`❌ Error creating new product ${index + 1}:`, err);
@@ -1641,7 +1649,35 @@ app.put('/api/orders/:id', (req, res) => {
                   
             // Обрабатываем изменения в количестве
             console.log(`🔍 Processing quantity changes for ${kod}: quantityDiff = ${quantityDiff}`);
-            if (quantityDiff !== 0) {
+            
+            // Если продукт новый (не найден в старых), проверяем, не изменился ли тип
+            if (!oldProduct) {
+              // Проверяем, есть ли продукт с таким же кодом, но другим типом
+              const sameCodeProduct = oldOrderProducts.find(p => p.kod === kod && p.typ !== (typ || 'sprzedaz'));
+              
+              if (sameCodeProduct) {
+                // Тип изменился - восстанавливаем старый и списываем новый
+                console.log(`🔄 Type changed for ${kod}: ${sameCodeProduct.typ || 'sprzedaz'} → ${typ || 'sprzedaz'}`);
+                console.log(`📉 Restoring ${sameCodeProduct.ilosc} units from old type`);
+                console.log(`📈 Processing ${newQuantity} units for new type`);
+                
+                // Восстанавливаем количество старого типа
+                processQuantityDecrease(kod, sameCodeProduct.ilosc, () => {
+                  // Списываем количество нового типа
+                  processQuantityIncrease(kod, newQuantity, () => {
+                    productsProcessed++;
+                    checkCompletion();
+                  });
+                });
+              } else {
+                // Действительно новый продукт
+                console.log(`➕ New product ${kod}: processing ${newQuantity} units`);
+                processQuantityIncrease(kod, newQuantity, () => {
+                  productsProcessed++;
+                  checkCompletion();
+                });
+              }
+            } else if (quantityDiff !== 0) {
               if (quantityDiff > 0) {
                 // Количество увеличилось - списываем разницу
                 console.log(`📈 Product ${kod}: quantity increased by ${quantityDiff}`);
@@ -1818,7 +1854,7 @@ app.put('/api/orders/:id', (req, res) => {
       console.log(`📊 Found ${consumptions.length} consumptions for ${productKod}`);
       console.log(`🔍 Consumptions details:`, JSON.stringify(consumptions, null, 2));
       
-      // Восстанавливаем количество в price_history и уменьшаем/удаляем записи в order_consumptions
+      // Восстанавливаем количество в products и уменьшаем/удаляем записи в order_consumptions
       let remainingToRestore = quantityDiff;
       let consumptionsProcessed = 0;
       
@@ -1976,18 +2012,104 @@ app.delete('/api/orders/:id', (req, res) => {
       
       let processedCount = 0;
       
-      // Восстанавливаем FIFO из таблицы order_consumptions
-      restoreFIFOFromConsumptions(id, orderProducts, function() {
+      orderProducts.forEach((product) => {
+        db.run(
+          'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
+          [product.ilosc, product.kod],
+          function(restoreErr) {
+            if (restoreErr) {
+              console.error(`❌ Error restoring quantity for product ${product.kod}:`, restoreErr);
+            } else {
+              console.log(`✅ Restored quantity for product ${product.kod}: +${product.ilosc}`);
+              restoredCount++;
+            }
+            
+            if (restoredCount === totalProducts) {
               console.log(`📊 Working sheets restored: ${restoredCount}/${totalProducts} products`);
               res.json({ 
                 message: 'Order deleted successfully',
           workingSheetsRestored: restoredCount,
           productsProcessed: processedCount
               });
+            }
+          }
+        );
       });
         });
       });
     });
+  });
+});
+
+// Order Consumptions API
+app.get('/api/order-consumptions', (req, res) => {
+  console.log('📊 GET /api/order-consumptions - Fetching all order consumptions');
+  
+  const query = `
+    SELECT 
+      oc.*,
+      o.numer_zamowienia,
+      o.klient,
+      p.nazwa as product_name,
+      p.cena as batch_price
+    FROM order_consumptions oc
+    LEFT JOIN orders o ON oc.order_id = o.id
+    LEFT JOIN products p ON oc.batch_id = p.id
+    ORDER BY oc.created_at DESC
+  `;
+  
+  db.all(query, (err, rows) => {
+    if (err) {
+      console.error('❌ Database error:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    console.log(`✅ Found ${rows.length} consumption records`);
+    res.json(rows);
+  });
+});
+
+app.get('/api/order-consumptions/search', (req, res) => {
+  const { product_kod, order_id } = req.query;
+  console.log(`🔍 GET /api/order-consumptions/search - Searching consumptions:`, { product_kod, order_id });
+  
+  let query = `
+    SELECT 
+      oc.*,
+      o.numer_zamowienia,
+      o.klient,
+      p.nazwa as product_name,
+      p.cena as batch_price
+    FROM order_consumptions oc
+    LEFT JOIN orders o ON oc.order_id = o.id
+    LEFT JOIN products p ON oc.batch_id = p.id
+    WHERE 1=1
+  `;
+  
+  const params = [];
+  
+  if (product_kod) {
+    query += ' AND oc.product_kod = ?';
+    params.push(product_kod);
+  }
+  
+  if (order_id) {
+    query += ' AND oc.order_id = ?';
+    params.push(order_id);
+  }
+  
+  query += ' ORDER BY oc.created_at DESC';
+  
+  db.all(query, params, (err, rows) => {
+    if (err) {
+      console.error('❌ Database error:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    console.log(`✅ Found ${rows.length} consumption records`);
+    res.json(rows);
   });
 });
 
@@ -2058,7 +2180,7 @@ app.post('/api/order-products', (req, res) => {
   
   db.run(
     'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?, ?)',
-    [orderId, kod, nazwa, ilosc, typ || 'sztuki'],
+    [orderId, kod, nazwa, ilosc, typ || 'sprzedaz'],
     function(err) {
       if (err) {
         console.error('❌ Database error:', err);
@@ -2244,12 +2366,17 @@ app.post('/api/product-receipts', upload.fields([
   console.log('📦 POST /api/product-receipts - Request received');
   console.log('📦 Request body:', req.body);
   console.log('📦 Request files:', req.files);
+  console.log('📦 Request headers:', {
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length']
+  });
   console.log('📦 Files check:', {
     hasFiles: !!req.files,
     hasProductInvoice: !!(req.files && req.files.productInvoice),
     hasTransportInvoice: !!(req.files && req.files.transportInvoice),
     productInvoiceFile: req.files?.productInvoice,
-    transportInvoiceFile: req.files?.transportInvoice
+    transportInvoiceFile: req.files?.transportInvoice,
+    filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
   let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice;
@@ -2296,6 +2423,14 @@ app.post('/api/product-receipts', upload.fields([
   
   console.log(`🔄 Processing ${products.length} products for receipt`);
   
+  // Проверяем на дублирование продуктов в одной приёмке
+  const productCodes = products.map(p => p.kod);
+  const uniqueCodes = [...new Set(productCodes)];
+  if (productCodes.length !== uniqueCodes.length) {
+    console.log('❌ Duplicate products found in receipt:', productCodes);
+    return res.status(400).json({ error: 'Duplicate products found in receipt' });
+  }
+  
   db.run(
     'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, JSON.stringify(products), productInvoice || null, transportInvoice || null],
@@ -2319,6 +2454,22 @@ app.post('/api/product-receipts', upload.fields([
       
             // Функция для последовательной обработки товаров при создании
       const processProductsSequentially = async () => {
+        const startTime = Date.now();
+        console.log(`⏱️ Starting product processing at ${new Date().toISOString()}`);
+        
+        // Начинаем транзакцию для обеспечения консистентности
+        await new Promise((resolve, reject) => {
+          db.run('BEGIN TRANSACTION', (err) => {
+            if (err) {
+              console.error('❌ Error starting transaction:', err);
+              reject(err);
+            } else {
+              console.log('🔄 Transaction started');
+              resolve();
+            }
+          });
+        });
+
         try {
           for (const product of products) {
             console.log(`📝 Processing product: ${product.kod}`);
@@ -2350,7 +2501,8 @@ app.post('/api/product-receipts', upload.fields([
                 );
               });
             
-            // Обновляем working_sheets и создаем запись в price_history
+            
+            // Обновляем working_sheets
             console.log(`📝 Processing working_sheets for: ${product.kod}`);
             await new Promise((resolve, reject) => {
               db.get('SELECT * FROM working_sheets WHERE kod = ?', [product.kod], (err, existingProduct) => {
@@ -2384,22 +2536,7 @@ app.post('/api/product-receipts', upload.fields([
                         console.log(`✅ Updated working_sheets: ${product.kod}`);
                           workingSheetsUpdated++;
                         
-                        // Создаем ОДНУ запись в price_history для этой партии
-                        saveToPriceHistory(
-                          { 
-                            kod: product.kod,
-                            nazwa: product.nazwa,
-                            ilosc: product.ilosc
-                          }, 
-                          newPrice, 
-                          date  // Дата приемки
-                        ).then(() => {
-                          console.log(`✅ Created price_history record for: ${product.kod}`);
                           resolve();
-                        }).catch((error) => {
-                          console.error('❌ Failed to save to price_history:', error);
-                          resolve(); // Продолжаем даже при ошибке
-                        });
                         }
                       }
                     );
@@ -2427,22 +2564,7 @@ app.post('/api/product-receipts', upload.fields([
                         console.log(`✅ Created new working_sheets record: ${product.kod}`);
                         workingSheetsInserted++;
                         
-                        // Создаем ОДНУ запись в price_history для нового товара
-                        saveToPriceHistory(
-                          { 
-                            kod: product.kod,
-                            nazwa: product.nazwa,
-                            ilosc: product.ilosc
-                          }, 
-                          product.cena || 0, 
-                          date  // Дата приемки
-                        ).then(() => {
-                          console.log(`✅ Created price_history record for new product: ${product.kod}`);
                         resolve();
-                        }).catch((error) => {
-                          console.error('❌ Failed to save to price_history:', error);
-                          resolve(); // Продолжаем даже при ошибке
-                        });
                       }
                     }
                   );
@@ -2453,19 +2575,56 @@ app.post('/api/product-receipts', upload.fields([
             processedCount++;
           }
           
+          // Коммитим транзакцию
+          await new Promise((resolve, reject) => {
+            db.run('COMMIT', (err) => {
+              if (err) {
+                console.error('❌ Error committing transaction:', err);
+                reject(err);
+              } else {
+                console.log('✅ Transaction committed successfully');
+                resolve();
+              }
+            });
+          });
+          
           // Отправляем ответ
-          console.log(`🎉 Processing complete: ${workingSheetsUpdated} working_sheets updated, ${workingSheetsInserted} working_sheets inserted, ${productsInserted} products created`);
+          const endTime = Date.now();
+          const processingTime = endTime - startTime;
+          console.log(`🎉 Processing complete in ${processingTime}ms: ${workingSheetsUpdated} working_sheets updated, ${workingSheetsInserted} working_sheets inserted, ${productsInserted} products created`);
           res.json({ 
             id: receiptId, 
             message: 'Product receipt added successfully',
             workingSheetsUpdated: workingSheetsUpdated,
             workingSheetsInserted: workingSheetsInserted,
-            productsCreated: productsInserted
+            productsCreated: productsInserted,
+            processingTime: processingTime
           });
           
         } catch (error) {
           console.error('❌ Error during product processing:', error);
-          res.status(500).json({ error: 'Failed to process products' });
+          
+          // Откатываем транзакцию
+          try {
+            await new Promise((resolve, reject) => {
+              db.run('ROLLBACK', (rollbackErr) => {
+                if (rollbackErr) {
+                  console.error('❌ Error rolling back transaction:', rollbackErr);
+                  reject(rollbackErr);
+                } else {
+                  console.log('🔄 Transaction rolled back');
+                  resolve();
+                }
+              });
+            });
+          } catch (rollbackError) {
+            console.error('❌ Failed to rollback transaction:', rollbackError);
+          }
+          
+          // Если ответ ещё не отправлен, отправляем ошибку
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process products: ' + error.message });
+          }
         }
       };
       
@@ -2892,36 +3051,9 @@ app.delete('/api/product-receipts/:id', (req, res) => {
       }
       console.log(`✅ Deleted ${this.changes} product rows`);
 
-      // 3) Удаляем из price_history для каждого товара
-      if (products.length === 0) {
-        console.log('💡 No products -> skip price_history deletion');
+      // 3) Удаляем саму приёмку и правим working_sheets
         proceedToDeleteReceipt();
-          return;
-        }
-        
-      let processed = 0;
-      let phDeleted = 0;
-      products.forEach(p => {
-        db.run(
-          'DELETE FROM price_history WHERE kod = ? AND created_at = ? AND ilosc_fixed = ?',
-          [p.kod, receiptDateOnly, p.ilosc],
-          function (phErr) {
-            if (phErr) {
-              console.error(`❌ price_history delete error for ${p.kod}:`, phErr);
-            } else {
-              console.log(`🗑️ price_history ${p.kod}: deleted ${this.changes}`);
-              phDeleted += this.changes;
-            }
-            processed++;
-            if (processed === products.length) {
-              console.log(`✅ price_history deletion done (${phDeleted} rows)`);
-              proceedToDeleteReceipt();
-            }
-          }
-        );
-      });
-
-      // 4) После очистки price_history удаляем саму приёмку и правим working_sheets
+      
       function proceedToDeleteReceipt() {
         db.run('DELETE FROM product_receipts WHERE id = ?', [id], function (recErr) {
           if (recErr) {
@@ -3432,334 +3564,8 @@ app.post('/api/original-sheets', (req, res) => {
   );
 });
 
-// Price History API
-app.get('/api/price-history', (req, res) => {
-  db.all('SELECT * FROM price_history ORDER BY created_at DESC', (err, rows) => {
-    if (err) {
-      console.error('Database error:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows || []);
-  });
-});
 
-app.post('/api/price-history', (req, res) => {
-  console.log('📊 POST /api/price-history - Request body:', req.body);
-  let { kod, nazwa, cena, ilosc_fixed, created_at } = req.body;
-  if (!created_at) created_at = new Date().toISOString().substring(0,10);
-  
-  if (!kod || !nazwa || !cena) {
-    return res.status(400).json({ error: 'Kod, nazwa, and cena are required' });
-  }
-  
-  db.run(
-    'INSERT INTO price_history (kod, nazwa, cena, ilosc_fixed, created_at) VALUES (?, ?, ?, ?, ?)',
-    [kod, nazwa, cena, ilosc_fixed || 0, created_at],
-    function(err) {
-      if (err) {
-        console.error('Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      res.json({ id: this.lastID, message: 'Price history added successfully' });
-    }
-  );
-});
 
-// Функция для списания товара по FIFO принципу с отслеживанием списаний
-const legacyConsumeFromPriceHistory = (productKod, quantity, orderId = null) => {
-  return new Promise((resolve, reject) => {
-    // Получаем все партии по FIFO (сначала старые)
-    db.all(
-      'SELECT * FROM price_history WHERE kod = ? ORDER BY created_at ASC',
-      [productKod],
-      (err, batches) => {
-        if (err) {
-          console.error('❌ Error getting price history batches:', err);
-          reject(err);
-          return;
-        }
-        
-        if (batches.length === 0) {
-          console.log(`⚠️ No available batches for product: ${productKod}`);
-          resolve({ consumed: 0, remaining: quantity, consumptions: [] });
-          return;
-        }
-        
-        console.log(`🎯 FIFO consumption for ${productKod}: ${quantity} szt. from ${batches.length} batches`);
-        console.log(`📊 Batches: ${batches.map(b => `${b.ilosc_fixed} szt. @ ${b.cena}€`).join(', ')}`);
-        
-        let remainingQuantity = quantity;
-        let consumedTotal = 0;
-        let processedBatches = 0;
-        const consumptions = []; // Массив для отслеживания списаний
-        
-        // Обрабатываем каждую партию по FIFO (одновременное списание)
-        const processNextBatch = () => {
-          if (remainingQuantity <= 0 || processedBatches === batches.length) {
-            // Все партии обработаны или количество исчерпано
-            console.log(`🎯 FIFO consumption complete: ${consumedTotal} szt. consumed, ${remainingQuantity} szt. remaining`);
-            
-            // FIFO списание завершено - working_sheets уже обновлен в endpoint
-            console.log(`✅ FIFO consumption complete: ${consumedTotal} szt. consumed, ${remainingQuantity} szt. remaining`);
-            
-            // Если есть orderId, записываем списания в order_consumptions
-            console.log(`🔍 Checking orderId: ${orderId}, consumptions length: ${consumptions.length}`);
-            if (orderId && consumptions.length > 0) {
-              console.log(`📝 Saving ${consumptions.length} consumption records for order ${orderId}`);
-              saveConsumptionsToDatabase(orderId, consumptions, productKod)
-                .then(() => {
-                  console.log(`✅ Saved ${consumptions.length} consumption records for order ${orderId}`);
-                  resolve({ consumed: consumedTotal, remaining: remainingQuantity, consumptions });
-                })
-                .catch((saveErr) => {
-                  console.error('❌ Error saving consumptions:', saveErr);
-                  // Даже если не удалось сохранить, возвращаем результат
-                  resolve({ consumed: consumedTotal, remaining: remainingQuantity, consumptions });
-                });
-            } else {
-              console.log(`⚠️ Skipping consumption save: orderId=${orderId}, consumptions=${consumptions.length}`);
-              resolve({ consumed: consumedTotal, remaining: remainingQuantity, consumptions });
-            }
-            return;
-          }
-          
-          const batch = batches[processedBatches];
-          
-          // Если в этой партии уже нет товара, переходим к следующей
-          if (batch.ilosc_fixed <= 0) {
-            console.log(`⏭️ Skipping empty batch ${batch.id} (ilosc_fixed: 0)`);
-            processedBatches++;
-            processNextBatch();
-            return;
-          }
-          
-          const availableInBatch = Math.min(batch.ilosc_fixed, remainingQuantity);
-          const newIloscFixed = batch.ilosc_fixed - availableInBatch;
-          
-          console.log(`🔄 Consuming from batch ${batch.id}: ${availableInBatch} szt. (${batch.cena}€) - ilosc_fixed: ${batch.ilosc_fixed} → ${newIloscFixed}`);
-          
-          // Записываем информацию о списании
-          consumptions.push({
-            batchId: batch.id,
-            quantity: availableInBatch,
-            price: batch.cena
-          });
-          
-          // Обновляем ilosc_fixed в price_history (одновременное списание)
-  db.run(
-            'UPDATE price_history SET ilosc_fixed = ? WHERE id = ?',
-            [newIloscFixed, batch.id],
-            function(updateErr) {
-              if (updateErr) {
-                console.error('❌ Error updating batch ilosc_fixed:', updateErr);
-              } else {
-                console.log(`✅ Updated batch ${batch.id} ilosc_fixed: ${newIloscFixed}`);
-              }
-              
-              remainingQuantity -= availableInBatch;
-              consumedTotal += availableInBatch;
-              processedBatches++;
-              
-              // Продолжаем с следующей партией
-              processNextBatch();
-            }
-          );
-        };
-        
-        // Начинаем обработку партий
-        processNextBatch();
-      }
-    );
-  });
-};
-
-// Функция для сохранения списаний в базу данных
-const saveConsumptionsToDatabase = (orderId, consumptions, productKod) => {
-  return new Promise((resolve, reject) => {
-    if (consumptions.length === 0) {
-      resolve();
-      return;
-    }
-    
-    let savedCount = 0;
-    let totalCount = consumptions.length;
-    
-    consumptions.forEach((consumption) => {
-      db.run(
-        'INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES (?, ?, ?, ?, ?)',
-        [orderId, productKod, consumption.batchId, consumption.quantity, consumption.price],
-    function(err) {
-      if (err) {
-            console.error('❌ Error saving consumption record:', err);
-            reject(err);
-        return;
-      }
-          
-          savedCount++;
-          if (savedCount === totalCount) {
-            console.log(`✅ All ${totalCount} consumption records saved successfully`);
-            resolve();
-          }
-    }
-  );
-});
-  });
-};
-
-// Функция для восстановления FIFO из таблицы order_consumptions при удалении заказа
-const restoreFIFOFromConsumptions = (orderId, orderProducts, callback) => {
-  console.log(`🔄 Restoring FIFO for order ${orderId} from consumptions table`);
-  
-  // Получаем записи о списаниях для этого заказа
-  db.all('SELECT * FROM order_consumptions WHERE order_id = ?', [orderId], (err, consumptions) => {
-    if (err) {
-      console.error('❌ Error fetching consumptions:', err);
-      // Если не удалось получить списания, восстанавливаем только в working_sheets
-      restoreOnlyWorkingSheets(orderProducts, callback);
-      return;
-    }
-    
-    if (consumptions.length === 0) {
-      console.log('⚠️ No consumption records found, restoring only in working_sheets');
-      restoreOnlyWorkingSheets(orderProducts, callback);
-      return;
-    }
-    
-    console.log(`📊 Found ${consumptions.length} consumption records for restoration`);
-    
-    // Группируем списания по продуктам
-    const productConsumptions = {};
-    consumptions.forEach(consumption => {
-      if (!productConsumptions[consumption.product_kod]) {
-        productConsumptions[consumption.product_kod] = [];
-      }
-      productConsumptions[consumption.product_kod].push(consumption);
-    });
-    
-    let restoredCount = 0;
-    let totalProducts = orderProducts.length;
-    
-    orderProducts.forEach((product) => {
-      const consumptionsForProduct = productConsumptions[product.kod] || [];
-      
-      if (consumptionsForProduct.length > 0) {
-        // Восстанавливаем FIFO в точные партии
-        restoreFIFOToExactBatches(product, consumptionsForProduct, () => {
-          restoredCount++;
-          if (restoredCount === totalProducts) {
-            callback();
-          }
-        });
-      } else {
-        // Если нет записей о списаниях, восстанавливаем только в working_sheets
-        restoreOnlyWorkingSheets([product], () => {
-          restoredCount++;
-          if (restoredCount === totalProducts) {
-            callback();
-          }
-        });
-      }
-    });
-  });
-};
-
-// Функция для восстановления FIFO в точные партии
-const restoreFIFOToExactBatches = (product, consumptions, callback) => {
-  console.log(`🔄 Restoring FIFO for ${product.kod} to exact batches`);
-  
-  // Сначала восстанавливаем в working_sheets
-  db.run(
-    'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-    [product.ilosc, product.kod],
-    function(restoreErr) {
-      if (restoreErr) {
-        console.error(`❌ Error restoring quantity for product ${product.kod}:`, restoreErr);
-        callback();
-        return;
-      }
-      
-      console.log(`✅ Restored quantity for product ${product.kod}: +${product.ilosc}`);
-      
-      // Теперь восстанавливаем в точные партии по FIFO
-      let processedConsumptions = 0;
-      
-      consumptions.forEach((consumption) => {
-  db.run(
-          'UPDATE price_history SET ilosc_fixed = ilosc_fixed + ? WHERE id = ?',
-          [consumption.quantity, consumption.batch_id],
-          function(historyUpdateErr) {
-            if (historyUpdateErr) {
-              console.error(`❌ Error updating price_history for batch ${consumption.batch_id}:`, historyUpdateErr);
-            } else {
-              console.log(`✅ Restored ${consumption.quantity} szt. to batch ${consumption.batch_id} for ${product.kod}`);
-            }
-            
-            processedConsumptions++;
-            if (processedConsumptions === consumptions.length) {
-              callback();
-            }
-          }
-        );
-      });
-    }
-  );
-};
-
-// Функция для восстановления только в working_sheets (fallback)
-const restoreOnlyWorkingSheets = (products, callback) => {
-  console.log('🔄 Restoring only in working_sheets (FIFO fallback)');
-  
-  let restoredCount = 0;
-  let totalProducts = products.length;
-  
-  products.forEach((product) => {
-    db.run(
-      'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-      [product.ilosc, product.kod],
-      function(restoreErr) {
-        if (restoreErr) {
-          console.error(`❌ Error restoring quantity for product ${product.kod}:`, restoreErr);
-        } else {
-          console.log(`✅ Restored quantity for product ${product.kod}: +${product.ilosc}`);
-        }
-        
-        restoredCount++;
-        if (restoredCount === totalProducts) {
-          callback();
-        }
-      }
-    );
-  });
-};
-
-// Функция для сохранения записи в price_history
-const saveToPriceHistory = (existingProduct, oldPrice, oldDate) => {
-  console.log(`🔄 Attempting to save to price_history:`, {
-    kod: existingProduct.kod,
-    nazwa: existingProduct.nazwa,
-    cena: oldPrice,
-    data_zmiany: oldDate,
-    ilosc_fixed: existingProduct.ilosc
-  });
-  
-  return new Promise((resolve, reject) => {
-    db.run(
-      'INSERT INTO price_history (kod, nazwa, cena, ilosc_fixed, created_at) VALUES (?, ?, ?, ?, ?)',
-      [existingProduct.kod, existingProduct.nazwa, oldPrice, existingProduct.ilosc, oldDate],
-      function(err) {
-        if (err) {
-          console.error('❌ Error saving to price history:', err);
-          reject(err);
-        } else {
-          console.log(`✅ Saved to price history: ${existingProduct.kod} - ${oldPrice}€ (${existingProduct.ilosc} szt.)`);
-          resolve(this.lastID);
-        }
-      }
-    );
-  });
-};
 
 // DUPLICATE price-history endpoint - REMOVED
 
@@ -4153,106 +3959,7 @@ app.post('/api/sheets', (req, res) => {
 
 
 
-// Функция для сохранения старой цены в историю
-const saveToPriceHistory = (existingProduct, oldPrice, oldDate) => {
-  console.log(`🔄 Attempting to save to price_history:`, {
-    kod: existingProduct.kod,
-    nazwa: existingProduct.nazwa,
-    cena: oldPrice,
-    data_zmiany: oldDate,
-    ilosc_fixed: existingProduct.ilosc
-  });
-  return new Promise((resolve, reject) => {
-    db.run(
-      'INSERT INTO price_history (kod, nazwa, cena, data_zmiany, ilosc_fixed) VALUES (?, ?, ?, ?, ?)',
-      [existingProduct.kod, existingProduct.nazwa, oldPrice, oldDate, existingProduct.ilosc],
-      function(err) {
-      if (err) {
-          console.error('❌ Error saving to price history:', err);
-          reject(err);
-        } else {
-          console.log(`✅ Saved old price to history: ${existingProduct.kod} - ${oldPrice}€ (${existingProduct.ilosc} szt.)`);
-          resolve(this.lastID);
-        }
-      }
-    );
-  });
-};
 
-// API для работы с price_history
-app.get('/api/price-history', (req, res) => {
-  console.log('📊 GET /api/price-history - Fetching price history');
-  db.all('SELECT * FROM price_history ORDER BY created_at DESC', (err, rows) => {
-        if (err) {
-      console.error('❌ Database error:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    console.log(`✅ Found ${rows.length} price history records`);
-    res.json(rows || []);
-  });
-});
-
-app.post('/api/price-history', (req, res) => {
-  console.log('📊 POST /api/price-history - Request body:', req.body);
-  let { kod, nazwa, cena, ilosc_fixed, created_at } = req.body;
-  if (!created_at) created_at = new Date().toISOString().substring(0,10);
-  
-  if (!kod || !nazwa || !cena) {
-    return res.status(400).json({ error: 'Kod, nazwa, and cena are required' });
-  }
-  
-  db.run(
-    'INSERT INTO price_history (kod, nazwa, cena, ilosc_fixed, created_at) VALUES (?, ?, ?, ?, ?)',
-    [kod, nazwa, cena, ilosc_fixed || 0, created_at],
-    function(err) {
-      if (err) {
-        console.error('Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      res.json({ id: this.lastID, message: 'Price history added successfully' });
-    }
-  );
-});
-
-// Endpoint для очистки таблицы price_history
-app.delete('/api/price-history', (req, res) => {
-  console.log('🗑️ DELETE /api/price-history - Clearing price history table');
-  
-  // Сначала проверим количество записей
-  db.get('SELECT COUNT(*) as count FROM price_history', (err, row) => {
-    if (err) {
-      console.error('❌ Error checking price_history table:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    
-    const count = row ? row.count : 0;
-    console.log(`📊 Found ${count} records in price_history table`);
-    
-    if (count === 0) {
-      console.log('💡 Table is already empty');
-      res.json({ message: 'Table is already empty', deletedCount: 0 });
-      return;
-    }
-    
-    // Очищаем таблицу
-    db.run('DELETE FROM price_history', function(err) {
-      if (err) {
-        console.error('❌ Error clearing price_history table:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      
-      console.log(`✅ Successfully deleted ${this.changes} records from price_history table`);
-      res.json({ 
-        message: 'Price history table cleared successfully', 
-        deletedCount: this.changes 
-      });
-    });
-  });
-});
 
 }); // Закрываем блок db.serialize
 
@@ -4269,12 +3976,12 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
   console.log('🚀 Production mode - test endpoints disabled');
 }
 
-// Serve static files from parent directory (frontend)
-app.use(express.static(path.join(__dirname, '..')));
+// Serve static files from current directory (frontend)
+app.use(express.static(__dirname));
 
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
 app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, '../index.html');
+  const indexPath = path.join(__dirname, 'index.html');
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
