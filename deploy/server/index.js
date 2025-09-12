@@ -1235,6 +1235,11 @@ app.post('/api/orders', (req, res) => {
           
           function checkCompletion() {
             if (productsCreated + productsFailed === products.length) {
+              if (res.headersSent) {
+                console.log('⚠️ Response already sent, skipping checkCompletion');
+                return;
+              }
+              
               if (productsFailed === 0) {
                 console.log(`✅ All ${productsCreated} products created successfully for order ${orderId}`);
                 console.log(`📊 Working sheets updated: ${workingSheetsUpdated} products`);
@@ -1394,6 +1399,11 @@ app.post('/api/returns', (req, res) => {
         
         function checkCompletion() {
           if (productsCreated + productsFailed === products.length) {
+            if (res.headersSent) {
+              console.log('⚠️ Response already sent, skipping checkCompletion');
+              return;
+            }
+            
             if (productsFailed > 0) {
               console.log(`⚠️ Return created with ${productsFailed} failed products`);
               res.status(207).json({ 
@@ -1648,9 +1658,9 @@ app.put('/api/orders/:id', (req, res) => {
         message: 'Order updated successfully - no product changes',
         operationsPerformed: 0
       });
-      return;
-    }
-    
+            return;
+          }
+          
     // Выполняем операции
     operationsToProcess.forEach(operation => {
       switch (operation.type) {
@@ -1967,6 +1977,11 @@ app.put('/api/orders/:id', (req, res) => {
     
     function checkCompletion() {
       if (productsProcessed === totalProducts) {
+        if (res.headersSent) {
+          console.log('⚠️ Response already sent, skipping checkCompletion');
+          return;
+        }
+        
         console.log(`✅ Order update complete: ${totalProducts} products processed`);
         res.json({ 
           message: 'Order updated successfully with smart FIFO updates',
@@ -3752,6 +3767,11 @@ app.post('/api/working-sheets/bulk-update', (req, res) => {
   
   function checkCompletion() {
     if (processedCount === updates.length) {
+      if (res.headersSent) {
+        console.log('⚠️ Response already sent, skipping checkCompletion');
+        return;
+      }
+      
       console.log(`🎉 Bulk update complete: ${successCount} successful, ${errorCount} failed`);
       res.json({ 
         message: 'Bulk update completed',
