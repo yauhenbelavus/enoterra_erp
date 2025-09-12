@@ -3976,12 +3976,12 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
   console.log('🚀 Production mode - test endpoints disabled');
 }
 
-// Serve static files from current directory (frontend)
-app.use(express.static(__dirname));
+// Serve static files from parent directory (frontend)
+app.use(express.static(path.join(__dirname, '..')));
 
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
 app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'index.html');
+  const indexPath = path.join(__dirname, '../index.html');
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
