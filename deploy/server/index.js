@@ -2743,7 +2743,6 @@ app.post('/api/product-receipts', upload.fields([
                   }
                 );
               });
-            ьа
             
             // Обновляем working_sheets
             console.log(`📝 Processing working_sheets for: ${product.kod}`);
