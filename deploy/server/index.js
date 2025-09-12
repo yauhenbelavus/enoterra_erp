@@ -1573,22 +1573,240 @@ app.put('/api/orders/:id', (req, res) => {
         
         console.log(`✅ Order ${id} updated successfully`);
         
-        // Удаляем старые продукты заказа
-        db.run('DELETE FROM order_products WHERE orderId = ?', [id], function(deleteErr) {
-          if (deleteErr) {
-            console.error('❌ Database error deleting old order products:', deleteErr);
-            res.status(500).json({ error: deleteErr.message });
-            return;
-          }
-          
-          console.log(`🗑️ Old order products deleted for order ${id}`);
-          
-          // Теперь обрабатываем изменения в количествах напрямую
-          processQuantityChanges(oldOrderProducts);
-        });
+        // Умное обновление продуктов заказа
+        smartUpdateOrderProducts(oldOrderProducts);
       }
     );
   });
+  
+  function smartUpdateOrderProducts(oldOrderProducts) {
+    console.log(`🧠 Smart update: processing ${products.length} new products against ${oldOrderProducts.length} existing products`);
+    
+    // Создаем карты для быстрого поиска
+    const oldProductsMap = {};
+    const newProductsMap = {};
+    
+    oldOrderProducts.forEach(product => {
+      const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
+      oldProductsMap[key] = product;
+    });
+    
+    products.forEach(product => {
+      const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
+      newProductsMap[key] = product;
+    });
+    
+    console.log(`🔍 Old products map:`, Object.keys(oldProductsMap));
+    console.log(`🔍 New products map:`, Object.keys(newProductsMap));
+    
+    let operationsCompleted = 0;
+    let totalOperations = 0;
+    
+    // Подсчитываем общее количество операций
+    const operationsToProcess = [];
+    
+    // 1. Обновляем существующие продукты
+    Object.keys(newProductsMap).forEach(key => {
+      const newProduct = newProductsMap[key];
+      const oldProduct = oldProductsMap[key];
+      
+      if (oldProduct) {
+        // Продукт существует - обновляем
+        operationsToProcess.push({
+          type: 'update',
+          oldProduct,
+          newProduct,
+          key
+        });
+      } else {
+        // Новый продукт - добавляем
+        operationsToProcess.push({
+          type: 'insert',
+          newProduct,
+          key
+        });
+      }
+    });
+    
+    // 2. Удаляем продукты, которых больше нет в новом списке
+    Object.keys(oldProductsMap).forEach(key => {
+      if (!newProductsMap[key]) {
+        operationsToProcess.push({
+          type: 'delete',
+          oldProduct: oldProductsMap[key],
+          key
+        });
+      }
+    });
+    
+    totalOperations = operationsToProcess.length;
+    console.log(`📊 Total operations to perform: ${totalOperations}`);
+    
+    if (totalOperations === 0) {
+      console.log(`💡 No changes needed`);
+      res.json({ 
+        message: 'Order updated successfully - no product changes',
+        operationsPerformed: 0
+      });
+      return;
+    }
+    
+    // Выполняем операции
+    operationsToProcess.forEach(operation => {
+      switch (operation.type) {
+        case 'update':
+          updateExistingProduct(operation.oldProduct, operation.newProduct, operation.key);
+          break;
+        case 'insert':
+          insertNewProduct(operation.newProduct, operation.key);
+          break;
+        case 'delete':
+          deleteUnusedProduct(operation.oldProduct, operation.key);
+          break;
+      }
+    });
+    
+    function updateExistingProduct(oldProduct, newProduct, key) {
+      const { kod, nazwa, ilosc, typ, kod_kreskowy } = newProduct;
+      const oldQuantity = Number(oldProduct.ilosc);
+      const newQuantity = Number(ilosc);
+      const quantityDiff = newQuantity - oldQuantity;
+      
+      console.log(`🔄 Updating existing product ${key}: ${oldQuantity} → ${newQuantity} (diff: ${quantityDiff})`);
+      
+      // Обновляем запись в order_products
+      db.run(
+        'UPDATE order_products SET ilosc = ?, nazwa = ?, kod_kreskowy = ? WHERE id = ?',
+        [ilosc, nazwa, kod_kreskowy || null, oldProduct.id],
+        function(err) {
+          if (err) {
+            console.error(`❌ Error updating product ${key}:`, err);
+          } else {
+            console.log(`✅ Updated product ${key} (ID: ${oldProduct.id})`);
+            
+            // Обрабатываем изменение количества
+            if (quantityDiff > 0) {
+              console.log(`📈 Quantity increased by ${quantityDiff}`);
+              processQuantityIncrease(kod, quantityDiff, () => {
+                operationCompleted();
+              });
+            } else if (quantityDiff < 0) {
+              console.log(`📉 Quantity decreased by ${Math.abs(quantityDiff)}`);
+              processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
+                operationCompleted();
+              });
+            } else {
+              console.log(`➡️ Quantity unchanged`);
+              operationCompleted();
+            }
+          }
+        }
+      );
+    }
+    
+    function insertNewProduct(newProduct, key) {
+      const { kod, nazwa, ilosc, typ, kod_kreskowy } = newProduct;
+      
+      console.log(`➕ Inserting new product ${key}: ${ilosc} units`);
+      
+      // Создаем новую запись в order_products
+      db.run(
+        'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy) VALUES (?, ?, ?, ?, ?, ?)',
+        [id, kod, nazwa, ilosc, typ || 'sprzedaz', kod_kreskowy || null],
+        function(err) {
+          if (err) {
+            console.error(`❌ Error inserting product ${key}:`, err);
+            operationCompleted();
+          } else {
+            console.log(`✅ Inserted new product ${key} (ID: ${this.lastID})`);
+            
+            // Списываем количество по FIFO
+            processQuantityIncrease(kod, Number(ilosc), () => {
+              operationCompleted();
+            });
+          }
+        }
+      );
+    }
+    
+    function deleteUnusedProduct(oldProduct, key) {
+      const { kod, ilosc } = oldProduct;
+      
+      console.log(`🗑️ Deleting unused product ${key}: ${ilosc} units`);
+      
+      // Проверяем, есть ли новый продукт с тем же кодом (замена типа)
+      const newProductWithSameCode = products.find(p => p.kod === kod && p.typ !== oldProduct.typ);
+      
+      if (newProductWithSameCode) {
+        // Это замена типа - обновляем order_consumptions вместо удаления
+        console.log(`🔄 Type replacement detected: ${oldProduct.typ} → ${newProductWithSameCode.typ}`);
+        
+        // Обновляем order_consumptions для связи с новым продуктом
+        db.run(
+          'UPDATE order_consumptions SET product_kod = ? WHERE order_id = ? AND product_kod = ?',
+          [kod, id, kod], // product_kod остается тем же, но связь обновляется
+          function(err) {
+            if (err) {
+              console.error(`❌ Error updating order_consumptions for ${key}:`, err);
+            } else {
+              console.log(`✅ Updated order_consumptions for type replacement ${key}`);
+            }
+            
+            // Удаляем старую запись из order_products
+            db.run(
+              'DELETE FROM order_products WHERE id = ?',
+              [oldProduct.id],
+              function(deleteErr) {
+                if (deleteErr) {
+                  console.error(`❌ Error deleting product ${key}:`, deleteErr);
+                  operationCompleted();
+                } else {
+                  console.log(`✅ Deleted old product ${key} (ID: ${oldProduct.id})`);
+                  
+                  // Восстанавливаем количество в working_sheets
+                  processQuantityDecrease(kod, Number(ilosc), () => {
+                    operationCompleted();
+                  });
+                }
+              }
+            );
+          }
+        );
+      } else {
+        // Обычное удаление продукта
+        db.run(
+          'DELETE FROM order_products WHERE id = ?',
+          [oldProduct.id],
+          function(err) {
+            if (err) {
+              console.error(`❌ Error deleting product ${key}:`, err);
+              operationCompleted();
+            } else {
+              console.log(`✅ Deleted unused product ${key} (ID: ${oldProduct.id})`);
+              
+              // Восстанавливаем количество в working_sheets
+              processQuantityDecrease(kod, Number(ilosc), () => {
+                operationCompleted();
+              });
+            }
+          }
+        );
+      }
+    }
+    
+    function operationCompleted() {
+      operationsCompleted++;
+      console.log(`📊 Operations completed: ${operationsCompleted}/${totalOperations}`);
+      
+      if (operationsCompleted === totalOperations) {
+        console.log(`✅ Smart update complete: ${totalOperations} operations performed`);
+        res.json({ 
+          message: 'Order updated successfully with smart product management',
+          operationsPerformed: totalOperations
+        });
+      }
+    }
+  }
   
   function processQuantityChanges(oldOrderProducts) {
     if (!products || products.length === 0) {
@@ -1650,25 +1868,50 @@ app.put('/api/orders/:id', (req, res) => {
             // Обрабатываем изменения в количестве
             console.log(`🔍 Processing quantity changes for ${kod}: quantityDiff = ${quantityDiff}`);
             
-            // Если продукт новый (не найден в старых), проверяем, не изменился ли тип
+            // Если продукт новый (не найден в старых), проверяем логику замены типа
             if (!oldProduct) {
               // Проверяем, есть ли продукт с таким же кодом, но другим типом
               const sameCodeProduct = oldOrderProducts.find(p => p.kod === kod && p.typ !== (typ || 'sprzedaz'));
               
               if (sameCodeProduct) {
-                // Тип изменился - восстанавливаем старый и списываем новый
-                console.log(`🔄 Type changed for ${kod}: ${sameCodeProduct.typ || 'sprzedaz'} → ${typ || 'sprzedaz'}`);
-                console.log(`📉 Restoring ${sameCodeProduct.ilosc} units from old type`);
-                console.log(`📈 Processing ${newQuantity} units for new type`);
+                // Это замена типа - анализируем, что происходит
+                const oldTypeQuantity = sameCodeProduct.ilosc;
+                const newTypeQuantity = newQuantity;
                 
-                // Восстанавливаем количество старого типа
-                processQuantityDecrease(kod, sameCodeProduct.ilosc, () => {
-                  // Списываем количество нового типа
-                  processQuantityIncrease(kod, newQuantity, () => {
+                console.log(`🔄 Type replacement detected for ${kod}: ${sameCodeProduct.typ || 'sprzedaz'} → ${typ || 'sprzedaz'}`);
+                console.log(`📊 Old type quantity: ${oldTypeQuantity}, New type quantity: ${newTypeQuantity}`);
+                
+                if (newTypeQuantity === 0) {
+                  // Новый тип с количеством 0 = удаление старого типа
+                  console.log(`🗑️ Removing old type ${sameCodeProduct.typ || 'sprzedaz'} (quantity: ${oldTypeQuantity})`);
+                  processQuantityDecrease(kod, oldTypeQuantity, () => {
                     productsProcessed++;
                     checkCompletion();
                   });
-                });
+                } else {
+                  // Замена типа с новым количеством
+                  const quantityDiff = newTypeQuantity - oldTypeQuantity;
+                  console.log(`📈 Type replacement: ${quantityDiff > 0 ? 'increase' : 'decrease'} by ${Math.abs(quantityDiff)}`);
+                  
+                  if (quantityDiff > 0) {
+                    // Новое количество больше - списываем разницу
+                    processQuantityIncrease(kod, quantityDiff, () => {
+                      productsProcessed++;
+                      checkCompletion();
+                    });
+                  } else if (quantityDiff < 0) {
+                    // Новое количество меньше - восстанавливаем разницу
+                    processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
+                      productsProcessed++;
+                      checkCompletion();
+                    });
+                  } else {
+                    // Количество одинаковое - только замена типа
+                    console.log(`🔄 Type changed, quantity unchanged`);
+                    productsProcessed++;
+                    checkCompletion();
+                  }
+                }
               } else {
                 // Действительно новый продукт
                 console.log(`➕ New product ${kod}: processing ${newQuantity} units`);
@@ -2500,7 +2743,7 @@ app.post('/api/product-receipts', upload.fields([
                   }
                 );
               });
-            
+            ьа
             
             // Обновляем working_sheets
             console.log(`📝 Processing working_sheets for: ${product.kod}`);
