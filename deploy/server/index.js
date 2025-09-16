@@ -1592,22 +1592,28 @@ app.put('/api/orders/:id', (req, res) => {
   function smartUpdateOrderProducts(oldOrderProducts) {
     console.log(`🧠 Smart update: processing ${products.length} new products against ${oldOrderProducts.length} existing products`);
     
-    // Создаем карты для быстрого поиска
+    // Создаем карты для быстрого поиска - используем массивы для каждого ключа
     const oldProductsMap = {};
     const newProductsMap = {};
     
     oldOrderProducts.forEach(product => {
       const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
-      oldProductsMap[key] = product;
+      if (!oldProductsMap[key]) {
+        oldProductsMap[key] = [];
+      }
+      oldProductsMap[key].push(product);
     });
     
     products.forEach(product => {
       const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
-      newProductsMap[key] = product;
+      if (!newProductsMap[key]) {
+        newProductsMap[key] = [];
+      }
+      newProductsMap[key].push(product);
     });
     
-    console.log(`🔍 Old products map:`, Object.keys(oldProductsMap));
-    console.log(`🔍 New products map:`, Object.keys(newProductsMap));
+    console.log(`🔍 Old products map:`, Object.keys(oldProductsMap).map(k => `${k}: ${oldProductsMap[k].length} items`));
+    console.log(`🔍 New products map:`, Object.keys(newProductsMap).map(k => `${k}: ${newProductsMap[k].length} items`));
     
     let operationsCompleted = 0;
     let totalOperations = 0;
@@ -1615,36 +1621,53 @@ app.put('/api/orders/:id', (req, res) => {
     // Подсчитываем общее количество операций
     const operationsToProcess = [];
     
-    // 1. Обновляем существующие продукты
+    // 1. Обрабатываем все комбинации старых и новых продуктов
     Object.keys(newProductsMap).forEach(key => {
-      const newProduct = newProductsMap[key];
-      const oldProduct = oldProductsMap[key];
+      const newProducts = newProductsMap[key];
+      const oldProducts = oldProductsMap[key] || [];
       
-      if (oldProduct) {
-        // Продукт существует - обновляем
-        operationsToProcess.push({
-          type: 'update',
-          oldProduct,
-          newProduct,
-          key
-        });
-      } else {
-        // Новый продукт - добавляем
-        operationsToProcess.push({
-          type: 'insert',
-          newProduct,
-          key
-        });
+      // Сопоставляем старые и новые продукты по порядку
+      const maxLength = Math.max(newProducts.length, oldProducts.length);
+      
+      for (let i = 0; i < maxLength; i++) {
+        const newProduct = newProducts[i];
+        const oldProduct = oldProducts[i];
+        
+        if (oldProduct && newProduct) {
+          // Продукт существует - обновляем
+          operationsToProcess.push({
+            type: 'update',
+            oldProduct,
+            newProduct,
+            key: `${key}_${i}`
+          });
+        } else if (newProduct && !oldProduct) {
+          // Новый продукт - добавляем
+          operationsToProcess.push({
+            type: 'insert',
+            newProduct,
+            key: `${key}_${i}`
+          });
+        } else if (oldProduct && !newProduct) {
+          // Старый продукт больше не нужен - удаляем
+          operationsToProcess.push({
+            type: 'delete',
+            oldProduct,
+            key: `${key}_${i}`
+          });
+        }
       }
     });
     
-    // 2. Удаляем продукты, которых больше нет в новом списке
+    // 2. Удаляем продукты, которых больше нет в новом списке (для ключей, которых нет в newProductsMap)
     Object.keys(oldProductsMap).forEach(key => {
       if (!newProductsMap[key]) {
-        operationsToProcess.push({
-          type: 'delete',
-          oldProduct: oldProductsMap[key],
-          key
+        oldProductsMap[key].forEach((oldProduct, index) => {
+          operationsToProcess.push({
+            type: 'delete',
+            oldProduct,
+            key: `${key}_${index}`
+          });
         });
       }
     });
