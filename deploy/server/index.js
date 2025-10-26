@@ -176,6 +176,9 @@ db.serialize(() => {
     data DATE,
     archived INTEGER DEFAULT 0,
     archived_at TIMESTAMP,
+    koszt_dostawy_per_unit REAL DEFAULT 0,
+    podatek_akcyzowy REAL DEFAULT 0,
+    koszt_wlasny REAL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
     if (err) {
@@ -192,6 +195,8 @@ db.serialize(() => {
     sprzedawca TEXT,
     wartosc REAL DEFAULT 0,
     kosztDostawy REAL DEFAULT 0,
+    aktualny_kurs REAL DEFAULT 1,
+    podatek_akcyzowy REAL DEFAULT 0,
     products TEXT, -- JSON массив товаров
     productInvoice TEXT,
     transportInvoice TEXT,
@@ -2660,7 +2665,7 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -2672,6 +2677,8 @@ app.post('/api/product-receipts', upload.fields([
       wartosc = jsonData.wartosc;
       kosztDostawy = jsonData.kosztDostawy;
       products = jsonData.products;
+      aktualnyKurs = jsonData.aktualnyKurs;
+      podatekAkcyzowy = jsonData.podatekAkcyzowy;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed:', { productInvoice, transportInvoice });
@@ -2686,6 +2693,8 @@ app.post('/api/product-receipts', upload.fields([
     wartosc = req.body.wartosc;
     kosztDostawy = req.body.kosztDostawy;
     products = req.body.products;
+    aktualnyKurs = req.body.aktualnyKurs;
+    podatekAkcyzowy = req.body.podatekAkcyzowy;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
@@ -2694,7 +2703,9 @@ app.post('/api/product-receipts', upload.fields([
     date, 
     sprzedawca, 
     wartosc, 
-    productsCount: products?.length || 0 
+    productsCount: products?.length || 0,
+    aktualnyKurs,
+    podatekAkcyzowy
   });
   
   if (!date || !products || !Array.isArray(products)) {
@@ -2712,9 +2723,18 @@ app.post('/api/product-receipts', upload.fields([
     return res.status(400).json({ error: 'Duplicate products found in receipt' });
   }
   
+  // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
+  const totalBottles = products.reduce((total, product) => total + (product.ilosc || 0), 0);
+  const kurs = aktualnyKurs || 1;
+  const kosztDostawyPerUnit = totalBottles > 0 ? ((kosztDostawy || 0) / totalBottles) * kurs : 0;
+  
+  console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
+  console.log(`📊 Podatek akcyzowy input: ${podatekAkcyzowy}`);
+  console.log(`📊 Aktualny kurs input: ${aktualnyKurs}`);
+  
   db.run(
-    'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, JSON.stringify(products), productInvoice || null, transportInvoice || null],
+    'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, products, productInvoice, transportInvoice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), JSON.stringify(products), productInvoice || null, transportInvoice || null],
     function(err) {
       if (err) {
         console.error('❌ Database error:', err);
@@ -2793,7 +2813,7 @@ app.post('/api/product-receipts', upload.fields([
                 }
                 
                 if (existingProduct) {
-                  // Если товар существует - обновляем количество и цену
+                  // Если товар существует - сохраняем снимок ДО изменений, затем обновляем
                   console.log(`📝 Updating existing product: ${product.kod}`);
                   
                   const oldPrice = existingProduct.cena || 0;
@@ -2801,13 +2821,53 @@ app.post('/api/product-receipts', upload.fields([
                   
                   console.log(`💰 Price for ${product.kod}: oldPrice=${oldPrice}, newPrice=${newPrice}`);
                   
-                  // Обновляем working_sheets
+                  // 1. Сначала сохраняем снимок ДО изменений в working_sheets_history
+                  console.log(`📸 Saving snapshot BEFORE changes for ${product.kod}`);
+                  db.run(
+                    `INSERT INTO working_sheets_history 
+                     (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
+                     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
+                            'before_receipt', ?
+                     FROM working_sheets WHERE kod = ?`,
+                    [receiptId, product.kod],
+                    function(err) {
+                      if (err) {
+                        console.error(`❌ Error saving snapshot for ${product.kod}:`, err);
+                        reject(err);
+                        return;
+                      }
+                      console.log(`✅ Snapshot saved for ${product.kod} (receipt_id: ${receiptId})`);
+                      
+                      // 2. Затем обновляем working_sheets
+                      console.log(`📝 Updating working_sheets for ${product.kod}`);
                     db.run(
                       `UPDATE working_sheets SET 
                         ilosc = ilosc + ?, 
-                        cena = ? 
+                          nazwa = ?,
+                          kod_kreskowy = ?,
+                          typ = ?,
+                          sprzedawca = ?,
+                          cena = ?,
+                          data_waznosci = ?,
+                          objetosc = ?,
+                          koszt_dostawy_per_unit = ?,
+                          podatek_akcyzowy = ?,
+                          koszt_wlasny = ?
                       WHERE kod = ?`,
-                      [product.ilosc, newPrice, product.kod],
+                        [
+                          product.ilosc, 
+                          product.nazwa,
+                          product.kod_kreskowy || null,
+                          product.typ || null,
+                          sprzedawca || null,
+                          newPrice,
+                          product.dataWaznosci || null,
+                          product.objetosc || null,
+                          kosztDostawyPerUnit,
+                          (podatekAkcyzowy || 0) * (parseFloat(product.objetosc) || 1),
+                          newPrice * kurs + kosztDostawyPerUnit + ((podatekAkcyzowy || 0) * (parseFloat(product.objetosc) || 1)),
+                          product.kod
+                        ],
                       function(err) {
                         if (err) {
                           console.error('❌ Error updating working_sheets:', err);
@@ -2815,16 +2875,19 @@ app.post('/api/product-receipts', upload.fields([
                         } else {
                         console.log(`✅ Updated working_sheets: ${product.kod}`);
                           workingSheetsUpdated++;
-                        
                           resolve();
                         }
                       }
                     );
+                    }); // Закрываем функцию сохранения снимка
                   } else {
                   // Если товара нет - создаем новую запись в working_sheets
                   console.log(`➕ Creating new product: ${product.kod}`);
+                  const podatekValue = (podatekAkcyzowy || 0) * (parseFloat(product.objetosc) || 1);
+                  const kosztWlasnyValue = (product.cena || 0) * kurs + kosztDostawyPerUnit + podatekValue;
+                  console.log(`📊 Product ${product.kod}: cena=${product.cena}, kurs=${kurs}, kosztDostawyPerUnit=${kosztDostawyPerUnit}, podatekValue=${podatekValue}, kosztWlasnyValue=${kosztWlasnyValue}`);
                   db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
                       product.kod, 
                       product.nazwa, 
@@ -2834,7 +2897,10 @@ app.post('/api/product-receipts', upload.fields([
                       sprzedawca || null, 
                       product.cena || 0,
                       product.dataWaznosci || null,
-                      product.objetosc || null
+                      product.objetosc || null,
+                      kosztDostawyPerUnit,
+                      podatekValue,
+                      kosztWlasnyValue
                     ],
                     function(err) {
                       if (err) {
@@ -2930,7 +2996,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoiceFile: req.files?.transportInvoice
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -2942,6 +3008,8 @@ app.put('/api/product-receipts/:id', upload.fields([
       wartosc = jsonData.wartosc;
       kosztDostawy = jsonData.kosztDostawy;
       products = jsonData.products;
+      aktualnyKurs = jsonData.aktualnyKurs;
+      podatekAkcyzowy = jsonData.podatekAkcyzowy;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed (PUT):', { productInvoice, transportInvoice });
@@ -2956,6 +3024,8 @@ app.put('/api/product-receipts/:id', upload.fields([
     wartosc = req.body.wartosc;
     kosztDostawy = req.body.kosztDostawy;
     products = req.body.products;
+    aktualnyKurs = req.body.aktualnyKurs;
+    podatekAkcyzowy = req.body.podatekAkcyzowy;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
@@ -3001,9 +3071,12 @@ app.put('/api/product-receipts/:id', upload.fields([
       oldTransportInvoice: oldReceipt.transportInvoice
     });
     
+    // Вычисляем курс для обновления записи
+    const kurs = aktualnyKurs || 1;
+    
     db.run(
-      'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, products = ?, productInvoice = ?, transportInvoice = ? WHERE id = ?',
-      [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, JSON.stringify(products), finalProductInvoice, finalTransportInvoice, id],
+      'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, products = ?, productInvoice = ?, transportInvoice = ? WHERE id = ?',
+      [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (podatekAkcyzowy || 0), JSON.stringify(products), finalProductInvoice, finalTransportInvoice, id],
       function(err) {
         if (err) {
           console.error('❌ Database error:', err);
@@ -3023,6 +3096,12 @@ app.put('/api/product-receipts/:id', upload.fields([
         // Функция для последовательной обработки товаров
         const processProductsSequentially = async () => {
           try {
+            // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
+            const totalBottles = products.reduce((total, product) => total + (product.ilosc || 0), 0);
+            const kosztDostawyPerUnit = totalBottles > 0 ? ((kosztDostawy || 0) / totalBottles) * kurs : 0;
+            
+            console.log(`💰 Delivery cost calculation (PUT): ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
+            
             // Шаг 1: Удаляем старые записи продуктов из редактируемой приемки
             console.log('🔄 Step 1: Removing old product records from edited receipt...');
             console.log(`📋 Old products to remove: ${oldProducts.map(p => p.kod).join(', ')}`);
@@ -3200,12 +3279,29 @@ app.put('/api/product-receipts/:id', upload.fields([
                       }
                       
                       if (workingSheetRecord) {
+                        // Сначала сохраняем снимок ДО изменений (если это редактирование существующей приемки)
+                        console.log(`📸 Saving snapshot BEFORE changes for ${productCode} (receipt_id: ${id})`);
+                        db.run(
+                          `INSERT INTO working_sheets_history 
+                           (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
+                           SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
+                                  'before_receipt', ?
+                           FROM working_sheets WHERE kod = ?`,
+                          [id, productCode],
+                          function(snapshotErr) {
+                            if (snapshotErr) {
+                              console.error(`❌ Error saving snapshot for ${productCode}:`, snapshotErr);
+                              // Продолжаем выполнение даже если снимок не сохранился
+                            } else {
+                              console.log(`✅ Snapshot saved for ${productCode} (receipt_id: ${id})`);
+                            }
+                            
                         // Обновляем существующую запись
                         console.log(`📝 Updating existing working_sheets record for ${productCode}`);
                         db.run(
                           `UPDATE working_sheets SET 
                             nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, 
-                            sprzedawca = ?, cena = ?, data_waznosci = ?, objetosc = ?
+                                sprzedawca = ?, cena = ?, data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ?
                           WHERE kod = ?`,
                           [
                             sourceProduct.nazwa,
@@ -3216,6 +3312,14 @@ app.put('/api/product-receipts/:id', upload.fields([
                             sourceProduct.cena || 0,
                             sourceProduct.dataWaznosci || null,
                             sourceProduct.objetosc || null,
+                                kosztDostawyPerUnit,
+                                (podatekAkcyzowy || 0) > 0 ? 
+                                  (podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1) : 
+                                  workingSheetRecord.podatek_akcyzowy || 0,
+                                (sourceProduct.cena || 0) * kurs + kosztDostawyPerUnit + 
+                                ((podatekAkcyzowy || 0) > 0 ? 
+                                  (podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1) : 
+                                  workingSheetRecord.podatek_akcyzowy || 0),
                             productCode
                           ],
                           function(err) {
@@ -3229,12 +3333,13 @@ app.put('/api/product-receipts/:id', upload.fields([
                             }
                           }
                         );
+                          }); // Закрываем функцию сохранения снимка
                       } else {
                         // Создаем новую запись (если товар был удален, но потом добавлен обратно)
                         console.log(`➕ Creating new working_sheets record for ${productCode}`);
                         db.run(
-                          `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc) 
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                          `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                           [
                             productCode,
                             sourceProduct.nazwa,
@@ -3244,7 +3349,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                             sprzedawca || null,
                             sourceProduct.cena || 0,
                             sourceProduct.dataWaznosci || null,
-                            sourceProduct.objetosc || null
+                            sourceProduct.objetosc || null,
+                            kosztDostawyPerUnit,
+                            (podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1),
+                            (sourceProduct.cena || 0) * kurs + kosztDostawyPerUnit + ((podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1))
                           ],
                           function(err) {
                             if (err) {
@@ -3374,11 +3482,76 @@ app.delete('/api/product-receipts/:id', (req, res) => {
 
                 const leftReceipts = cntRow.cnt || 0;
                 if (leftReceipts === 0) {
-                  // удалить строку из working_sheets
+                  // Ищем снимок ДО этой приемки в working_sheets_history
+                  console.log(`🔍 Looking for snapshot before receipt ${id} for product ${product.kod}`);
+                  db.get(
+                    `SELECT * FROM working_sheets_history 
+                     WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
+                     ORDER BY created_at DESC LIMIT 1`,
+                    [product.kod, id],
+                    (snapshotErr, snapshot) => {
+                      if (snapshotErr) {
+                        console.error(`❌ Error finding snapshot for ${product.kod}:`, snapshotErr);
+                        finalize();
+                        return;
+                      }
+                      
+                      if (snapshot) {
+                        // Восстанавливаем данные из снимка ДО приемки
+                        console.log(`🔄 Restoring ${product.kod} from snapshot (receipt_id: ${id})`);
+                        db.run(
+                          `UPDATE working_sheets SET 
+                            nazwa = ?,
+                            ilosc = ?,
+                            kod_kreskowy = ?,
+                            typ = ?,
+                            sprzedawca = ?,
+                            cena = ?,
+                            data_waznosci = ?,
+                            objetosc = ?,
+                            koszt_dostawy_per_unit = ?
+                          WHERE kod = ?`,
+                          [
+                            snapshot.nazwa,
+                            snapshot.ilosc,
+                            snapshot.kod_kreskowy,
+                            snapshot.typ,
+                            snapshot.sprzedawca,
+                            snapshot.cena,
+                            snapshot.data_waznosci,
+                            snapshot.objetosc,
+                            snapshot.koszt_dostawy_per_unit,
+                            product.kod
+                          ],
+                          function(restoreErr) {
+                            if (restoreErr) {
+                              console.error(`❌ Error restoring ${product.kod}:`, restoreErr);
+                            } else {
+                              console.log(`✅ Restored ${product.kod} to state before receipt ${id}`);
+                              wsUpdated++;
+                            }
+                            
+                            // Удаляем снимок из истории
+                            db.run('DELETE FROM working_sheets_history WHERE receipt_id = ?', [id], (historyErr) => {
+                              if (historyErr) {
+                                console.error(`❌ Error deleting history for receipt ${id}:`, historyErr);
+                              } else {
+                                console.log(`🗑️ Deleted history records for receipt ${id}`);
+                              }
+                              finalize();
+                            });
+                          }
+                        );
+                      } else {
+                        // Снимка нет - товар был создан из приемки, удаляем
+                        console.log(`🗑️ No snapshot found for ${product.kod}, deleting from working_sheets`);
                   db.run('DELETE FROM working_sheets WHERE kod = ?', [product.kod], function (delErr) {
                     if (!delErr) wsDeleted++;
                     finalize();
               });
+                      }
+                    }
+                  );
             } else {
                   // пересчитать количество (и цену)
                   db.get('SELECT SUM(ilosc) as total_ilosc, cena FROM products WHERE kod = ? ORDER BY id DESC LIMIT 1', [product.kod], (sumErr, sumRow) => {
@@ -3594,6 +3767,28 @@ app.put('/api/working-sheets/update', (req, res) => {
         
         console.log(`✅ Working sheet ${id} updated successfully`);
         console.log(`📊 Changes: kod=${kod || existingRecord.kod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
+        
+        // Если изменилась цена, обновляем её в products для записей с receipt_id = NULL
+        const updatedCena = cena || existingRecord.cena;
+        if (cena && cena !== existingRecord.cena) {
+          const productKod = kod || existingRecord.kod;
+          console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena} → ${cena}`);
+          console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
+          
+          db.run(
+            'UPDATE products SET cena = ? WHERE kod = ? AND receipt_id IS NULL',
+            [cena, productKod],
+            function(updateErr) {
+              if (updateErr) {
+                console.error(`❌ Error updating products table:`, updateErr);
+              } else if (this.changes > 0) {
+                console.log(`✅ Updated ${this.changes} record(s) in products table`);
+              } else {
+                console.log(`ℹ️ No records with receipt_id = NULL found in products for ${productKod}`);
+              }
+            }
+          );
+        }
         
         res.json({ 
           message: 'Working sheet updated successfully',
@@ -4270,6 +4465,59 @@ app.get('*', (req, res) => {
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
+
+// Migration endpoint (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/migrate/add-working-sheets-history', (req, res) => {
+    console.log('🔄 Starting migration: Add working_sheets_history table...');
+    
+    const createHistoryTable = `
+      CREATE TABLE IF NOT EXISTS working_sheets_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kod TEXT NOT NULL,
+        nazwa TEXT,
+        ilosc INTEGER,
+        kod_kreskowy TEXT,
+        typ TEXT,
+        sprzedawca TEXT,
+        cena REAL,
+        data_waznosci TEXT,
+        objetosc REAL,
+        koszt_dostawy_per_unit REAL DEFAULT 0,
+        podatek_akcyzowy REAL DEFAULT 0,
+        koszt_wlasny REAL DEFAULT 0,
+        action TEXT NOT NULL,
+        receipt_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (receipt_id) REFERENCES product_receipts (id)
+      );
+    `;
+    
+    db.run(createHistoryTable, (err) => {
+      if (err) {
+        console.error('❌ Error creating working_sheets_history table:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Создаем индексы
+      const createIndexes = `
+        CREATE INDEX IF NOT EXISTS idx_working_sheets_history_kod ON working_sheets_history(kod);
+        CREATE INDEX IF NOT EXISTS idx_working_sheets_history_receipt_id ON working_sheets_history(receipt_id);
+        CREATE INDEX IF NOT EXISTS idx_working_sheets_history_action ON working_sheets_history(action);
+      `;
+      
+      db.run(createIndexes, (err) => {
+        if (err) {
+          console.error('❌ Error creating indexes:', err.message);
+          return res.status(500).json({ error: err.message });
+        }
+        
+        console.log('✅ Migration completed successfully!');
+        res.json({ message: 'Migration completed successfully' });
+      });
+    });
+  });
+}
 
 // Start server
 const PORT = process.env.PORT || 3001;
