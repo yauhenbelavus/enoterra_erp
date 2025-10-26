@@ -3456,7 +3456,7 @@ app.delete('/api/product-receipts/:id', (req, res) => {
           let wsUpdated = 0;
 
           if (products.length === 0) {
-            return res.json({ message: 'Receipt deleted (empty)', workingSheetsDeleted: 0, workingSheetsUpdated: 0, priceHistoryDeleted: phDeleted });
+            return res.json({ message: 'Receipt deleted (empty)', workingSheetsDeleted: 0, workingSheetsUpdated: 0, priceHistoryDeleted: 0 });
           }
 
           products.forEach(product => {
@@ -3571,7 +3571,7 @@ app.delete('/api/product-receipts/:id', (req, res) => {
           function finalize() {
             processedWS++;
             if (processedWS === products.length) {
-              res.json({ message: 'Product receipt deleted successfully', workingSheetsDeleted: wsDeleted, workingSheetsUpdated: wsUpdated, priceHistoryDeleted: phDeleted });
+              res.json({ message: 'Product receipt deleted successfully', workingSheetsDeleted: wsDeleted, workingSheetsUpdated: wsUpdated, priceHistoryDeleted: 0 });
           }
         }
       });
