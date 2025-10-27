@@ -2726,7 +2726,7 @@ app.post('/api/product-receipts', upload.fields([
   // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
   const totalBottles = products.reduce((total, product) => total + (product.ilosc || 0), 0);
   const kurs = aktualnyKurs || 1;
-  const kosztDostawyPerUnit = totalBottles > 0 ? ((kosztDostawy || 0) / totalBottles) * kurs : 0;
+  const kosztDostawyPerUnit = totalBottles > 0 ? parseFloat((((kosztDostawy || 0) / totalBottles) * kurs).toFixed(2)) : 0;
   
   console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
   console.log(`📊 Podatek akcyzowy input: ${podatekAkcyzowy}`);
@@ -2840,6 +2840,26 @@ app.post('/api/product-receipts', upload.fields([
                       
                       // 2. Затем обновляем working_sheets
                       console.log(`📝 Updating working_sheets for ${product.kod}`);
+                      
+                      const cenaValue = parseFloat(newPrice) || 0;
+                      const objetoscValue = parseFloat(product.objetosc) || 1;
+                      const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
+                      
+                      // Для bezalkoholowe и ferment податок всегда 0
+                      const isBezalkoholoweOrFermentUpd = product.typ === 'bezalkoholowe' || product.typ === 'ferment';
+                      console.log(`🔍 UPDATE type check for ${product.kod}: typ="${product.typ}", isBezalkoholoweOrFermentUpd=${isBezalkoholoweOrFermentUpd}`);
+                      const podatekValueUpd = isBezalkoholoweOrFermentUpd ? 0 :
+                        (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                      const kosztWlasnyValueUpd = parseFloat((cenaValue * kurs + kosztDostawyPerUnit + podatekValueUpd).toFixed(2));
+                      
+                      console.log(`📊 UPDATE ${product.kod}:`);
+                      console.log(`  - newPrice: ${newPrice} → ${cenaValue}`);
+                      console.log(`  - objetosc: ${product.objetosc} → ${objetoscValue}`);
+                      console.log(`  - podatekAkcyzowy: ${podatekAkcyzowy} → ${podatekAkcyzowyValue}`);
+                      console.log(`  - kosztDostawyPerUnit: ${kosztDostawyPerUnit}`);
+                      console.log(`  - podatekValueUpd: ${podatekValueUpd} (forced to 0: ${isBezalkoholoweOrFermentUpd})`);
+                      console.log(`  - kosztWlasnyValueUpd: ${kosztWlasnyValueUpd}`);
+                      
                     db.run(
                       `UPDATE working_sheets SET 
                         ilosc = ilosc + ?, 
@@ -2860,12 +2880,12 @@ app.post('/api/product-receipts', upload.fields([
                           product.kod_kreskowy || null,
                           product.typ || null,
                           sprzedawca || null,
-                          newPrice,
+                          cenaValue,
                           product.dataWaznosci || null,
                           product.objetosc || null,
-                          kosztDostawyPerUnit,
-                          (podatekAkcyzowy || 0) * (parseFloat(product.objetosc) || 1),
-                          newPrice * kurs + kosztDostawyPerUnit + ((podatekAkcyzowy || 0) * (parseFloat(product.objetosc) || 1)),
+                          kosztDostawyPerUnit || 0,
+                          podatekValueUpd || 0,
+                          kosztWlasnyValueUpd || 0,
                           product.kod
                         ],
                       function(err) {
@@ -2883,9 +2903,36 @@ app.post('/api/product-receipts', upload.fields([
                   } else {
                   // Если товара нет - создаем новую запись в working_sheets
                   console.log(`➕ Creating new product: ${product.kod}`);
-                  const podatekValue = (podatekAkcyzowy || 0) * (parseFloat(product.objetosc) || 1);
-                  const kosztWlasnyValue = (product.cena || 0) * kurs + kosztDostawyPerUnit + podatekValue;
-                  console.log(`📊 Product ${product.kod}: cena=${product.cena}, kurs=${kurs}, kosztDostawyPerUnit=${kosztDostawyPerUnit}, podatekValue=${podatekValue}, kosztWlasnyValue=${kosztWlasnyValue}`);
+                  const cenaValue = parseFloat(product.cena) || 0;
+                  const objetoscValue = parseFloat(product.objetosc) || 1;
+                  const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
+                  
+                  // Для bezalkoholowe и ferment податок всегда 0
+                  const isBezalkoholoweOrFerment = product.typ === 'bezalkoholowe' || product.typ === 'ferment';
+                  console.log(`🔍 Product type check for ${product.kod}: typ="${product.typ}", isBezalkoholoweOrFerment=${isBezalkoholoweOrFerment}`);
+                  const podatekValue = isBezalkoholoweOrFerment ? 0 : 
+                    (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                  const kosztWlasnyValue = parseFloat((cenaValue * kurs + kosztDostawyPerUnit + podatekValue).toFixed(2));
+                  console.log(`💰 Final podatekValue for ${product.kod}: ${podatekValue} (forced to 0: ${isBezalkoholoweOrFerment})`);
+                  
+                  console.log(`📊 Product ${product.kod}:`);
+                  console.log(`  - cena: ${product.cena} → ${cenaValue}`);
+                  console.log(`  - objetosc: ${product.objetosc} → ${objetoscValue}`);
+                  console.log(`  - podatekAkcyzowy: ${podatekAkcyzowy} → ${podatekAkcyzowyValue}`);
+                  console.log(`  - kurs: ${kurs}`);
+                  console.log(`  - kosztDostawyPerUnit: ${kosztDostawyPerUnit}`);
+                  console.log(`  - podatekValue: ${podatekValue}`);
+                  console.log(`  - kosztWlasnyValue: ${kosztWlasnyValue}`);
+                  
+                  const finalKosztDostawy = kosztDostawyPerUnit || 0;
+                  const finalPodatek = podatekValue || 0;
+                  const finalKosztWlasny = kosztWlasnyValue || 0;
+                  
+                  console.log(`🔍 FINAL VALUES for SQL INSERT:`);
+                  console.log(`  - koszt_dostawy_per_unit: ${finalKosztDostawy} (type: ${typeof finalKosztDostawy})`);
+                  console.log(`  - podatek_akcyzowy: ${finalPodatek} (type: ${typeof finalPodatek})`);
+                  console.log(`  - koszt_wlasny: ${finalKosztWlasny} (type: ${typeof finalKosztWlasny})`);
+                  
                   db.run(
                     'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
@@ -2895,12 +2942,12 @@ app.post('/api/product-receipts', upload.fields([
                       product.kod_kreskowy || null, 
                       product.typ || null, 
                       sprzedawca || null, 
-                      product.cena || 0,
+                      cenaValue,
                       product.dataWaznosci || null,
                       product.objetosc || null,
-                      kosztDostawyPerUnit,
-                      podatekValue,
-                      kosztWlasnyValue
+                      finalKosztDostawy,
+                      finalPodatek,
+                      finalKosztWlasny
                     ],
                     function(err) {
                       if (err) {
@@ -3298,6 +3345,20 @@ app.put('/api/product-receipts/:id', upload.fields([
                             
                         // Обновляем существующую запись
                         console.log(`📝 Updating existing working_sheets record for ${productCode}`);
+                        
+                        const cenaValueEdit = parseFloat(sourceProduct.cena) || 0;
+                        const objetoscValueEdit = parseFloat(sourceProduct.objetosc) || 1;
+                        const podatekAkcyzowyValueEdit = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
+                        const kosztDostawyPerUnitEdit = parseFloat((((kosztDostawy || 0) / (products.reduce((t, p) => t + (p.ilosc || 0), 0) || 1)) * kurs).toFixed(2));
+                        
+                        // Для bezalkoholowe и ferment податок всегда 0
+                        const isBezalkoholoweOrFermentEdit = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment';
+                        const podatekValueEdit = isBezalkoholoweOrFermentEdit ? 0 :
+                          (podatekAkcyzowyValueEdit === 0 ? 0 : parseFloat((podatekAkcyzowyValueEdit * objetoscValueEdit).toFixed(2)));
+                        const kosztWlasnyValueEdit = parseFloat((cenaValueEdit * kurs + kosztDostawyPerUnitEdit + podatekValueEdit).toFixed(2));
+                        
+                        console.log(`📊 UPDATE EDIT ${productCode}: podatek=${podatekValueEdit}, koszt_wlasny=${kosztWlasnyValueEdit}`);
+                        
                         db.run(
                           `UPDATE working_sheets SET 
                             nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, 
@@ -3309,17 +3370,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                             sourceProduct.kod_kreskowy || null,
                             sourceProduct.typ || null,
                             sprzedawca || null,
-                            sourceProduct.cena || 0,
+                            cenaValueEdit,
                             sourceProduct.dataWaznosci || null,
                             sourceProduct.objetosc || null,
-                                kosztDostawyPerUnit,
-                                (podatekAkcyzowy || 0) > 0 ? 
-                                  (podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1) : 
-                                  workingSheetRecord.podatek_akcyzowy || 0,
-                                (sourceProduct.cena || 0) * kurs + kosztDostawyPerUnit + 
-                                ((podatekAkcyzowy || 0) > 0 ? 
-                                  (podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1) : 
-                                  workingSheetRecord.podatek_akcyzowy || 0),
+                            kosztDostawyPerUnitEdit,
+                            podatekValueEdit,
+                            kosztWlasnyValueEdit,
                             productCode
                           ],
                           function(err) {
@@ -3337,6 +3393,20 @@ app.put('/api/product-receipts/:id', upload.fields([
                       } else {
                         // Создаем новую запись (если товар был удален, но потом добавлен обратно)
                         console.log(`➕ Creating new working_sheets record for ${productCode}`);
+                        
+                        const cenaValueEditIns = parseFloat(sourceProduct.cena) || 0;
+                        const objetoscValueEditIns = parseFloat(sourceProduct.objetosc) || 1;
+                        const podatekAkcyzowyValueEditIns = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
+                        const kosztDostawyPerUnitEditIns = parseFloat((((kosztDostawy || 0) / (products.reduce((t, p) => t + (p.ilosc || 0), 0) || 1)) * kurs).toFixed(2));
+                        
+                        // Для bezalkoholowe и ferment податок всегда 0
+                        const isBezalkoholoweOrFermentEditIns = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment';
+                        const podatekValueEditIns = isBezalkoholoweOrFermentEditIns ? 0 :
+                          (podatekAkcyzowyValueEditIns === 0 ? 0 : parseFloat((podatekAkcyzowyValueEditIns * objetoscValueEditIns).toFixed(2)));
+                        const kosztWlasnyValueEditIns = parseFloat((cenaValueEditIns * kurs + kosztDostawyPerUnitEditIns + podatekValueEditIns).toFixed(2));
+                        
+                        console.log(`📊 INSERT EDIT ${productCode}: podatek=${podatekValueEditIns}, koszt_wlasny=${kosztWlasnyValueEditIns}`);
+                        
                         db.run(
                           `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) 
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -3347,12 +3417,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                             sourceProduct.kod_kreskowy || null,
                             sourceProduct.typ || null,
                             sprzedawca || null,
-                            sourceProduct.cena || 0,
+                            cenaValueEditIns,
                             sourceProduct.dataWaznosci || null,
                             sourceProduct.objetosc || null,
-                            kosztDostawyPerUnit,
-                            (podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1),
-                            (sourceProduct.cena || 0) * kurs + kosztDostawyPerUnit + ((podatekAkcyzowy || 0) * (parseFloat(sourceProduct.objetosc) || 1))
+                            kosztDostawyPerUnitEditIns,
+                            podatekValueEditIns,
+                            kosztWlasnyValueEditIns
                           ],
                           function(err) {
                             if (err) {
