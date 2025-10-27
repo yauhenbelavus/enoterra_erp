@@ -404,6 +404,47 @@ app.get('/api/products/search', (req, res) => {
   );
 });
 
+// Получение количества samples для каждого товара
+app.get('/api/products/samples-count', (req, res) => {
+  console.log('📦 GET /api/products/samples-count - Fetching samples count');
+  db.all(
+    `SELECT kod, SUM(ilosc) as total_ilosc 
+     FROM products 
+     WHERE status = 'samples' 
+     GROUP BY kod`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      console.log(`✅ Found samples count for ${rows.length} products`);
+      res.json(rows || []);
+    }
+  );
+});
+
+// Получение стоимости товаров (SUM(ilosc * cena) для каждого kod)
+app.get('/api/products/wartosc-towaru', (req, res) => {
+  console.log('📦 GET /api/products/wartosc-towaru - Fetching product values');
+  db.all(
+    `SELECT kod, SUM(ilosc * cena) as wartosc 
+     FROM products 
+     GROUP BY kod`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      console.log(`✅ Found wartosc for ${rows.length} products`);
+      res.json(rows || []);
+    }
+  );
+});
+
 // Получение информации о конкретном товаре по ID
 app.get('/api/products/:id', (req, res) => {
   const { id } = req.params;
@@ -2715,13 +2756,7 @@ app.post('/api/product-receipts', upload.fields([
   
   console.log(`🔄 Processing ${products.length} products for receipt`);
   
-  // Проверяем на дублирование продуктов в одной приёмке
-  const productCodes = products.map(p => p.kod);
-  const uniqueCodes = [...new Set(productCodes)];
-  if (productCodes.length !== uniqueCodes.length) {
-    console.log('❌ Duplicate products found in receipt:', productCodes);
-    return res.status(400).json({ error: 'Duplicate products found in receipt' });
-  }
+  // Разрешаем дубликаты продуктов в одной приёмке
   
   // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
   const totalBottles = products.reduce((total, product) => total + (product.ilosc || 0), 0);
@@ -2779,7 +2814,7 @@ app.post('/api/product-receipts', upload.fields([
             console.log(`➕ Creating new product record: ${product.kod}`);
             await new Promise((resolve, reject) => {
               db.run(
-                'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                   product.kod, 
                   product.nazwa, 
@@ -2787,7 +2822,8 @@ app.post('/api/product-receipts', upload.fields([
                   product.cena || 0,
                   product.ilosc,
                   product.ilosc, // ilosc_aktualna
-                  receiptId
+                  receiptId,
+                  (product.cena || 0) === 0 ? 'samples' : null
                 ],
                 function(err) {
                   if (err) {
@@ -3217,7 +3253,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                     // Если записи нет - создаем новую
                     console.log(`➕ Creating new product record: ${product.kod}`);
                     db.run(
-                      'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                       [
                         product.kod, 
                         product.nazwa, 
@@ -3225,7 +3261,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                         product.cena || 0,
                         product.ilosc,
                         product.ilosc, // ilosc_aktualna
-                        id
+                        id,
+                        (product.cena || 0) === 0 ? 'samples' : null
                       ],
                       function(err) {
                         if (err) {
@@ -3703,16 +3740,62 @@ app.get('/api/working-sheets/search', (req, res) => {
     return res.status(400).json({ error: 'Query parameter is required' });
   }
   
-  db.all(
-    'SELECT * FROM working_sheets WHERE kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ? ORDER BY nazwa LIMIT 50',
-    [`%${query}%`, `%${query}%`, `%${query}%`],
+  db.all(`
+    WITH ws_products AS (
+      SELECT 
+        w.kod,
+        w.nazwa,
+        w.kod_kreskowy,
+        w.typ,
+        w.ilosc as ilosc_main
+      FROM working_sheets w
+      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+    ),
+    samples_products AS (
+      SELECT 
+        kod, 
+        nazwa, 
+        SUM(ilosc) as ilosc_samples,
+        MAX(kod_kreskowy) as kod_kreskowy,
+        MAX(typ) as typ
+      FROM products
+      WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
+        AND status = 'samples'
+      GROUP BY kod
+      HAVING SUM(ilosc) > 0
+    )
+    SELECT 
+      ws.kod,
+      ws.nazwa,
+      COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) as ilosc,
+      ws.kod_kreskowy,
+      ws.typ,
+      NULL as status
+    FROM ws_products ws
+    LEFT JOIN samples_products sp ON ws.kod = sp.kod
+    WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0
+    
+    UNION ALL
+    
+    SELECT 
+      kod,
+      nazwa,
+      ilosc_samples as ilosc,
+      kod_kreskowy,
+      typ,
+      'samples' as status
+    FROM samples_products
+    
+    ORDER BY status, nazwa
+    LIMIT 50
+  `, [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`],
     (err, rows) => {
       if (err) {
         console.error('❌ Database error:', err);
         res.status(500).json({ error: err.message });
         return;
       }
-      console.log(`✅ Found ${rows.length} working sheets matching "${query}"`);
+      console.log(`✅ Found ${rows.length} products matching "${query}"`);
       res.json(rows || []);
     }
   );
