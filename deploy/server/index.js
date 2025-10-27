@@ -2706,7 +2706,7 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -2720,6 +2720,7 @@ app.post('/api/product-receipts', upload.fields([
       products = jsonData.products;
       aktualnyKurs = jsonData.aktualnyKurs;
       podatekAkcyzowy = jsonData.podatekAkcyzowy;
+      rabat = jsonData.rabat;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed:', { productInvoice, transportInvoice });
@@ -2736,6 +2737,7 @@ app.post('/api/product-receipts', upload.fields([
     products = req.body.products;
     aktualnyKurs = req.body.aktualnyKurs;
     podatekAkcyzowy = req.body.podatekAkcyzowy;
+    rabat = req.body.rabat;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
@@ -2768,8 +2770,8 @@ app.post('/api/product-receipts', upload.fields([
   console.log(`📊 Aktualny kurs input: ${aktualnyKurs}`);
   
   db.run(
-    'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, products, productInvoice, transportInvoice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), JSON.stringify(products), productInvoice || null, transportInvoice || null],
+    'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, products, productInvoice, transportInvoice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), JSON.stringify(products), productInvoice || null, transportInvoice || null],
     function(err) {
       if (err) {
         console.error('❌ Database error:', err);
