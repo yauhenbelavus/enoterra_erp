@@ -3740,26 +3740,14 @@ app.get('/api/working-sheets/search', (req, res) => {
   }
   
   db.all(`
-    WITH all_codes AS (
-      -- Находим все коды, которые подходят по поиску либо в working_sheets, либо в products (samples)
-      SELECT DISTINCT w.kod
-      FROM working_sheets w
-      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
-      
-      UNION
-      
-      SELECT DISTINCT p.kod
-      FROM products p
-      WHERE (p.kod LIKE ? OR p.nazwa LIKE ? OR p.kod_kreskowy LIKE ?)
-        AND p.status = 'samples'
-    ),
-    ws_products AS (
+    WITH ws_products AS (
       SELECT 
         w.kod,
-        w.nazwa,
-        w.ilosc as ilosc_main
+        MAX(w.nazwa) as nazwa,
+        SUM(w.ilosc) as ilosc_main
       FROM working_sheets w
-      WHERE w.kod IN (SELECT kod FROM all_codes)
+      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+      GROUP BY w.kod
     ),
     samples_products AS (
       SELECT 
@@ -3767,7 +3755,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         nazwa, 
         SUM(ilosc) as ilosc_samples
       FROM products
-      WHERE kod IN (SELECT kod FROM all_codes)
+      WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
         AND status = 'samples'
       GROUP BY kod
       HAVING SUM(ilosc) > 0
@@ -3785,12 +3773,15 @@ app.get('/api/working-sheets/search', (req, res) => {
     UNION ALL
     
     SELECT 
-      kod,
-      nazwa || ' (samples)' as nazwa,
-      ilosc_samples as ilosc,
+      sp.kod,
+      sp.nazwa || ' (samples)' as nazwa,
+      sp.ilosc_samples as ilosc,
       'samples' as status,
-      CASE WHEN kod LIKE ? THEN 0 ELSE 1 END as match_priority
-    FROM samples_products
+      CASE WHEN sp.kod LIKE ? THEN 0 ELSE 1 END as match_priority
+    FROM samples_products sp
+    WHERE NOT EXISTS (
+      SELECT 1 FROM ws_products w WHERE w.kod = sp.kod
+    )
     
     ORDER BY match_priority, kod, status, nazwa
     LIMIT 50
