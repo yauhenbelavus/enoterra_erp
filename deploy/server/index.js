@@ -3740,25 +3740,34 @@ app.get('/api/working-sheets/search', (req, res) => {
   }
   
   db.all(`
-    WITH ws_products AS (
+    WITH all_codes AS (
+      -- Находим все коды, которые подходят по поиску либо в working_sheets, либо в products (samples)
+      SELECT DISTINCT w.kod
+      FROM working_sheets w
+      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+      
+      UNION
+      
+      SELECT DISTINCT p.kod
+      FROM products p
+      WHERE (p.kod LIKE ? OR p.nazwa LIKE ? OR p.kod_kreskowy LIKE ?)
+        AND p.status = 'samples'
+    ),
+    ws_products AS (
       SELECT 
         w.kod,
         w.nazwa,
-        w.kod_kreskowy,
-        w.typ,
         w.ilosc as ilosc_main
       FROM working_sheets w
-      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+      WHERE w.kod IN (SELECT kod FROM all_codes)
     ),
     samples_products AS (
       SELECT 
         kod, 
         nazwa, 
-        SUM(ilosc) as ilosc_samples,
-        MAX(kod_kreskowy) as kod_kreskowy,
-        MAX(typ) as typ
+        SUM(ilosc) as ilosc_samples
       FROM products
-      WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
+      WHERE kod IN (SELECT kod FROM all_codes)
         AND status = 'samples'
       GROUP BY kod
       HAVING SUM(ilosc) > 0
@@ -3767,9 +3776,8 @@ app.get('/api/working-sheets/search', (req, res) => {
       ws.kod,
       ws.nazwa,
       COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) as ilosc,
-      ws.kod_kreskowy,
-      ws.typ,
-      NULL as status
+      NULL as status,
+      CASE WHEN ws.kod LIKE ? THEN 0 ELSE 1 END as match_priority
     FROM ws_products ws
     LEFT JOIN samples_products sp ON ws.kod = sp.kod
     WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0
@@ -3778,16 +3786,15 @@ app.get('/api/working-sheets/search', (req, res) => {
     
     SELECT 
       kod,
-      nazwa,
+      nazwa || ' (samples)' as nazwa,
       ilosc_samples as ilosc,
-      kod_kreskowy,
-      typ,
-      'samples' as status
+      'samples' as status,
+      CASE WHEN kod LIKE ? THEN 0 ELSE 1 END as match_priority
     FROM samples_products
     
-    ORDER BY status, nazwa
+    ORDER BY match_priority, kod, status, nazwa
     LIMIT 50
-  `, [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`],
+  `, [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `${query}%`, `${query}%`],
     (err, rows) => {
       if (err) {
         console.error('❌ Database error:', err);
