@@ -2854,11 +2854,13 @@ app.post('/api/product-receipts', upload.fields([
               });
             }
             
-            // Суммируем количество всех товаров с таким кодом
+            // Суммируем количество и находим максимальную цену среди всех товаров с таким кодом
             const summedQuantity = productsList.reduce((sum, p) => sum + (p.ilosc || 0), 0);
-            const mainProduct = productsList[0]; // Берем первый товар как основной
+            const maxCenaRaw = Math.max(...productsList.map(p => parseFloat(p.cena || 0)));
+            const maxCena = isNaN(maxCenaRaw) ? 0 : maxCenaRaw;
+            const mainProduct = productsList[0]; // Берем первый товар как основной (для остальных данных)
             
-            console.log(`📊 Product ${productCode}: ${productsList.length} items, total quantity: ${summedQuantity}`);
+            console.log(`📊 Product ${productCode}: ${productsList.length} items, total quantity: ${summedQuantity}, max price: ${maxCena}`);
             
             // Обновляем working_sheets
             console.log(`📝 Processing working_sheets for: ${productCode}`);
@@ -2875,9 +2877,9 @@ app.post('/api/product-receipts', upload.fields([
                   console.log(`📝 Updating existing product: ${productCode}`);
                   
                   const oldPrice = existingProduct.cena || 0;
-                  const newPrice = mainProduct.cena || 0;
+                  const newPrice = maxCena;
                   
-                  console.log(`💰 Price for ${productCode}: oldPrice=${oldPrice}, newPrice=${newPrice}`);
+                  console.log(`💰 Price for ${productCode}: oldPrice=${oldPrice}, newPrice=${newPrice} (max from all items)`);
                   
                   // 1. Сначала сохраняем снимок ДО изменений в working_sheets_history
                   console.log(`📸 Saving snapshot BEFORE changes for ${productCode}`);
@@ -2961,7 +2963,7 @@ app.post('/api/product-receipts', upload.fields([
                   } else {
                   // Если товара нет - создаем новую запись в working_sheets
                   console.log(`➕ Creating new product: ${productCode}`);
-                  const cenaValue = parseFloat(mainProduct.cena) || 0;
+                  const cenaValue = maxCena;
                   const objetoscValue = parseFloat(mainProduct.objetosc) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   
@@ -3329,13 +3331,17 @@ app.put('/api/product-receipts/:id', upload.fields([
                     // Товар существует - обновляем или создаем запись в working_sheets
                     console.log(`📝 Product ${productCode} exists in ${productCount} receipts, updating working_sheets`);
                     
-                    // Получаем товар с таким кодом из исходного массива (для данных)
-                    const sourceProduct = products.find(p => p.kod === productCode);
-                    if (!sourceProduct) {
+                    // Получаем все товары с таким кодом и находим максимальную цену
+                    const sourceProducts = products.filter(p => p.kod === productCode);
+                    if (sourceProducts.length === 0) {
                       console.error(`❌ ERROR: Product ${productCode} not found in source products array`);
                       reject(new Error(`Product ${productCode} not found in source products array`));
                       return;
                     }
+                    
+                    const maxCenaEditRaw = Math.max(...sourceProducts.map(p => parseFloat(p.cena || 0)));
+                    const maxCenaEdit = isNaN(maxCenaEditRaw) ? 0 : maxCenaEditRaw;
+                    const sourceProduct = sourceProducts[0]; // Берем первый для остальных данных
                     
                     console.log(`📝 Source product data for ${productCode}:`, {
                       nazwa: sourceProduct.nazwa,
@@ -3343,7 +3349,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                       dataWaznosci: sourceProduct.dataWaznosci,
                       objetosc: sourceProduct.objetosc,
                       ilosc: totalQuantity,
-                      totalReceipts: productCount
+                      totalReceipts: productCount,
+                      maxPrice: maxCenaEdit
                     });
                     
                     // Проверяем, есть ли запись в working_sheets
@@ -3375,7 +3382,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                         // Обновляем существующую запись
                         console.log(`📝 Updating existing working_sheets record for ${productCode}`);
                             
-                            const cenaValueEdit = parseFloat(sourceProduct.cena) || 0;
+                            const cenaValueEdit = maxCenaEdit;
                             const objetoscValueEdit = parseFloat(sourceProduct.objetosc) || 1;
                             const podatekAkcyzowyValueEdit = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                             const kosztDostawyPerUnitEdit = parseFloat((((kosztDostawy || 0) / (products.reduce((t, p) => t + (p.ilosc || 0), 0) || 1)) * kurs).toFixed(2));
@@ -3423,7 +3430,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                         // Создаем новую запись (если товар был удален, но потом добавлен обратно)
                         console.log(`➕ Creating new working_sheets record for ${productCode}`);
                         
-                        const cenaValueEditIns = parseFloat(sourceProduct.cena) || 0;
+                        const cenaValueEditIns = maxCenaEdit;
                         const objetoscValueEditIns = parseFloat(sourceProduct.objetosc) || 1;
                         const podatekAkcyzowyValueEditIns = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                         const kosztDostawyPerUnitEditIns = parseFloat((((kosztDostawy || 0) / (products.reduce((t, p) => t + (p.ilosc || 0), 0) || 1)) * kurs).toFixed(2));
@@ -3652,11 +3659,11 @@ app.delete('/api/product-receipts/:id', (req, res) => {
                     }
                   );
             } else {
-                  // пересчитать количество (и цену)
-                  db.get('SELECT SUM(ilosc) as total_ilosc, cena FROM products WHERE kod = ? ORDER BY id DESC LIMIT 1', [product.kod], (sumErr, sumRow) => {
+                  // пересчитать количество (и максимальную цену)
+                  db.get('SELECT SUM(ilosc) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?', [product.kod], (sumErr, sumRow) => {
                     if (sumErr) return finalize();
                     const qty = sumRow.total_ilosc || 0;
-                    const price = sumRow.cena || 0;
+                    const price = sumRow.max_cena || 0;
                     db.run('UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?', [qty, price, product.kod], function (upErr) {
                       if (!upErr) wsUpdated++;
                       finalize();
