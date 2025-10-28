@@ -3779,9 +3779,6 @@ app.get('/api/working-sheets/search', (req, res) => {
       'samples' as status,
       CASE WHEN sp.kod LIKE ? THEN 0 ELSE 1 END as match_priority
     FROM samples_products sp
-    WHERE NOT EXISTS (
-      SELECT 1 FROM ws_products w WHERE w.kod = sp.kod
-    )
     
     ORDER BY match_priority, kod, status, nazwa
     LIMIT 50
