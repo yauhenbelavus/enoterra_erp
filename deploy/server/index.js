@@ -2609,19 +2609,34 @@ app.put('/api/clients/:id', (req, res) => {
   const { nazwa, firma, adres, kontakt, czas_dostawy } = req.body;
   console.log(`👥 PUT /api/clients/${id} - Updating client:`, { nazwa, firma });
   
-  db.run(
-    'UPDATE clients SET nazwa = ?, firma = ?, adres = ?, kontakt = ?, czas_dostawy = ? WHERE id = ?',
-    [nazwa, firma, adres, kontakt, czas_dostawy, id],
-    function(err) {
-      if (err) {
-        console.error('❌ Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      console.log(`✅ Client ${id} updated successfully`);
-      res.json({ message: 'Client updated successfully' });
+  // Сначала получаем старое значение nazwa клиента
+  db.get('SELECT nazwa FROM clients WHERE id = ?', [id], (err, oldClient) => {
+    if (err) {
+      console.error('❌ Database error getting old client:', err);
+      res.status(500).json({ error: err.message });
+      return;
     }
-  );
+    
+    if (!oldClient) {
+      res.status(404).json({ error: 'Client not found' });
+      return;
+    }
+    
+    // Обновляем клиента
+    db.run(
+      'UPDATE clients SET nazwa = ?, firma = ?, adres = ?, kontakt = ?, czas_dostawy = ? WHERE id = ?',
+      [nazwa, firma, adres, kontakt, czas_dostawy, id],
+      function(err) {
+        if (err) {
+          console.error('❌ Database error updating client:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        console.log(`✅ Client ${id} updated successfully`);
+        res.json({ message: 'Client updated successfully' });
+      }
+    );
+  });
 });
 
 app.delete('/api/clients/:id', (req, res) => {
@@ -3752,20 +3767,27 @@ app.get('/api/working-sheets/search', (req, res) => {
     samples_products AS (
       SELECT 
         kod, 
-        nazwa, 
+        MAX(nazwa) as nazwa, 
         SUM(ilosc) as ilosc_samples
       FROM products
       WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
         AND status = 'samples'
       GROUP BY kod
       HAVING SUM(ilosc) > 0
+    ),
+    ws_codes AS (
+      SELECT DISTINCT kod FROM ws_products
     )
     SELECT 
       ws.kod,
       ws.nazwa,
       COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) as ilosc,
       NULL as status,
-      CASE WHEN ws.kod LIKE ? THEN 0 ELSE 1 END as match_priority
+      CASE 
+        WHEN ws.kod LIKE ? THEN 0
+        WHEN ws.nazwa LIKE ? THEN 1
+        ELSE 2
+      END as match_priority
     FROM ws_products ws
     LEFT JOIN samples_products sp ON ws.kod = sp.kod
     WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0
@@ -3777,12 +3799,19 @@ app.get('/api/working-sheets/search', (req, res) => {
       sp.nazwa || ' (samples)' as nazwa,
       sp.ilosc_samples as ilosc,
       'samples' as status,
-      CASE WHEN sp.kod LIKE ? THEN 0 ELSE 1 END as match_priority
+      CASE 
+        WHEN sp.kod LIKE ? THEN 0
+        WHEN sp.nazwa LIKE ? THEN 1
+        ELSE 2
+      END as match_priority
     FROM samples_products sp
+    WHERE EXISTS (
+      SELECT 1 FROM ws_codes wc WHERE wc.kod = sp.kod
+    ) OR sp.kod LIKE ? OR sp.nazwa LIKE ?
     
     ORDER BY match_priority, kod, status, nazwa
     LIMIT 50
-  `, [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `${query}%`, `${query}%`],
+  `, [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `${query}%`, `%${query}%`, `${query}%`, `%${query}%`, `%${query}%`, `%${query}%`],
     (err, rows) => {
       if (err) {
         console.error('❌ Database error:', err);
@@ -3790,7 +3819,24 @@ app.get('/api/working-sheets/search', (req, res) => {
         return;
       }
       console.log(`✅ Found ${rows.length} products matching "${query}"`);
-      res.json(rows || []);
+      
+      // Проверка на дубликаты по kod и status
+      const seen = new Set();
+      const uniqueRows = rows.filter((row) => {
+        const key = `${row.kod}-${row.status || 'main'}`;
+        if (seen.has(key)) {
+          console.log(`⚠️ Duplicate found and removed: ${key}`);
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+      
+      if (uniqueRows.length !== rows.length) {
+        console.log(`⚠️ Removed ${rows.length - uniqueRows.length} duplicate(s)`);
+      }
+      
+      res.json(uniqueRows || []);
     }
   );
 });
