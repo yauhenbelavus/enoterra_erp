@@ -476,467 +476,323 @@ app.get('/api/products/:id', (req, res) => {
 async function generateOrderPDF(order, products, res) {
   try {
     const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    // Регистрируем fontkit для поддержки пользовательских шрифтов
+    let fontkit;
+    try {
+      fontkit = require('@pdf-lib/fontkit');
+    } catch (fkErr) {
+      try {
+        fontkit = (await import('@pdf-lib/fontkit')).default;
+      } catch {
+        fontkit = null;
+      }
+    }
     
     // Создаем новый PDF документ
     const pdfDoc = await PDFDocument.create();
+    
+    if (fontkit) {
+      pdfDoc.registerFontkit(fontkit);
+    }
+    
     const page = pdfDoc.addPage([595.28, 841.89]); // A4 размер
     
     // Получаем стандартные шрифты с поддержкой Unicode
     const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     
-
+    // Встраиваем пользовательский шрифт с поддержкой Unicode
+    let soraFont;
+    try {
+      const soraPath = path.join(__dirname, 'fonts', 'Sora-Regular.ttf');
+      const soraBytes = fs.readFileSync(soraPath);
+      soraFont = await pdfDoc.embedFont(soraBytes, { subset: false });
+      console.log('✅ Sora font embedded');
+    } catch (fontErr) {
+      console.warn('⚠️ Could not embed Sora font, falling back to Helvetica:', fontErr?.message || fontErr);
+      soraFont = helveticaFont;
+    }
     
     const { width, height } = page.getSize();
     const margin = 50;
     let yPosition = height - margin;
     
-    // Цвета из HTML шаблона
+    // Цвета для текста
     const colors = {
-      background: rgb(0.976, 0.976, 0.976), // #f9fafb
       white: rgb(1, 1, 1), // white
       border: rgb(0.82, 0.82, 0.82), // #d1d5db
-      headerBg: rgb(0.95, 0.95, 0.95), // #f3f4f6
       text: rgb(0.22, 0.22, 0.22), // #374151
       textDark: rgb(0.12, 0.12, 0.12), // #1f2937
       textLight: rgb(0.61, 0.64, 0.69), // #9ca3af
-      blue: rgb(0.2, 0.4, 0.8)
     };
     
-    // Основной контейнер (фон страницы)
+    // Белый фон страницы (без контейнеров и теней)
     page.drawRectangle({
       x: 0,
       y: 0,
       width: width,
       height: height,
-      color: colors.background
+      color: rgb(1, 1, 1)
     });
     
-    // Белый контейнер с тенью (имитация box-shadow)
     const containerMargin = 24;
-    const containerWidth = width - 2 * containerMargin;
-    const containerHeight = height - 2 * containerMargin;
     
-    // Тень
-    page.drawRectangle({
-      x: containerMargin + 4,
-      y: containerMargin - 4,
-      width: containerWidth,
-      height: containerHeight,
-      color: rgb(0, 0, 0, 0.1)
-    });
+    // Рамка вверху страницы (опущена на 1 см = ~28 пикселей)
+    const headerHeight = 80;
+    const headerY = height - containerMargin - headerHeight - 28;
     
-    // Основной контейнер
+    // Внешняя рамка (тонкая, той же длины что и блоки ниже)
     page.drawRectangle({
       x: containerMargin,
-      y: containerMargin,
-      width: containerWidth,
-      height: containerHeight,
-      color: colors.white
+      y: headerY,
+      width: width - 2 * containerMargin,
+      height: headerHeight,
+      borderColor: rgb(0, 0, 0),
+      borderWidth: 0.5
     });
     
-    // Заголовок документа
-    page.drawText('EnoTerra ERP - Zamówienie', {
-      x: containerMargin + 24,
-      y: height - containerMargin - 40,
-      size: 20,
-      font: helveticaBold,
-      color: colors.textDark
+    // Вертикальная линия посередине
+    const middleX = width / 2;
+    page.drawLine({
+      start: { x: middleX, y: headerY },
+      end: { x: middleX, y: headerY + headerHeight },
+      thickness: 0.5,
+      color: rgb(0, 0, 0)
     });
     
-    yPosition = height - containerMargin - 80;
+    // Левая половина: логотип
+    try {
+      const assetsDir = path.join(__dirname, 'assets');
+      const logoPath = path.join(assetsDir, 'zam_pdf_logo.jpg');
+
+      const exists = fs.existsSync(logoPath);
+      console.log('🖼 logo exists:', exists, logoPath);
+
+      if (exists) {
+        const logoBytes = fs.readFileSync(logoPath);
+        console.log('🖼 logo bytes read:', logoBytes.length);
+        let logoImage;
+        try {
+          logoImage = await pdfDoc.embedJpg(logoBytes);
+        } catch (embedErr) {
+          console.error('❌ embedJpg failed:', embedErr);
+          throw embedErr;
+        }
+
+        // Масштабируем логотип чтобы поместился в левую половину (увеличено на 20%)
+        const maxLogoWidth = (width / 2 - 2 * containerMargin) * 0.8 * 1.2;
+        const maxLogoHeight = headerHeight * 0.7 * 1.2;
+        const scaleFactor = Math.min(maxLogoWidth / logoImage.width, maxLogoHeight / logoImage.height, 1);
+        const logoDims = logoImage.scale(scaleFactor);
+
+        console.log('✅ logo embedded dims:', logoDims.width, logoDims.height);
+
+        // Центрируем логотип в левой половине
+        const logoX = containerMargin + (middleX - containerMargin - logoDims.width) / 2;
+        const logoY = headerY + (headerHeight - logoDims.height) / 2;
+
+        // Рисуем логотип
+        page.drawImage(logoImage, {
+          x: logoX,
+          y: logoY,
+          width: logoDims.width,
+          height: logoDims.height
+        });
+      }
+    } catch (e) {
+      console.warn('⚠️ Logo not embedded:', e?.message || e);
+    }
     
-    // Информация о заказе
-    page.drawText(`Numer zamówienia: ${order.numer_zamowienia}`, {
-      x: containerMargin + 24,
-      y: yPosition,
+    // Правая половина: номер заказа (жирным шрифтом)
+    const orderNumber = order.numer_zamowienia || order.id || '';
+    const textWidth = helveticaBold.widthOfTextAtSize(orderNumber, 14);
+    const textX = middleX + (width - middleX - containerMargin - textWidth) / 2;
+    const textY = headerY + headerHeight / 2 - 7;
+    
+    page.drawText(orderNumber, {
+      x: textX,
+      y: textY,
       size: 14,
       font: helveticaBold,
       color: colors.textDark
     });
-    yPosition -= 25;
     
-    page.drawText(`Data utworzenia: ${order.data_utworzenia || new Date().toLocaleDateString('pl-PL')}`, {
-      x: containerMargin + 24,
-      y: yPosition,
-      size: 12,
-      font: helveticaFont,
-      color: colors.text
+    yPosition = headerY - 30; // Уменьшен отступ от рамки с номером заказа
+    
+    // Блок с информацией о клиенте
+    const clientBlockHeight = 60;
+    const clientBlockY = yPosition - clientBlockHeight;
+    const clientBlockBg = rgb(0.98, 0.88, 0.88); // Более бледный розовый цвет
+    
+    // Фон блока с рамкой
+    page.drawRectangle({
+      x: containerMargin,
+      y: clientBlockY,
+      width: width - 2 * containerMargin,
+      height: clientBlockHeight,
+      color: clientBlockBg,
+      borderColor: rgb(0, 0, 0),
+      borderWidth: 0.5
     });
-    yPosition -= 30;
     
-    // Информация о клиенте
-    if (order.client_name) {
-      // Секция клиента
-      page.drawText('Dane klienta:', {
-        x: containerMargin + 24,
-        y: yPosition,
-        size: 14,
-        font: helveticaBold,
-        color: colors.textDark
-      });
-      yPosition -= 25;
-      
-      page.drawText(`Firma: ${order.firma || order.client_name}`, {
-        x: containerMargin + 24,
-        y: yPosition,
-        size: 12,
-        font: helveticaFont,
-        color: colors.text
-      });
-      yPosition -= 18;
-      
-      if (order.adres) {
-        page.drawText(`Adres: ${order.adres}`, {
-          x: containerMargin + 24,
-          y: yPosition,
-          size: 12,
-          font: helveticaFont,
-          color: colors.text
-        });
-        yPosition -= 18;
-      }
-      
-      if (order.kontakt) {
-        page.drawText(`Kontakt: ${order.kontakt}`, {
-          x: containerMargin + 24,
-          y: yPosition,
-          size: 12,
-          font: helveticaFont,
-          color: colors.text
-        });
-        yPosition -= 25;
-      }
-    }
+    // Информация о клиенте - двухколоночная верстка
+    const clientTextX = containerMargin + 15;
+    const clientRightX = middleX + 10;
+    let clientY = clientBlockY + clientBlockHeight - 15;
     
-    // Таблица продуктов
-    if (products && products.length > 0) {
-      yPosition -= 20;
-      // Секция продуктов
-      page.drawText('Produkty w zamówieniu:', {
-        x: containerMargin + 24,
-        y: yPosition,
-        size: 14,
-        font: helveticaBold,
-        color: colors.textDark
-      });
-      yPosition -= 30;
-      
-      // Заголовки таблицы
-      const tableX = containerMargin + 24;
-      const columns = [
-        { x: tableX, width: 80, title: 'Kod' },
-        { x: tableX + 90, width: 200, title: 'Nazwa' },
-        { x: tableX + 300, width: 100, title: 'Kod kreskowy' },
-        { x: tableX + 410, width: 60, title: 'Ilość' },
-        { x: tableX + 480, width: 80, title: 'Typ' }
-      ];
-      
-      // Фон для заголовков таблицы
-      page.drawRectangle({
-        x: tableX - 6,
-        y: yPosition - 6,
-        width: width - 2 * containerMargin - 36,
-        height: 25,
-        color: colors.headerBg
-      });
-      
-      // Рисуем заголовки
-      columns.forEach(col => {
-        page.drawText(col.title, {
-          x: col.x,
-          y: yPosition,
-          size: 10,
-          font: helveticaBold,
-          color: colors.text
-        });
-      });
-      yPosition -= 25;
-      
-      // Рисуем данные продуктов
-      products.forEach((product, index) => {
-        if (yPosition < margin + 100) {
-          // Добавляем новую страницу если не хватает места
-          page = pdfDoc.addPage([595.28, 841.89]);
-          yPosition = height - margin;
-        }
-        
-        // Фон для четных строк (как в HTML)
-        if (index % 2 === 1) {
-          page.drawRectangle({
-            x: tableX - 6,
-            y: yPosition - 2,
-            width: width - 2 * containerMargin - 36,
-            height: 19,
-            color: colors.background
-          });
-        }
-        
-        page.drawText(product.kod || '', {
-          x: columns[0].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: colors.text
-        });
-        
-        page.drawText(product.product_name || product.nazwa || '', {
-          x: columns[1].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: colors.text
-        });
-        
-        page.drawText(product.kod_kreskowy || '-', {
-          x: columns[2].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: colors.text
-        });
-        
-        page.drawText(product.ilosc?.toString() || '0', {
-          x: columns[3].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: colors.text
-        });
-        
-        page.drawText(product.typ || '-', {
-          x: columns[4].x,
-          y: yPosition,
-          size: 9,
-          font: helveticaFont,
-          color: colors.text
-        });
-        
-        yPosition -= 15;
-      });
-      
-      // Итого
-      yPosition -= 20;
-      // Итоговая секция
-      page.drawText(`Razem produktów: ${products.length}`, {
-        x: containerMargin + 24,
-        y: yPosition,
-        size: 12,
-        font: helveticaBold,
-        color: colors.textDark
-      });
-      yPosition -= 20;
-      
-      page.drawText(`Łączna ilość: ${order.laczna_ilosc || 0}`, {
-        x: containerMargin + 24,
-        y: yPosition,
-        size: 12,
-        font: helveticaBold,
-        color: colors.textDark
+    // Первая строка: klient слева, firma справа (все с маленькой буквы)
+    const clientName = order.client_name || order.klient || '-';
+    page.drawText(`klient: ${clientName}`, {
+      x: clientTextX,
+      y: clientY,
+      size: 9,
+      font: soraFont,
+      color: rgb(0, 0, 0)
+    });
+    
+    if (order.firma) {
+      page.drawText(`firma: ${order.firma}`, {
+        x: clientRightX,
+        y: clientY,
+        size: 9,
+        font: soraFont,
+        color: rgb(0, 0, 0)
       });
     }
     
-    // Футер
-    yPosition = containerMargin + 24;
-    page.drawText(`Wygenerowano: ${new Date().toLocaleString('pl-PL')}`, {
-      x: containerMargin + 24,
-      y: yPosition,
-      size: 8,
-      font: helveticaFont,
-      color: colors.textLight
+    clientY -= 22; // Увеличен межстрочный интервал с 18 до 22
+    
+    // Вторая строка: adres слева, czas dostawy справа
+    if (order.adres) {
+      page.drawText(`adres: ${order.adres}`, {
+        x: clientTextX,
+        y: clientY,
+        size: 9,
+        font: soraFont,
+        color: rgb(0, 0, 0)
+      });
+    }
+    
+    if (order.czas_dostawy) {
+      page.drawText(`czas dostawy: ${order.czas_dostawy}`, {
+        x: clientRightX,
+        y: clientY,
+        size: 9,
+        font: soraFont,
+        color: rgb(0, 0, 0)
+      });
+    }
+    
+    yPosition = clientBlockY - 58; // Увеличен отступ на 1 см (28 пикселей дополнительно)
+
+    // Таблица товаров
+    const tableX = containerMargin + 10;
+    const tableYTop = yPosition;
+    const colWidths = [280, 120, 60];
+    const headers = ['Nazwa', 'Kod kreskowy', 'Ilość'];
+    let cursorX = tableX;
+    headers.forEach((h, idx) => {
+      page.drawText(h, { x: cursorX + 2, y: tableYTop, size: 10, font: soraFont, color: colors.text });
+      cursorX += colWidths[idx];
+    });
+
+    let rowY = tableYTop - 28; // Увеличен отступ после линии (0.5 см = ~14 пикселей дополнительно)
+    
+    // Линия под заголовками
+    page.drawLine({
+      start: { x: containerMargin, y: tableYTop - 4 },
+      end: { x: width - containerMargin, y: tableYTop - 4 },
+      thickness: 0.5,
+      color: rgb(0, 0, 0)
+    });
+
+    console.log(`🧾 PDF(main) products count: ${products?.length || 0}`);
+    let currentPage = page;
+    (products || []).forEach((p, index) => {
+      // Проверка: если строка не помещается, создаём новую страницу
+      if (rowY < containerMargin + 60) {
+        currentPage = pdfDoc.addPage([595.28, 841.89]);
+        rowY = height - containerMargin - 40;
+        
+        // Рисуем заголовки на новой странице
+        let cursorX = tableX;
+        headers.forEach((h, idx) => {
+          currentPage.drawText(h, { x: cursorX + 2, y: rowY, size: 10, font: soraFont, color: colors.text });
+          cursorX += colWidths[idx];
+        });
+        
+        // Линия под заголовками
+        currentPage.drawLine({
+          start: { x: containerMargin, y: rowY - 4 },
+          end: { x: width - containerMargin, y: rowY - 4 },
+          thickness: 0.5,
+          color: rgb(0, 0, 0)
+        });
+        
+        rowY -= 28;
+      }
+      
+      const name = p.nazwa || p.product_name || p.kod || '-';
+      const barcode = p.kod_kreskowy || '-';
+      const qty = Number(p.ilosc || p.qty || 0);
+
+      const cells = [name, barcode, String(qty)];
+      let x = tableX;
+      cells.forEach((c, i) => {
+        currentPage.drawText(c, { x: x + 2, y: rowY, size: 10, font: helveticaFont, color: colors.text });
+        x += colWidths[i];
+      });
+      rowY -= 18; // Увеличен межстрочный интервал с 14 до 18
     });
     
-    // Сохраняем PDF
+    // Линия под всеми товарами (на последней странице) - отступ 30
+    currentPage.drawLine({
+      start: { x: containerMargin, y: rowY + 30 },
+      end: { x: width - containerMargin, y: rowY + 30 },
+      thickness: 0.5,
+      color: rgb(0, 0, 0)
+    });
+
+    // Итого - Razem под линией (на последней странице)
+    yPosition = rowY + 30 - 18;
+    
+    // Метка Razem с двоеточием
+    currentPage.drawText('Razem:', {
+      x: tableX + colWidths[0] + colWidths[1] - 55,
+      y: yPosition,
+      size: 10,
+      font: soraFont,
+      color: colors.textDark
+    });
+    
+    // Значение выровнено с колонкой Ilość, жирным шрифтом
+    const razemValueX = tableX + colWidths[0] + colWidths[1] + 2; // Точное выравнивание с колонкой Ilość
+    const razemValue = String(order.laczna_ilosc || 0);
+    
+    currentPage.drawText(razemValue, {
+      x: razemValueX,
+      y: yPosition,
+      size: 9,
+      font: helveticaBold,
+      color: colors.textDark
+    });
+
+    // Убрали подписи снизу
+
     const pdfBytes = await pdfDoc.save();
-    
-    // Отправляем PDF
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="order_${order.numer_zamowienia}.pdf"`);
     res.send(Buffer.from(pdfBytes));
-    
   } catch (error) {
     console.error('Error generating PDF:', error);
     
-    // Если ошибка связана с кодировкой, попробуем создать PDF без польских символов
+    // Если ошибка связана с кодировкой, не используем старую разметку
     if (error.message && error.message.includes('WinAnsi cannot encode')) {
-      console.log('Trying to generate PDF with ASCII characters...');
-      try {
-        // Создаем простую версию PDF без польских символов
-        const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
-        const pdfDoc = await PDFDocument.create();
-        const page = pdfDoc.addPage([595.28, 841.89]);
-        const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-        
-        const { width, height } = page.getSize();
-        const margin = 50;
-        let yPosition = height - margin;
-        
-                 // Заголовок без польских символов
-         page.drawText('EnoTerra ERP - Zamowienie', {
-           x: margin,
-           y: yPosition,
-           size: 24,
-           font: helveticaBold,
-           color: rgb(0, 0, 0)
-         });
-         yPosition -= 40;
-         
-         page.drawText(`Numer zamowienia: ${order.numer_zamowienia}`, {
-           x: margin,
-           y: yPosition,
-           size: 14,
-           font: helveticaBold,
-           color: rgb(0, 0, 0)
-         });
-         yPosition -= 25;
-         
-         page.drawText(`Data utworzenia: ${order.data_utworzenia || new Date().toLocaleDateString('pl-PL')}`, {
-           x: margin,
-           y: yPosition,
-           size: 12,
-           font: helveticaFont,
-           color: rgb(0, 0, 0)
-         });
-         yPosition -= 30;
-         
-         if (order.client_name) {
-           page.drawText('Dane klienta:', {
-             x: margin,
-             y: yPosition,
-             size: 14,
-             font: helveticaBold,
-             color: rgb(0, 0, 0)
-           });
-           yPosition -= 20;
-           
-           page.drawText(`Firma: ${order.firma || order.client_name}`, {
-             x: margin,
-             y: yPosition,
-             size: 12,
-             font: helveticaFont,
-             color: rgb(0, 0, 0)
-           });
-           yPosition -= 18;
-         }
-         
-         if (products && products.length > 0) {
-           yPosition -= 20;
-           page.drawText('Produkty w zamowieniu:', {
-             x: margin,
-             y: yPosition,
-             size: 14,
-             font: helveticaBold,
-             color: rgb(0, 0, 0)
-           });
-           yPosition -= 25;
-           
-           const columns = [
-             { x: margin, width: 80, title: 'Kod' },
-             { x: margin + 90, width: 200, title: 'Nazwa' },
-             { x: margin + 300, width: 100, title: 'Kod kreskowy' },
-             { x: margin + 410, width: 60, title: 'Ilosc' },
-             { x: margin + 480, width: 80, title: 'Typ' }
-           ];
-          
-          columns.forEach(col => {
-            page.drawText(col.title, {
-              x: col.x,
-              y: yPosition,
-              size: 10,
-              font: helveticaBold,
-              color: rgb(0, 0, 0)
-            });
-          });
-          yPosition -= 20;
-          
-          products.forEach((product, index) => {
-            if (yPosition < margin + 100) {
-              page = pdfDoc.addPage([595.28, 841.89]);
-              yPosition = height - margin;
-            }
-            
-            page.drawText(product.kod || '', {
-              x: columns[0].x,
-              y: yPosition,
-              size: 9,
-              font: helveticaFont,
-              color: rgb(0, 0, 0)
-            });
-            
-            page.drawText(product.product_name || product.nazwa || '', {
-              x: columns[1].x,
-              y: yPosition,
-              size: 9,
-              font: helveticaFont,
-              color: rgb(0, 0, 0)
-            });
-            
-            page.drawText(product.kod_kreskowy || '-', {
-              x: columns[2].x,
-              y: yPosition,
-              size: 9,
-              font: helveticaFont,
-              color: rgb(0, 0, 0)
-            });
-            
-            page.drawText(product.ilosc?.toString() || '0', {
-              x: columns[3].x,
-              y: yPosition,
-              size: 9,
-              font: helveticaFont,
-              color: rgb(0, 0, 0)
-            });
-            
-            page.drawText(product.typ || '-', {
-              x: columns[4].x,
-              y: yPosition,
-              size: 9,
-              font: helveticaFont,
-              color: rgb(0, 0, 0)
-            });
-            
-            yPosition -= 15;
-          });
-          
-                     yPosition -= 20;
-           page.drawText(`Razem produktow: ${products.length}`, {
-             x: margin,
-             y: yPosition,
-             size: 12,
-             font: helveticaBold,
-             color: rgb(0, 0, 0)
-           });
-           yPosition -= 20;
-           
-           page.drawText(`Laczna ilosc: ${order.laczna_ilosc || 0}`, {
-             x: margin,
-             y: yPosition,
-             size: 12,
-             font: helveticaBold,
-             color: rgb(0, 0, 0)
-           });
-         }
-         
-         yPosition = margin;
-         page.drawText(`Wygenerowano: ${new Date().toLocaleString('pl-PL')}`, {
-           x: margin,
-           y: yPosition,
-           size: 8,
-           font: helveticaFont,
-           color: rgb(0.5, 0.5, 0.5)
-         });
-        
-        const pdfBytes = await pdfDoc.save();
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="order_${order.numer_zamowienia}.pdf"`);
-        res.send(Buffer.from(pdfBytes));
-        return;
-      } catch (fallbackError) {
-        console.error('Fallback PDF generation also failed:', fallbackError);
-        res.status(500).json({ error: 'Failed to generate PDF (encoding issue)' });
-        return;
-      }
+      console.error('PDF unicode encoding failed (WinAnsi). Fallback disabled.');
+      return res.status(500).json({ error: 'PDF unicode encoding failed' });
     }
     
     res.status(500).json({ error: 'Failed to generate PDF' });
@@ -1072,16 +928,16 @@ app.get('/api/orders/:id/pdf', async (req, res) => {
   try {
     // Получаем данные заказа с продуктами
     const orderQuery = `
-      SELECT o.*, c.firma, c.nazwa as client_name, c.adres, c.kontakt
+      SELECT o.*, c.firma, c.nazwa as client_name, c.adres, c.kontakt, c.czas_dostawy
       FROM orders o
       LEFT JOIN clients c ON o.klient = c.nazwa
       WHERE o.id = ?
     `;
     
     const orderProductsQuery = `
-      SELECT op.*, p.nazwa as product_name
+      SELECT op.*, ws.kod_kreskowy
       FROM order_products op
-      LEFT JOIN products p ON op.kod = p.kod
+      LEFT JOIN working_sheets ws ON op.kod = ws.kod
       WHERE op.orderId = ?
     `;
     
@@ -2623,19 +2479,19 @@ app.put('/api/clients/:id', (req, res) => {
     }
     
     // Обновляем клиента
-    db.run(
-      'UPDATE clients SET nazwa = ?, firma = ?, adres = ?, kontakt = ?, czas_dostawy = ? WHERE id = ?',
-      [nazwa, firma, adres, kontakt, czas_dostawy, id],
-      function(err) {
-        if (err) {
+  db.run(
+    'UPDATE clients SET nazwa = ?, firma = ?, adres = ?, kontakt = ?, czas_dostawy = ? WHERE id = ?',
+    [nazwa, firma, adres, kontakt, czas_dostawy, id],
+    function(err) {
+      if (err) {
           console.error('❌ Database error updating client:', err);
-          res.status(500).json({ error: err.message });
-          return;
-        }
-        console.log(`✅ Client ${id} updated successfully`);
-        res.json({ message: 'Client updated successfully' });
+        res.status(500).json({ error: err.message });
+        return;
       }
-    );
+      console.log(`✅ Client ${id} updated successfully`);
+      res.json({ message: 'Client updated successfully' });
+    }
+  );
   });
 });
 
