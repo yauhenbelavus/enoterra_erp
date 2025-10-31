@@ -3848,7 +3848,7 @@ app.delete('/api/working-sheets/:id', (req, res) => {
 });
 
 app.put('/api/working-sheets/update', (req, res) => {
-  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, rezerwacje, objetosc, sprzedawca, cena, cena_sprzedazy } = req.body;
+  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, rezerwacje, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy } = req.body;
   console.log(`📝 PUT /api/working-sheets/update - Updating working sheet:`, { 
     id, 
     kod, 
@@ -3879,7 +3879,7 @@ app.put('/api/working-sheets/update', (req, res) => {
     
     // Обновляем запись
     db.run(
-      'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ? WHERE id = ?',
+      'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?',
       [
         kod || existingRecord.kod,
         nazwa || existingRecord.nazwa,
@@ -3890,8 +3890,10 @@ app.put('/api/working-sheets/update', (req, res) => {
         rezerwacje || existingRecord.rezerwacje,
         objetosc || existingRecord.objetosc,
         sprzedawca || existingRecord.sprzedawca,
-        cena || existingRecord.cena,
-        cena_sprzedazy || existingRecord.cena_sprzedazy,
+        cena !== undefined ? cena : existingRecord.cena,
+        cena_sprzedazy !== undefined ? cena_sprzedazy : existingRecord.cena_sprzedazy,
+        koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit,
+        podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy,
         id
       ],
       function(err) {
