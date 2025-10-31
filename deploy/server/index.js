@@ -742,7 +742,7 @@ async function generateOrderPDF(order, products, res) {
       const cells = [name, barcode, String(qty)];
       let x = tableX;
       cells.forEach((c, i) => {
-        currentPage.drawText(c, { x: x + 2, y: rowY, size: 10, font: helveticaFont, color: colors.text });
+        currentPage.drawText(c, { x: x + 2, y: rowY, size: 10, font: soraFont, color: colors.text });
         x += colWidths[i];
       });
       rowY -= 18; // Увеличен межстрочный интервал с 14 до 18
