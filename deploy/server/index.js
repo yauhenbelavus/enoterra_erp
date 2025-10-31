@@ -3848,7 +3848,7 @@ app.delete('/api/working-sheets/:id', (req, res) => {
 });
 
 app.put('/api/working-sheets/update', (req, res) => {
-  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, rezerwacje, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy } = req.body;
+  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, rezerwacje, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy, kurs } = req.body;
   console.log(`📝 PUT /api/working-sheets/update - Updating working sheet:`, { 
     id, 
     kod, 
@@ -3877,25 +3877,43 @@ app.put('/api/working-sheets/update', (req, res) => {
     
     console.log(`🔄 Found existing record: ${existingRecord.kod} (current ilosc: ${existingRecord.ilosc})`);
     
-    // Обновляем запись
-    db.run(
-      'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?',
-      [
-        kod || existingRecord.kod,
-        nazwa || existingRecord.nazwa,
-        ilosc || existingRecord.ilosc,
-        typ || existingRecord.typ,
-        kod_kreskowy || existingRecord.kod_kreskowy,
-        data_waznosci || existingRecord.data_waznosci,
-        rezerwacje || existingRecord.rezerwacje,
-        objetosc || existingRecord.objetosc,
-        sprzedawca || existingRecord.sprzedawca,
-        cena !== undefined ? cena : existingRecord.cena,
-        cena_sprzedazy !== undefined ? cena_sprzedazy : existingRecord.cena_sprzedazy,
-        koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit,
-        podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy,
-        id
-      ],
+    // Получаем значения для расчета
+    const finalCena = cena !== undefined ? cena : existingRecord.cena;
+    const finalKosztDostawyPerUnit = koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit;
+    const finalPodatekAkcyzowy = podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy;
+    
+    // Используем переданный курс из формы или пытаемся получить из связанного receipt'а
+    const productKod = kod || existingRecord.kod;
+    
+    // Если курс передан из формы, используем его напрямую
+    if (kurs !== undefined) {
+      const finalKursValue = parseFloat(kurs) || 4.25;
+      console.log(`💰 Kurs from form: ${finalKursValue}`);
+      
+      // Рассчитываем koszt_wlasny: cena * kurs + koszt_dostawy_per_unit + podatek_akcyzowy
+      const kosztWlasny = parseFloat((finalCena * finalKursValue + finalKosztDostawyPerUnit + finalPodatekAkcyzowy).toFixed(2));
+      console.log(`📊 Calculated koszt_wlasny: ${finalCena} * ${finalKursValue} + ${finalKosztDostawyPerUnit} + ${finalPodatekAkcyzowy} = ${kosztWlasny}`);
+      
+      // Обновляем запись
+      db.run(
+          'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
+          [
+            kod || existingRecord.kod,
+            nazwa || existingRecord.nazwa,
+            ilosc || existingRecord.ilosc,
+            typ || existingRecord.typ,
+            kod_kreskowy || existingRecord.kod_kreskowy,
+            data_waznosci || existingRecord.data_waznosci,
+            rezerwacje || existingRecord.rezerwacje,
+            objetosc || existingRecord.objetosc,
+            sprzedawca || existingRecord.sprzedawca,
+            finalCena,
+            cena_sprzedazy !== undefined ? cena_sprzedazy : existingRecord.cena_sprzedazy,
+            finalKosztDostawyPerUnit,
+            finalPodatekAkcyzowy,
+            kosztWlasny,
+            id
+          ],
       function(err) {
         if (err) {
           console.error('❌ Database error:', err);
@@ -3940,6 +3958,91 @@ app.put('/api/working-sheets/update', (req, res) => {
         });
       }
     );
+    } else {
+      // Если курс не передан, пытаемся получить из связанного receipt'а
+      db.get(
+        `SELECT pr.aktualny_kurs 
+         FROM products p
+         JOIN product_receipts pr ON p.receipt_id = pr.id
+         WHERE p.kod = ? AND p.receipt_id IS NOT NULL
+         ORDER BY pr.id DESC
+         LIMIT 1`,
+        [productKod],
+        (kursErr, kursResult) => {
+          const kursValue = kursResult && kursResult.aktualny_kurs ? kursResult.aktualny_kurs : 4.25;
+          console.log(`💰 Kurs from database: ${kursValue}`);
+          
+          // Рассчитываем koszt_wlasny: cena * kurs + koszt_dostawy_per_unit + podatek_akcyzowy
+          const kosztWlasny = parseFloat((finalCena * kursValue + finalKosztDostawyPerUnit + finalPodatekAkcyzowy).toFixed(2));
+          console.log(`📊 Calculated koszt_wlasny: ${finalCena} * ${kursValue} + ${finalKosztDostawyPerUnit} + ${finalPodatekAkcyzowy} = ${kosztWlasny}`);
+          
+          // Обновляем запись
+          db.run(
+            'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
+            [
+              kod || existingRecord.kod,
+              nazwa || existingRecord.nazwa,
+              ilosc || existingRecord.ilosc,
+              typ || existingRecord.typ,
+              kod_kreskowy || existingRecord.kod_kreskowy,
+              data_waznosci || existingRecord.data_waznosci,
+              rezerwacje || existingRecord.rezerwacje,
+              objetosc || existingRecord.objetosc,
+              sprzedawca || existingRecord.sprzedawca,
+              finalCena,
+              cena_sprzedazy !== undefined ? cena_sprzedazy : existingRecord.cena_sprzedazy,
+              finalKosztDostawyPerUnit,
+              finalPodatekAkcyzowy,
+              kosztWlasny,
+              id
+            ],
+            function(err) {
+              if (err) {
+                console.error('❌ Database error:', err);
+                res.status(500).json({ error: err.message });
+                return;
+              }
+              
+              console.log(`✅ Working sheet ${id} updated successfully`);
+              console.log(`📊 Changes: kod=${kod || existingRecord.kod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
+              
+              // Если изменилась цена, обновляем её в products для записей с receipt_id = NULL
+              const updatedCena = cena || existingRecord.cena;
+              if (cena && cena !== existingRecord.cena) {
+                const productKod = kod || existingRecord.kod;
+                console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena} → ${cena}`);
+                console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
+                
+                db.run(
+                  'UPDATE products SET cena = ? WHERE kod = ? AND receipt_id IS NULL',
+                  [cena, productKod],
+                  function(updateErr) {
+                    if (updateErr) {
+                      console.error(`❌ Error updating products table:`, updateErr);
+                    } else if (this.changes > 0) {
+                      console.log(`✅ Updated ${this.changes} record(s) in products table`);
+                    } else {
+                      console.log(`ℹ️ No records with receipt_id = NULL found in products for ${productKod}`);
+                    }
+                  }
+                );
+              }
+              
+              res.json({ 
+                message: 'Working sheet updated successfully',
+                id: id,
+                changes: {
+                  kod: kod || existingRecord.kod,
+                  nazwa: nazwa || existingRecord.nazwa,
+                  ilosc: ilosc || existingRecord.ilosc,
+                  typ: typ || existingRecord.typ
+                }
+              });
+            }
+          );
+        }
+      );
+    }
   });
 });
 
