@@ -472,6 +472,31 @@ app.get('/api/products/:id', (req, res) => {
   });
 });
 
+// Вспомогательная функция для разбивки текста на строки по ширине
+function wrapText(text, font, fontSize, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let currentLine = '';
+
+  words.forEach(word => {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+    
+    if (testWidth > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  });
+  
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  
+  return lines;
+}
+
 // Функция генерации PDF заказа
 async function generateOrderPDF(order, products, res) {
   try {
@@ -615,10 +640,10 @@ async function generateOrderPDF(order, products, res) {
     page.drawText(orderNumber, {
       x: textX,
       y: textY,
-      size: 14,
-      font: helveticaBold,
-      color: colors.textDark
-    });
+        size: 14,
+        font: helveticaBold,
+        color: colors.textDark
+      });
     
     yPosition = headerY - 30; // Уменьшен отступ от рамки с номером заказа
     
@@ -628,7 +653,7 @@ async function generateOrderPDF(order, products, res) {
     const clientBlockBg = rgb(0.98, 0.88, 0.88); // Более бледный розовый цвет
     
     // Фон блока с рамкой
-    page.drawRectangle({
+          page.drawRectangle({
       x: containerMargin,
       y: clientBlockY,
       width: width - 2 * containerMargin,
@@ -643,21 +668,39 @@ async function generateOrderPDF(order, products, res) {
     const clientRightX = middleX + 10;
     let clientY = clientBlockY + clientBlockHeight - 15;
     
-    // Первая строка: klient слева, firma справа (все с маленькой буквы)
+    // Первая строка: klient слева, firma справа (метки жирным)
     const clientName = order.client_name || order.klient || '-';
-    page.drawText(`klient: ${clientName}`, {
+    // klient: жирным
+    const klientLabelWidth = helveticaBold.widthOfTextAtSize('klient:', 9);
+    page.drawText('klient:', {
       x: clientTextX,
       y: clientY,
-      size: 9,
+          size: 9,
+      font: helveticaBold,
+      color: rgb(0, 0, 0)
+    });
+    page.drawText(` ${clientName}`, {
+      x: clientTextX + klientLabelWidth,
+      y: clientY,
+          size: 9,
       font: soraFont,
       color: rgb(0, 0, 0)
     });
     
     if (order.firma) {
-      page.drawText(`firma: ${order.firma}`, {
+      // firma: жирным
+      const firmaLabelWidth = helveticaBold.widthOfTextAtSize('firma:', 9);
+      page.drawText('firma:', {
         x: clientRightX,
         y: clientY,
-        size: 9,
+          size: 9,
+        font: helveticaBold,
+        color: rgb(0, 0, 0)
+      });
+      page.drawText(` ${order.firma}`, {
+        x: clientRightX + firmaLabelWidth,
+        y: clientY,
+          size: 9,
         font: soraFont,
         color: rgb(0, 0, 0)
       });
@@ -665,10 +708,18 @@ async function generateOrderPDF(order, products, res) {
     
     clientY -= 22; // Увеличен межстрочный интервал с 18 до 22
     
-    // Вторая строка: adres слева, czas dostawy справа
+    // Вторая строка: adres слева, czas dostawy справа (метки жирным)
     if (order.adres) {
-      page.drawText(`adres: ${order.adres}`, {
+      const adresLabelWidth = helveticaBold.widthOfTextAtSize('adres:', 9);
+      page.drawText('adres:', {
         x: clientTextX,
+        y: clientY,
+        size: 9,
+        font: helveticaBold,
+        color: rgb(0, 0, 0)
+      });
+      page.drawText(` ${order.adres}`, {
+        x: clientTextX + adresLabelWidth,
         y: clientY,
         size: 9,
         font: soraFont,
@@ -677,13 +728,21 @@ async function generateOrderPDF(order, products, res) {
     }
     
     if (order.czas_dostawy) {
-      page.drawText(`czas dostawy: ${order.czas_dostawy}`, {
+      const czasLabelWidth = helveticaBold.widthOfTextAtSize('czas dostawy:', 9);
+      page.drawText('czas dostawy:', {
         x: clientRightX,
         y: clientY,
         size: 9,
+           font: helveticaBold,
+           color: rgb(0, 0, 0)
+         });
+      page.drawText(` ${order.czas_dostawy}`, {
+        x: clientRightX + czasLabelWidth,
+        y: clientY,
+        size: 9,
         font: soraFont,
-        color: rgb(0, 0, 0)
-      });
+           color: rgb(0, 0, 0)
+         });
     }
     
     yPosition = clientBlockY - 58; // Увеличен отступ на 1 см (28 пикселей дополнительно)
@@ -691,7 +750,7 @@ async function generateOrderPDF(order, products, res) {
     // Таблица товаров
     const tableX = containerMargin + 10;
     const tableYTop = yPosition;
-    const colWidths = [280, 120, 60];
+    const colWidths = [280, 120, 40]; // Nazwa как было, Kod kreskowy как было, Ilość узкая у правого края
     const headers = ['Nazwa', 'Kod kreskowy', 'Ilość'];
     let cursorX = tableX;
     headers.forEach((h, idx) => {
@@ -706,14 +765,22 @@ async function generateOrderPDF(order, products, res) {
       start: { x: containerMargin, y: tableYTop - 4 },
       end: { x: width - containerMargin, y: tableYTop - 4 },
       thickness: 0.5,
-      color: rgb(0, 0, 0)
-    });
+             color: rgb(0, 0, 0)
+           });
 
     console.log(`🧾 PDF(main) products count: ${products?.length || 0}`);
     let currentPage = page;
     (products || []).forEach((p, index) => {
+      const name = p.nazwa || p.product_name || p.kod || '-';
+      const barcode = p.kod_kreskowy || '-';
+      const qty = Number(p.ilosc || p.qty || 0);
+
+      // Разбиваем название на строки если оно слишком длинное (ширина колонки Nazwa)
+      const nameLines = wrapText(name, soraFont, 10, 280 - 4);
+      const rowHeight = nameLines.length * 12; // Высота строки товара зависит от количества строк в названии
+      
       // Проверка: если строка не помещается, создаём новую страницу
-      if (rowY < containerMargin + 60) {
+      if (rowY - rowHeight < containerMargin + 60) {
         currentPage = pdfDoc.addPage([595.28, 841.89]);
         rowY = height - containerMargin - 40;
         
@@ -729,40 +796,60 @@ async function generateOrderPDF(order, products, res) {
           start: { x: containerMargin, y: rowY - 4 },
           end: { x: width - containerMargin, y: rowY - 4 },
           thickness: 0.5,
-          color: rgb(0, 0, 0)
-        });
+             color: rgb(0, 0, 0)
+           });
         
         rowY -= 28;
       }
       
-      const name = p.nazwa || p.product_name || p.kod || '-';
-      const barcode = p.kod_kreskowy || '-';
-      const qty = Number(p.ilosc || p.qty || 0);
-
-      const cells = [name, barcode, String(qty)];
-      let x = tableX;
-      cells.forEach((c, i) => {
-        currentPage.drawText(c, { x: x + 2, y: rowY, size: 10, font: soraFont, color: colors.text });
-        x += colWidths[i];
+      // Рисуем название (может быть многострочным)
+      let nameY = rowY;
+      nameLines.forEach((line, lineIdx) => {
+        currentPage.drawText(line, { 
+          x: tableX + 2, 
+          y: nameY - (lineIdx * 12), 
+              size: 10,
+          font: soraFont, 
+          color: colors.text 
+            });
+          });
+      
+      // Рисуем код крескowy и количество (на первой строке товара)
+      currentPage.drawText(barcode, { 
+        x: tableX + colWidths[0] + 2, 
+        y: rowY, 
+        size: 10, 
+        font: soraFont, 
+        color: colors.text 
       });
-      rowY -= 18; // Увеличен межстрочный интервал с 14 до 18
+      
+      currentPage.drawText(String(qty), { 
+        x: tableX + colWidths[0] + colWidths[1] + 2, 
+        y: rowY, 
+        size: 10, 
+        font: soraFont, 
+        color: colors.text 
+      });
+      
+      rowY -= rowHeight + 6; // Переходим к следующему товару с учетом высоты + отступ
     });
     
-    // Линия под всеми товарами (на последней странице) - отступ 30
+    // Линия под всеми товарами (на последней странице) - сразу после последнего товара
+    const lineY = rowY + 14; // Небольшой отступ как сверху (14 пикселей)
     currentPage.drawLine({
-      start: { x: containerMargin, y: rowY + 30 },
-      end: { x: width - containerMargin, y: rowY + 30 },
+      start: { x: containerMargin, y: lineY },
+      end: { x: width - containerMargin, y: lineY },
       thickness: 0.5,
-      color: rgb(0, 0, 0)
-    });
-
+              color: rgb(0, 0, 0)
+            });
+            
     // Итого - Razem под линией (на последней странице)
-    yPosition = rowY + 30 - 18;
+    yPosition = lineY - 18;
     
     // Метка Razem с двоеточием
     currentPage.drawText('Razem:', {
       x: tableX + colWidths[0] + colWidths[1] - 55,
-      y: yPosition,
+              y: yPosition,
       size: 10,
       font: soraFont,
       color: colors.textDark
@@ -774,18 +861,18 @@ async function generateOrderPDF(order, products, res) {
     
     currentPage.drawText(razemValue, {
       x: razemValueX,
-      y: yPosition,
+             y: yPosition,
       size: 9,
-      font: helveticaBold,
+             font: helveticaBold,
       color: colors.textDark
     });
 
     // Убрали подписи снизу
-
-    const pdfBytes = await pdfDoc.save();
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="order_${order.numer_zamowienia}.pdf"`);
-    res.send(Buffer.from(pdfBytes));
+        
+        const pdfBytes = await pdfDoc.save();
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="order_${order.numer_zamowienia}.pdf"`);
+        res.send(Buffer.from(pdfBytes));
   } catch (error) {
     console.error('Error generating PDF:', error);
     
