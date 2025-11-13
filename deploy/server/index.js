@@ -3170,70 +3170,125 @@ app.put('/api/product-receipts/:id', upload.fields([
             
             console.log(`💰 Delivery cost calculation (PUT): ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
             
-            // Шаг 1: Удаляем ВСЕ старые записи продуктов из редактируемой приемки
-            console.log('🔄 Step 1: Removing ALL old product records from edited receipt...');
-            console.log(`📋 Old products (from JSON): ${oldProducts.map(p => p.kod).join(', ')}`);
-            console.log(`📋 New products to add: ${products.map(p => p.kod).join(', ')}`);
+            // === DIFF-ALGORITHM: compare old vs new and calculate deltaByKod ===
+            console.log('🔄 Step 1: Diff old vs new product lines');
             
-            // Удаляем ВСЕ записи из products по receipt_id (включая дубликаты)
-              await new Promise((resolve, reject) => {
-              db.run('DELETE FROM products WHERE receipt_id = ?', [id], function(err) {
-                  if (err) {
-                  console.error(`❌ Error removing old product records:`, err);
-                    reject(err);
-                  } else {
-                  console.log(`✅ Removed ALL old product records from receipt ${id}, rows affected: ${this.changes}`);
-                    resolve();
-                  }
-                });
-              });
+            const deltaByKod = {};
             
-            // Шаг 1.5: Проверяем и обновляем working_sheets ПОСЛЕ добавления новых продуктов
-            // (перенесем эту логику в конец)
-            
-                        // Шаг 2: Создаем новые записи в таблице products (working_sheets обновим в Шаге 3)
-            console.log('🔄 Step 2: Creating new product records and updating working_sheets...');
-            console.log(`📋 Total products to insert: ${products.length}`);
-            products.forEach((p, idx) => {
-              console.log(`  [${idx}] kod: ${p.kod}, nazwa: ${p.nazwa}, ilosc: ${p.ilosc}`);
+            // Build maps: kod -> total quantity
+            const oldQty = {};
+            oldProducts.forEach(p => {
+              oldQty[p.kod] = (oldQty[p.kod] || 0) + (p.ilosc || 0);
             });
             
-            for (const product of products) {
-              console.log(`📝 Processing product: ${product.kod} (ilosc: ${product.ilosc})`);
+            const newQty = {};
+            products.forEach(p => {
+              newQty[p.kod] = (newQty[p.kod] || 0) + (p.ilosc || 0);
+            });
+            
+            console.log('📋 Old quantities:', oldQty);
+            console.log('📋 New quantities:', newQty);
+            
+            // 1a. Process removed or changed codes
+            for (const [kod, qtyOld] of Object.entries(oldQty)) {
+              const qtyNew = newQty[kod] || 0;
+              const diff = qtyNew - qtyOld;
               
-              // Всегда создаем новую запись (даже для дубликатов кода в одной приёмке)
-              console.log(`➕ Creating new product record: ${product.kod}`);
-              await new Promise((resolve, reject) => {
-                    db.run(
-                  'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                      [
-                        product.kod, 
-                        product.nazwa, 
-                        product.kod_kreskowy || null, 
-                        product.cena || 0,
-                        product.ilosc,
-                        product.ilosc, // ilosc_aktualna
-                    id,
-                    (product.cena || 0) === 0 ? 'samples' : null
-                      ],
-                      function(err) {
-                        if (err) {
-                          console.error('❌ Error inserting into products:', err.message);
-                          reject(err);
-                        } else {
-                          console.log(`✅ Created new product record: ${product.kod} with ID: ${this.lastID}`);
-                          productsInserted++;
-                          resolve();
-                        }
+              if (diff !== 0) {
+                deltaByKod[kod] = (deltaByKod[kod] || 0) + diff;
+              }
+              
+              if (qtyNew === 0) {
+                // Completely removed - delete from products
+                console.log(`🗑️ Deleting all products with kod=${kod} from receipt ${id}`);
+                await new Promise((resolve, reject) => {
+                  db.run('DELETE FROM products WHERE receipt_id = ? AND kod = ?', [id, kod], function(err){
+                    if (err) { 
+                      console.error(`❌ Error deleting ${kod}:`, err); 
+                      reject(err); 
+                    } else { 
+                      console.log(`✅ Deleted ${kod}, rows: ${this.changes}`);
+                      resolve(); 
+                    }
+                  });
+                });
+              } else if (diff !== 0) {
+                // Quantity changed - update
+                console.log(`✏️ Updating quantity for kod=${kod}: ${qtyOld} → ${qtyNew} (diff: ${diff})`);
+                await new Promise((resolve, reject) => {
+                  db.run(
+                    'UPDATE products SET ilosc = ?, ilosc_aktualna = ? WHERE receipt_id = ? AND kod = ?', 
+                    [qtyNew, qtyNew, id, kod], 
+                    function(err){
+                      if (err) { 
+                        console.error(`❌ Error updating ${kod}:`, err); 
+                        reject(err); 
+                      } else { 
+                        console.log(`✅ Updated ${kod}, rows: ${this.changes}`);
+                        resolve(); 
                       }
-                    );
-              });
-              
-              // НЕ обновляем working_sheets здесь - это будет сделано в Шаге 3
-              console.log(`📝 Product ${product.kod} processed, working_sheets will be updated in Step 3`);
-              
-              processedCount++;
+                    }
+                  );
+                });
+              }
             }
+            
+            // 1b. Add new codes
+            for (const [kod, qtyNew] of Object.entries(newQty)) {
+              if (oldQty[kod] === undefined) {
+                console.log(`➕ Inserting new product kod=${kod}, qty=${qtyNew}`);
+                deltaByKod[kod] = (deltaByKod[kod] || 0) + qtyNew;
+                
+                // Find first product with this kod for metadata
+                const productData = products.find(p => p.kod === kod);
+                
+                await new Promise((resolve, reject) => {
+                  db.run(
+                    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status) VALUES (?,?,?,?,?,?,?,?)',
+                    [
+                      kod, 
+                      productData.nazwa, 
+                      productData.kod_kreskowy || null, 
+                      productData.cena || 0,
+                      qtyNew,
+                      qtyNew,
+                      id,
+                      (productData.cena || 0) === 0 ? 'samples' : null
+                    ],
+                    function(err){ 
+                      if(err){
+                        console.error(`❌ Error inserting ${kod}:`, err); 
+                        reject(err);
+                      } else {
+                        console.log(`✅ Inserted ${kod} with ID: ${this.lastID}`);
+                        productsInserted++;
+                        resolve();
+                      } 
+                    }
+                  );
+                });
+              }
+            }
+            
+            console.log('📐 Quantity deltas per kod:', deltaByKod);
+            
+            // Step 2: Apply delta to working_sheets (will also subtract orders in Step 3)
+            console.log('🔄 Step 2: Applying delta to working_sheets');
+            for (const [kod, diff] of Object.entries(deltaByKod)) {
+              if (diff === 0) continue;
+              await new Promise((resolve) => {
+                db.run('UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?', [diff, kod], function(err){
+                  if (err) {
+                    console.error(`❌ Error updating working_sheets ${kod}:`, err);
+                  } else {
+                    console.log(`✅ working_sheets ${kod}: ilosc += ${diff} (rows: ${this.changes})`);
+                  }
+                  resolve();
+                });
+              });
+            }
+            
+            processedCount = products.length;
             
             // Шаг 3: Проверяем и обновляем working_sheets для всех товаров
             console.log('🔄 Step 3: Processing working_sheets after all products updated...');
@@ -3260,18 +3315,30 @@ app.put('/api/product-receipts/:id', upload.fields([
             for (const productCode of allProductCodes) {
               console.log(`🔍 Processing working_sheets for: ${productCode}`);
               
-              // Проверяем, есть ли товар в products
+              // Проверяем, есть ли товар в products и вычитаем заказы
               await new Promise((resolve, reject) => {
-                db.get('SELECT COUNT(*) as count, SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
+                // Сначала берём сумму по всем приёмкам
+                db.get('SELECT COUNT(*) as count, SUM(ilosc) as total_receipts FROM products WHERE kod = ?', [productCode], (err, receiptResult) => {
                   if (err) {
                     console.error(`❌ Error checking products for ${productCode}:`, err);
                     reject(err);
                     return;
                   }
                   
-                  const productCount = result.count || 0;
-                  const totalQuantity = result.total_ilosc || 0;
-                  console.log(`📊 Product ${productCode}: found in ${productCount} receipts, total quantity: ${totalQuantity}`);
+                  const productCount = receiptResult.count || 0;
+                  const totalReceipts = receiptResult.total_receipts || 0;
+                  
+                  // Затем берём сколько уже выдано в заказах
+                  db.get('SELECT SUM(ilosc) as total_orders FROM order_products WHERE kod = ?', [productCode], (err, orderRes) => {
+                    if (err) {
+                      console.error(`❌ Error checking orders for ${productCode}:`, err);
+                      reject(err);
+                      return;
+                    }
+                    
+                    const totalOrders = orderRes?.total_orders || 0;
+                    const totalQuantity = totalReceipts - totalOrders; // может быть отрицательным
+                    console.log(`📊 Product ${productCode}: receipts ${totalReceipts} – orders ${totalOrders} = stock ${totalQuantity}`);
                   
                   if (productCount === 0) {
                     // Товар больше не существует ни в одной приемке - удаляем из working_sheets
@@ -3432,8 +3499,9 @@ app.put('/api/product-receipts/:id', upload.fields([
                       }
                     });
                     }
-                  });
-                });
+                  }); // закрываем callback db.get для orders
+                }); // закрываем callback db.get для receipts
+              }); // закрываем Promise
             }
             
             // Шаг 4: Отправляем ответ
