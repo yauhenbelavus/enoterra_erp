@@ -2700,6 +2700,9 @@ app.post('/api/product-receipts', upload.fields([
     transportInvoice = req.body.transportInvoice;
   }
   
+  // Парсим kosztDostawy с заменой запятой на точку
+  kosztDostawy = parseFloat(String(kosztDostawy || '0').replace(',', '.')) || 0;
+  
   console.log('📦 POST /api/product-receipts - Creating new product receipt:', { 
     date, 
     sprzedawca, 
@@ -3105,6 +3108,9 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoice = req.body.transportInvoice;
   }
   
+  // Парсим kosztDostawy с заменой запятой на точку
+  kosztDostawy = parseFloat(String(kosztDostawy || '0').replace(',', '.')) || 0;
+  
   console.log(`📦 PUT /api/product-receipts/${id} - Updating product receipt:`, { 
     date, 
     sprzedawca, 
@@ -3196,7 +3202,7 @@ app.put('/api/product-receipts/:id', upload.fields([
               if (product.typ === 'aksesoria') return total;
               return total + (product.ilosc || 0);
             }, 0);
-            const kosztDostawyPerUnit = totalBottles > 0 ? ((kosztDostawy || 0) / totalBottles) * kurs : 0;
+            const kosztDostawyPerUnit = totalBottles > 0 ? parseFloat((((kosztDostawy || 0) / totalBottles) * kurs).toFixed(2)) : 0;
             
             console.log(`💰 Delivery cost calculation (PUT): ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
             
