@@ -3429,7 +3429,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                     else resolve(result?.total_ilosc || 0);
                 });
               });
-                
+              
                 const sourceProduct = newProduct.items[0];
                 const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                 const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
@@ -3462,7 +3462,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 console.log(`🗑️ Checking if ${productCode} should be removed from working_sheets...`);
                 
                 const remainingCount = await new Promise((resolve, reject) => {
-                  db.get('SELECT COUNT(*) as count FROM products WHERE kod = ?', [productCode], (err, result) => {
+                db.get('SELECT COUNT(*) as count FROM products WHERE kod = ?', [productCode], (err, result) => {
                     if (err) reject(err);
                     else resolve(result?.count || 0);
                   });
@@ -3471,10 +3471,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                 if (remainingCount === 0) {
                   await new Promise((resolve, reject) => {
                     db.run('DELETE FROM working_sheets WHERE kod = ?', [productCode], function(err) {
-                    if (err) {
+                  if (err) {
                         console.error(`❌ Error removing ${productCode} from working_sheets:`, err);
                       reject(err);
-                      } else {
+                  } else {
                         console.log(`✅ Removed ${productCode} from working_sheets`);
                         resolve();
                       }
@@ -3497,11 +3497,11 @@ app.put('/api/product-receipts/:id', upload.fields([
                       } else {
                         console.log(`✅ Updated ilosc in working_sheets for ${productCode}: ${totalQuantityResult}`);
                         workingSheetsUpdated++;
-                        resolve();
+                  resolve();
                       }
-                    });
-                  });
-                }
+                });
+              });
+            }
               } else if (oldProduct && newProduct) {
                 // Товар существует - обновляем только измененные поля
                 console.log(`🔄 Updating working_sheets for ${productCode}...`);
@@ -3533,14 +3533,14 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
                   const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitValue + podatekValue).toFixed(2));
                   
-                  await new Promise((resolve, reject) => {
+              await new Promise((resolve, reject) => {
                         db.run(
                       'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                       [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue],
                           function(err) {
-                            if (err) {
+                  if (err) {
                           console.error(`❌ Error creating working_sheets for ${productCode}:`, err);
-                              reject(err);
+                    reject(err);
                             } else {
                           console.log(`✅ Created working_sheets for ${productCode}`);
                               workingSheetsUpdated++;
@@ -3596,9 +3596,9 @@ app.put('/api/product-receipts/:id', upload.fields([
                        FROM working_sheets WHERE kod = ?`,
                       [id, productCode],
                       function(err) {
-                        if (err) {
+                    if (err) {
                           console.error(`❌ Error saving snapshot for ${productCode}:`, err);
-                        } else {
+                      } else {
                           console.log(`✅ Snapshot saved for ${productCode}`);
                         }
                         resolve();
@@ -3661,20 +3661,20 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   // Обновляем working_sheets
                   await new Promise((resolve, reject) => {
-                    db.run(
+                        db.run(
                       `UPDATE working_sheets SET ${updateFields.join(', ')} WHERE kod = ?`,
                       [...updateValues, productCode],
-                      function(err) {
-                        if (err) {
-                          console.error(`❌ Error updating working_sheets for ${productCode}:`, err);
-                          reject(err);
-                        } else {
+                          function(err) {
+                            if (err) {
+                              console.error(`❌ Error updating working_sheets for ${productCode}:`, err);
+                              reject(err);
+                            } else {
                           console.log(`✅ Updated working_sheets for ${productCode}: ${updateFields.join(', ')}, koszt_wlasny: ${kosztWlasnyValue}`);
-                          workingSheetsUpdated++;
-                          resolve();
-                        }
-                      }
-                    );
+                              workingSheetsUpdated++;
+                              resolve();
+                            }
+                          }
+                        );
                   });
                   continue;
                 }
@@ -4274,10 +4274,26 @@ app.put('/api/working-sheets/update', (req, res) => {
     
     console.log(`🔄 Found existing record: ${existingRecord.kod} (current ilosc: ${existingRecord.ilosc})`);
     
+    // Получаем тип товара (из запроса или из существующей записи)
+    const finalTyp = typ !== undefined ? typ : existingRecord.typ;
+    
     // Получаем значения для расчета
     const finalCena = cena !== undefined ? cena : existingRecord.cena;
-    const finalKosztDostawyPerUnit = koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit;
-    const finalPodatekAkcyzowy = podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy;
+    let finalKosztDostawyPerUnit = koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit;
+    let finalPodatekAkcyzowy = podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy;
+    
+    // Для bezalkoholowe, ferment и aksesoria акциз всегда 0
+    const isBezalkoholoweOrFermentOrAksesoria = finalTyp === 'bezalkoholowe' || finalTyp === 'ferment' || finalTyp === 'aksesoria';
+    if (isBezalkoholoweOrFermentOrAksesoria) {
+      finalPodatekAkcyzowy = 0;
+      console.log(`🔍 Product type is ${finalTyp}, setting podatek_akcyzowy to 0`);
+    }
+    
+    // Для aksesoria транспорт не распределяется
+    if (finalTyp === 'aksesoria') {
+      finalKosztDostawyPerUnit = 0;
+      console.log(`🔍 Product type is aksesoria, setting koszt_dostawy_per_unit to 0`);
+    }
     
     // Используем переданный курс из формы или пытаемся получить из связанного receipt'а
     const productKod = kod || existingRecord.kod;
