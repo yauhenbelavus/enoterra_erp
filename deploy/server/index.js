@@ -3154,12 +3154,14 @@ app.put('/api/product-receipts/:id', upload.fields([
       oldTransportInvoice: oldReceipt.transportInvoice
     });
     
-    // Вычисляем курс для обновления записи
-    const kurs = aktualnyKurs || 1;
+    // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
+    const kurs = parseFloat(String(aktualnyKurs || '1').replace(',', '.')) || 1;
+    const podatekAkcyzowyParsed = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
+    const rabatParsed = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
     
     db.run(
       'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, products = ?, productInvoice = ?, transportInvoice = ? WHERE id = ?',
-      [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (podatekAkcyzowy || 0), (rabat || 0), JSON.stringify(products), finalProductInvoice, finalTransportInvoice, id],
+      [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, podatekAkcyzowyParsed, rabatParsed, JSON.stringify(products), finalProductInvoice, finalTransportInvoice, id],
       function(err) {
         if (err) {
           console.error('❌ Database error:', err);
