@@ -1193,7 +1193,7 @@ app.post('/api/orders', (req, res) => {
                             // Записываем списания партий в order_consumptions
                             if (consumptions && consumptions.length > 0) {
                               const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
-                              const values = consumptions.flatMap(c => [orderId, kod, c.batchId, c.qty, c.cena]);
+                              const values = consumptions.flatMap(c => [orderId, kod, c.batchId, c.qty, c.cena || 0]);
                               db.run(
                                 `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
                                 values,
@@ -2041,7 +2041,7 @@ app.put('/api/orders/:id', (req, res) => {
           // Записываем списания партий в order_consumptions
           if (consumptions && consumptions.length > 0) {
             const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
-            const values = consumptions.flatMap(c => [id, productKod, c.batchId, c.qty, c.cena]);
+            const values = consumptions.flatMap(c => [id, productKod, c.batchId, c.qty, c.cena || 0]);
                     db.run(
               `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
               values,
@@ -5211,7 +5211,7 @@ function consumeFromProducts(productKod, quantity) {
 
           db.run('UPDATE products SET ilosc_aktualna = ? WHERE id = ?', [newLeft, batch.id], function (upErr) {
             if (upErr) return reject(upErr);
-            consumptions.push({ batchId: batch.id, qty: take, cena: batch.cena });
+            consumptions.push({ batchId: batch.id, qty: take, cena: batch.cena || 0 });
             remaining -= take;
             next();
           });
