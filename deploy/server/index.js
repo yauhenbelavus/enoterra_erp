@@ -678,15 +678,15 @@ async function generateOrderPDF(order, products, res) {
           size: 9,
       font: helveticaBold,
       color: rgb(0, 0, 0)
-    });
+        });
     page.drawText(` ${clientName}`, {
       x: clientTextX + klientLabelWidth,
       y: clientY,
           size: 9,
       font: soraFont,
       color: rgb(0, 0, 0)
-    });
-    
+        });
+        
     if (order.firma) {
       // firma: жирным
       const firmaLabelWidth = helveticaBold.widthOfTextAtSize('firma:', 9);
@@ -696,7 +696,7 @@ async function generateOrderPDF(order, products, res) {
           size: 9,
         font: helveticaBold,
         color: rgb(0, 0, 0)
-      });
+        });
       page.drawText(` ${order.firma}`, {
         x: clientRightX + firmaLabelWidth,
         y: clientY,
@@ -1705,7 +1705,7 @@ app.put('/api/orders/:id', (req, res) => {
             console.error(`❌ Error updating product ${key}:`, err);
           } else {
             console.log(`✅ Updated product ${key} (ID: ${oldProduct.id})`);
-            
+          
             // Обрабатываем изменение количества
             if (quantityDiff > 0) {
               console.log(`📈 Quantity increased by ${quantityDiff}`);
@@ -1811,8 +1811,8 @@ app.put('/api/orders/:id', (req, res) => {
                 operationCompleted();
               });
             }
-          }
-        );
+      }
+    );
       }
     }
     
@@ -3110,7 +3110,7 @@ app.put('/api/product-receipts/:id', upload.fields([
   }
   
   // Сначала получаем старые данные для сравнения
-  db.get('SELECT products, productInvoice, transportInvoice, podatek_akcyzowy FROM product_receipts WHERE id = ?', [id], (err, oldReceipt) => {
+  db.get('SELECT products, productInvoice, transportInvoice, podatek_akcyzowy, aktualny_kurs, kosztDostawy FROM product_receipts WHERE id = ?', [id], (err, oldReceipt) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -3127,8 +3127,18 @@ app.put('/api/product-receipts/:id', upload.fields([
     const newPodatekAkcyzowy = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
     const podatekAkcyzowyChanged = Math.abs(oldPodatekAkcyzowy - newPodatekAkcyzowy) > 0.01;
     
+    const oldKurs = parseFloat(oldReceipt.aktualny_kurs || '1') || 1;
+    const newKurs = parseFloat(aktualnyKurs || '1') || 1;
+    const kursChanged = Math.abs(oldKurs - newKurs) > 0.01;
+    
+    const oldKosztDostawy = parseFloat(oldReceipt.kosztDostawy || '0') || 0;
+    const newKosztDostawy = parseFloat(kosztDostawy || '0') || 0;
+    const kosztDostawyChanged = Math.abs(oldKosztDostawy - newKosztDostawy) > 0.01;
+    
     console.log(`🔄 Found ${oldProducts.length} old products, updating to ${products.length} new products`);
     console.log(`📊 Podatek akcyzowy: old=${oldPodatekAkcyzowy}, new=${newPodatekAkcyzowy}, changed=${podatekAkcyzowyChanged}`);
+    console.log(`💰 Kurs: old=${oldKurs}, new=${newKurs}, changed=${kursChanged}`);
+    console.log(`🚚 Koszt dostawy: old=${oldKosztDostawy}, new=${newKosztDostawy}, changed=${kosztDostawyChanged}`);
     console.log('📋 Products array received from frontend:', JSON.stringify(products, null, 2));
     
     // Сохраняем существующие файлы, если новые не загружены
@@ -3238,7 +3248,7 @@ app.put('/api/product-receipts/:id', upload.fields([
               newProductsByKod[p.kod].ilosc += p.ilosc || 0;
               newProductsByKod[p.kod].items.push(p);
             });
-            
+              
             // Шаг 2: Сравниваем старые и новые товары и обновляем только измененные
             console.log('🔄 Step 2: Comparing old and new products...');
             
@@ -3267,8 +3277,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   }
                       }
                     );
-                  });
-                }
+              });
+            }
               } else if (oldProduct && !newProduct) {
                 // Товар удален - удаляем записи из products
                 console.log(`🗑️ Product removed: ${productCode}`);
@@ -3307,7 +3317,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 }
                 
                 console.log(`📝 Changes detected for ${productCode}:`, changes);
-                
+              
                 // Если количество изменилось, нужно пересоздать записи в products
                 if (changes.ilosc) {
                   console.log(`🔄 Quantity changed for ${productCode}: ${oldProduct.ilosc} → ${newProduct.ilosc}`);
@@ -3381,7 +3391,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                         }
                       }
                     );
-                    });
+                });
                   }
                 }
               }
@@ -3534,13 +3544,120 @@ app.put('/api/product-receipts/:id', upload.fields([
                   typ: (oldProduct.typ || '') !== (newProduct.typ || ''),
                   dataWaznosci: (oldProduct.dataWaznosci || '') !== (newProduct.dataWaznosci || ''),
                   objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || ''),
-                  podatekAkcyzowy: podatekAkcyzowyChanged // Изменился podatek akcyzowy (на литр) в приемке
+                  podatekAkcyzowy: podatekAkcyzowyChanged, // Изменился podatek akcyzowy (на литр) в приемке
+                  kurs: kursChanged, // Изменился курс в приемке
+                  kosztDostawy: kosztDostawyChanged // Изменилась общая стоимость доставки в приемке
                 };
                 
                 const hasWsChanges = Object.values(wsChanges).some(v => v);
                 
-                if (!hasWsChanges) {
+                // Если изменился только курс, kosztDostawy или podatekAkcyzowy, но не товары, все равно нужно обновить соответствующие поля
+                const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged;
+                const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc; // Если изменился только podatek_akcyzowy (не через objetosc)
+                const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate;
+                
+                if (!hasWsChanges && !needsReceiptParamsUpdate) {
                   console.log(`✅ No working_sheets changes for ${productCode}, skipping update`);
+                  continue;
+                }
+                
+                // Если изменились только параметры приемки (курс, kosztDostawy, podatek_akcyzowy), но не товары, обновляем соответствующие поля
+                // Но только если товар существует и в старой, и в новой версии приемки
+                if (!hasWsChanges && needsReceiptParamsUpdate && oldProduct && newProduct) {
+                  const updateReason = [];
+                  if (kursChanged) updateReason.push('kurs');
+                  if (kosztDostawyChanged) updateReason.push('kosztDostawy');
+                  if (needsPodatekAkcyzowyUpdate) updateReason.push('podatek_akcyzowy');
+                  console.log(`💰 Only receipt params changed for ${productCode} (${updateReason.join(', ')}), updating working_sheets`);
+                  
+                  // Сохраняем снимок ДО изменений
+                  await new Promise((resolve) => {
+                    db.run(
+                      `INSERT INTO working_sheets_history 
+                       (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
+                       SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
+                              'before_receipt', ?
+                       FROM working_sheets WHERE kod = ?`,
+                      [id, productCode],
+                      function(err) {
+                        if (err) {
+                          console.error(`❌ Error saving snapshot for ${productCode}:`, err);
+                        } else {
+                          console.log(`✅ Snapshot saved for ${productCode}`);
+                        }
+                        resolve();
+                      }
+                    );
+                  });
+                  
+                  // Получаем текущую запись из working_sheets
+                  const workingSheetRecord = await new Promise((resolve, reject) => {
+                    db.get('SELECT * FROM working_sheets WHERE kod = ?', [productCode], (err, row) => {
+                      if (err) reject(err);
+                      else resolve(row);
+                    });
+                  });
+                  
+                  if (!workingSheetRecord) {
+                    console.log(`⚠️ No working_sheets record for ${productCode}, skipping`);
+                    continue;
+                  }
+                  
+                  // Пересчитываем koszt_dostawy_per_unit с новым курсом (если изменился курс или kosztDostawy)
+                  const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
+                  
+                  // Пересчитываем podatek_akcyzowy (если изменился podatek_akcyzowy на литр)
+                  const sourceProduct = newProduct.items[0];
+                  const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
+                  const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
+                  const isBezalkoholoweOrFerment = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment';
+                  const podatekValue = isBezalkoholoweOrFerment ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                  
+                  // Используем новое значение podatek_akcyzowy, если оно изменилось, иначе текущее из БД
+                  const finalPodatekAkcyzowy = needsPodatekAkcyzowyUpdate ? podatekValue : (workingSheetRecord.podatek_akcyzowy || 0);
+                  
+                  // Используем новое значение koszt_dostawy_per_unit, если оно изменилось, иначе текущее из БД
+                  const finalKosztDostawyPerUnit = needsKosztDostawyUpdate ? kosztDostawyPerUnitValue : (workingSheetRecord.koszt_dostawy_per_unit || 0);
+                  
+                  // Пересчитываем koszt_wlasny
+                  const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
+                  const kosztWlasnyValue = parseFloat((maxCena * kurs + finalKosztDostawyPerUnit + finalPodatekAkcyzowy).toFixed(2));
+                  
+                  // Формируем UPDATE запрос только для измененных полей
+                  const updateFields = [];
+                  const updateValues = [];
+                  
+                  if (needsKosztDostawyUpdate) {
+                    updateFields.push('koszt_dostawy_per_unit = ?');
+                    updateValues.push(kosztDostawyPerUnitValue);
+                  }
+                  
+                  if (needsPodatekAkcyzowyUpdate) {
+                    updateFields.push('podatek_akcyzowy = ?');
+                    updateValues.push(podatekValue);
+                  }
+                  
+                  // Всегда обновляем koszt_wlasny, так как он зависит от всех параметров
+                  updateFields.push('koszt_wlasny = ?');
+                  updateValues.push(kosztWlasnyValue);
+                  
+                  // Обновляем working_sheets
+                  await new Promise((resolve, reject) => {
+                    db.run(
+                      `UPDATE working_sheets SET ${updateFields.join(', ')} WHERE kod = ?`,
+                      [...updateValues, productCode],
+                      function(err) {
+                        if (err) {
+                          console.error(`❌ Error updating working_sheets for ${productCode}:`, err);
+                          reject(err);
+                        } else {
+                          console.log(`✅ Updated working_sheets for ${productCode}: ${updateFields.join(', ')}, koszt_wlasny: ${kosztWlasnyValue}`);
+                          workingSheetsUpdated++;
+                          resolve();
+                        }
+                      }
+                    );
+                  });
                   continue;
                 }
                 
@@ -3562,8 +3679,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                         console.log(`✅ Snapshot saved for ${productCode}`);
                       }
                               resolve();
-                    }
-                  );
+                            }
+                        );
                 });
                 
                 // Формируем UPDATE запрос только для измененных полей
@@ -3655,7 +3772,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                 
                 // Обновляем koszt_dostawy_per_unit, если изменился kosztDostawy или kurs
                 const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
-                if (Math.abs((workingSheetRecord.koszt_dostawy_per_unit || 0) - kosztDostawyPerUnitValue) > 0.01) {
+                const kosztDostawyPerUnitChanged = Math.abs((workingSheetRecord.koszt_dostawy_per_unit || 0) - kosztDostawyPerUnitValue) > 0.01;
+                
+                // Обновляем, если значение изменилось ИЛИ если изменился курс или kosztDostawy в приемке
+                if (kosztDostawyPerUnitChanged || kursChanged || kosztDostawyChanged) {
                   updateFields.push('koszt_dostawy_per_unit = ?');
                   updateValues.push(kosztDostawyPerUnitValue);
                   
