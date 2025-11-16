@@ -2728,7 +2728,7 @@ app.post('/api/product-receipts', upload.fields([
     return total + (product.ilosc || 0);
   }, 0);
   const kurs = aktualnyKurs || 1;
-  const kosztDostawyPerUnit = totalBottles > 0 ? parseFloat((((kosztDostawy || 0) / totalBottles) * kurs).toFixed(2)) : 0;
+  const kosztDostawyPerUnit = totalBottles > 0 ? Math.round((((kosztDostawy || 0) / totalBottles) * kurs) * 100) / 100 : 0;
   
   console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
   console.log(`📊 Podatek akcyzowy input: ${podatekAkcyzowy}`);
@@ -3202,7 +3202,7 @@ app.put('/api/product-receipts/:id', upload.fields([
               if (product.typ === 'aksesoria') return total;
               return total + (product.ilosc || 0);
             }, 0);
-            const kosztDostawyPerUnit = totalBottles > 0 ? parseFloat((((kosztDostawy || 0) / totalBottles) * kurs).toFixed(2)) : 0;
+            const kosztDostawyPerUnit = totalBottles > 0 ? Math.round((((kosztDostawy || 0) / totalBottles) * kurs) * 100) / 100 : 0;
             
             console.log(`💰 Delivery cost calculation (PUT): ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
             
@@ -3440,7 +3440,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                 const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
                 const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
+                const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                 const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                 const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
                 // Для aksesoria транспорт не распределяется
@@ -3534,7 +3534,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                   const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                  const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
+                  const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
                   const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitValue + podatekValue).toFixed(2));
@@ -3626,7 +3626,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   }
                   
                   // Пересчитываем koszt_dostawy_per_unit с новым курсом (если изменился курс или kosztDostawy)
-                  const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
+                  const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   
                   // Пересчитываем podatek_akcyzowy (если изменился podatek_akcyzowy на литр)
                   const sourceProduct = newProduct.items[0];
@@ -3759,7 +3759,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   // Пересчитываем koszt_wlasny с новым podatek_akcyzowy
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                  const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
+                  const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   // Для aksesoria транспорт не распределяется
                   const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
                   const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitForProduct + podatekValue).toFixed(2));
@@ -3775,7 +3775,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   updateValues.push(maxCena);
                   
                   // Если цена изменилась, пересчитываем koszt_wlasny, используя ТЕКУЩЕЕ значение podatek_akcyzowy из БД
-                  const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
+                  const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   // Для aksesoria транспорт не распределяется
                   const sourceProduct = newProduct.items[0];
                   const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
@@ -3800,7 +3800,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 }
                 
                 // Обновляем koszt_dostawy_per_unit, если изменился kosztDostawy или kurs
-                const kosztDostawyPerUnitValue = parseFloat((((kosztDostawy || 0) / (totalBottles || 1)) * kurs).toFixed(2));
+                const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                 // Для aksesoria транспорт не распределяется
                 const sourceProduct = newProduct.items[0];
                 const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
