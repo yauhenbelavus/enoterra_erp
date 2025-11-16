@@ -2867,14 +2867,14 @@ app.post('/api/product-receipts', upload.fields([
                       console.log(`📝 Updating working_sheets for ${productCode}`);
                       
                       const cenaValue = parseFloat(newPrice) || 0;
-                      const objetoscValue = parseFloat(mainProduct.objetosc) || 1;
+                      const objetoscValue = parseFloat(String(mainProduct.objetosc || '1').replace(',', '.')) || 1;
                       const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                       
                       // Для bezalkoholowe, ferment и aksesoria податок всегда 0
                       const isBezalkoholoweOrFermentOrAksesoriaUpd = mainProduct.typ === 'bezalkoholowe' || mainProduct.typ === 'ferment' || mainProduct.typ === 'aksesoria';
                       console.log(`🔍 UPDATE type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoriaUpd=${isBezalkoholoweOrFermentOrAksesoriaUpd}`);
                       const podatekValueUpd = isBezalkoholoweOrFermentOrAksesoriaUpd ? 0 :
-                        (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                        (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                       // Для aksesoria транспорт не распределяется
                       const kosztDostawyPerUnitForProduct = mainProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnit;
                       const kosztWlasnyValueUpd = parseFloat((cenaValue * kurs + kosztDostawyPerUnitForProduct + podatekValueUpd).toFixed(2));
@@ -2931,14 +2931,14 @@ app.post('/api/product-receipts', upload.fields([
                   // Если товара нет - создаем новую запись в working_sheets
                   console.log(`➕ Creating new product: ${productCode}`);
                   const cenaValue = maxCena;
-                  const objetoscValue = parseFloat(mainProduct.objetosc) || 1;
+                  const objetoscValue = parseFloat(String(mainProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   
                   // Для bezalkoholowe, ferment и aksesoria податок всегда 0
                   const isBezalkoholoweOrFermentOrAksesoria = mainProduct.typ === 'bezalkoholowe' || mainProduct.typ === 'ferment' || mainProduct.typ === 'aksesoria';
                   console.log(`🔍 Product type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoria=${isBezalkoholoweOrFermentOrAksesoria}`);
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : 
-                    (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                    (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                   // Для aksesoria транспорт не распределяется
                   const kosztDostawyPerUnitForProduct = mainProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnit;
                   const kosztWlasnyValue = parseFloat((cenaValue * kurs + kosztDostawyPerUnitForProduct + podatekValue).toFixed(2));
@@ -3438,11 +3438,11 @@ app.put('/api/product-receipts/:id', upload.fields([
               
                 const sourceProduct = newProduct.items[0];
                 const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
+                const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
                 const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                 const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                 const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                 // Для aksesoria транспорт не распределяется
                 const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
                 const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitForProduct + podatekValue).toFixed(2));
@@ -3532,11 +3532,11 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   const sourceProduct = newProduct.items[0];
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                  const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
+                  const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                   const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitValue + podatekValue).toFixed(2));
                   
               await new Promise((resolve, reject) => {
@@ -3630,10 +3630,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   // Пересчитываем podatek_akcyzowy (если изменился podatek_akcyzowy на литр)
                   const sourceProduct = newProduct.items[0];
-                  const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
+                  const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                   
                   // Используем новое значение podatek_akcyzowy, если оно изменилось, иначе текущее из БД
                   const finalPodatekAkcyzowy = needsPodatekAkcyzowyUpdate ? podatekValue : (workingSheetRecord.podatek_akcyzowy || 0);
@@ -3749,10 +3749,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   // Пересчитываем podatek_akcyzowy = podatekAkcyzowy (на литр) * objetosc
                   const sourceProduct = newProduct.items[0];
-                  const objetoscValue = parseFloat(sourceProduct.objetosc) || 1;
+                  const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : parseFloat((podatekAkcyzowyValue * objetoscValue).toFixed(2)));
+                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                   
                   updateFields.push('podatek_akcyzowy = ?');
                   updateValues.push(podatekValue);
