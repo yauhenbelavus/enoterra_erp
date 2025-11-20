@@ -1008,6 +1008,582 @@ app.get('/api/orders/search', (req, res) => {
   });
 });
 
+// PDF Generation API для отчёта по остаткам
+async function generateInventoryReportPDF(items, res) {
+  try {
+    const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    // Регистрируем fontkit для поддержки пользовательских шрифтов
+    let fontkit;
+    try {
+      fontkit = require('@pdf-lib/fontkit');
+    } catch (fkErr) {
+      try {
+        fontkit = (await import('@pdf-lib/fontkit')).default;
+      } catch {
+        fontkit = null;
+      }
+    }
+    
+    // Создаем новый PDF документ
+    const pdfDoc = await PDFDocument.create();
+    
+    if (fontkit) {
+      pdfDoc.registerFontkit(fontkit);
+    }
+    
+    let currentPage = pdfDoc.addPage([792, 1224]); // Таблоид формат (11" × 17" = 792 × 1224 точек)
+    
+    // Получаем стандартные шрифты
+    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    
+    // Встраиваем пользовательский шрифт с поддержкой Unicode
+    let soraFont;
+    try {
+      const soraPath = path.join(__dirname, 'fonts', 'Sora-Regular.ttf');
+      const soraBytes = fs.readFileSync(soraPath);
+      soraFont = await pdfDoc.embedFont(soraBytes, { subset: false });
+    } catch (fontErr) {
+      soraFont = helveticaFont;
+    }
+    
+    const { width, height } = currentPage.getSize();
+    const margin = 50;
+    let yPosition = height - margin;
+    
+    // Цвета
+    const colors = {
+      text: rgb(0.22, 0.22, 0.22),
+      textDark: rgb(0.12, 0.12, 0.12),
+      border: rgb(0.82, 0.82, 0.82),
+    };
+    
+    // Цвета и метки для типов товаров (соответствуют TYPY_TOWARU из фронтенда)
+    const typConfigs = {
+      'czerwone': { label: 'Czerwone', bg: rgb(0.996, 0.886, 0.886), text: rgb(0.6, 0.106, 0.106), border: rgb(0.996, 0.792, 0.792) },
+      'biale': { label: 'Białe', bg: rgb(0.953, 0.957, 0.969), text: rgb(0.122, 0.161, 0.216), border: rgb(0.898, 0.906, 0.922) },
+      'musujace': { label: 'Musujące', bg: rgb(1.0, 0.984, 0.922), text: rgb(0.792, 0.541, 0.016), border: rgb(0.996, 0.953, 0.780) },
+      'bezalkoholowe': { label: 'Bezalkoholowe', bg: rgb(0.863, 0.988, 0.906), text: rgb(0.086, 0.396, 0.204), border: rgb(0.733, 0.969, 0.816) },
+      'ferment': { label: 'Ferment', bg: rgb(1.0, 0.929, 0.835), text: rgb(0.604, 0.204, 0.071), border: rgb(0.996, 0.843, 0.667) },
+      'rozowe': { label: 'Różowe', bg: rgb(0.988, 0.906, 0.953), text: rgb(0.616, 0.090, 0.302), border: rgb(0.984, 0.812, 0.910) },
+      'slodkie': { label: 'Słodkie', bg: rgb(0.953, 0.910, 1.0), text: rgb(0.420, 0.129, 0.659), border: rgb(0.914, 0.835, 1.0) },
+      'aksesoria': { label: 'Aksesoria', bg: rgb(0.878, 0.906, 1.0), text: rgb(0.216, 0.188, 0.639), border: rgb(0.780, 0.824, 0.996) },
+      'amber': { label: 'Amber', bg: rgb(0.996, 0.953, 0.780), text: rgb(0.573, 0.251, 0.055), border: rgb(0.992, 0.902, 0.541) }
+    };
+    
+    // Функция для получения конфигурации типа
+    const getTypConfig = (typ) => {
+      return typConfigs[typ] || { label: typ || '-', bg: rgb(0.953, 0.957, 0.969), text: rgb(0.122, 0.161, 0.216), border: rgb(0.898, 0.906, 0.922) };
+    };
+    
+    // Заголовок
+    currentPage.drawText('Raport stanów magazynowych', {
+      x: margin,
+      y: yPosition,
+      size: 19,
+      font: soraFont,
+      color: colors.textDark,
+    });
+    yPosition -= 40;
+    
+    // Дата генерации (день, месяц, год)
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const dateStr = `${day}.${month}.${year}`;
+    currentPage.drawText(dateStr, {
+      x: margin,
+      y: yPosition,
+      size: 9,
+      font: soraFont,
+      color: colors.text,
+    });
+    yPosition -= 30;
+    
+    // Заголовки таблицы
+    const tableStartY = yPosition;
+    const colWidths = {
+      nazwa: 280,
+      sprzedawca: 160,
+      objetosc: 60,
+      typ: 100,
+      ilosc: 40 // Уменьшена для увеличения sprzedawca
+    };
+    const colX = {
+      nazwa: margin,
+      sprzedawca: margin + colWidths.nazwa,
+      objetosc: margin + colWidths.nazwa + colWidths.sprzedawca,
+      typ: margin + colWidths.nazwa + colWidths.sprzedawca + colWidths.objetosc,
+      ilosc: margin + colWidths.nazwa + colWidths.sprzedawca + colWidths.objetosc + colWidths.typ
+    };
+    
+    // Рисуем заголовки (soraFont для поддержки польских символов)
+    currentPage.drawText('Nazwa', {
+      x: colX.nazwa,
+      y: yPosition,
+      size: 9,
+      font: soraFont,
+      color: colors.textDark,
+    });
+    currentPage.drawText('Sprzedawca', {
+      x: colX.sprzedawca,
+      y: yPosition,
+      size: 9,
+      font: soraFont,
+      color: colors.textDark,
+    });
+    currentPage.drawText('Objętość', {
+      x: colX.objetosc,
+      y: yPosition,
+      size: 9,
+      font: soraFont,
+      color: colors.textDark,
+    });
+    currentPage.drawText('Typ', {
+      x: colX.typ,
+      y: yPosition,
+      size: 9,
+      font: soraFont,
+      color: colors.textDark,
+    });
+    currentPage.drawText('Ilość', {
+      x: colX.ilosc,
+      y: yPosition,
+      size: 9,
+      font: soraFont,
+      color: colors.textDark,
+    });
+    
+    // Линия под заголовками
+    yPosition -= 5;
+    const tableTopY = yPosition;
+    const tableLeftX = margin;
+    const tableRightX = width - margin;
+    
+    // Верхняя линия таблицы
+    currentPage.drawLine({
+      start: { x: tableLeftX, y: yPosition },
+      end: { x: tableRightX, y: yPosition },
+      thickness: 1,
+      color: colors.border,
+    });
+    
+    // Боковые линии таблицы на первой странице (будут перерисованы до нижней линии в конце)
+    currentPage.drawLine({
+      start: { x: tableLeftX, y: tableTopY },
+      end: { x: tableLeftX, y: tableTopY - 1000 },
+      thickness: 1,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: tableRightX, y: tableTopY },
+      end: { x: tableRightX, y: tableTopY - 1000 },
+      thickness: 1,
+      color: colors.border,
+    });
+    
+    // Вертикальные линии между колонками
+    currentPage.drawLine({
+      start: { x: colX.sprzedawca, y: tableTopY },
+      end: { x: colX.sprzedawca, y: tableTopY - 1000 }, // Достаточно длинная линия
+      thickness: 0.5,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: colX.objetosc, y: tableTopY },
+      end: { x: colX.objetosc, y: tableTopY - 1000 },
+      thickness: 0.5,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: colX.typ, y: tableTopY },
+      end: { x: colX.typ, y: tableTopY - 1000 },
+      thickness: 0.5,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: colX.ilosc, y: tableTopY },
+      end: { x: colX.ilosc, y: tableTopY - 1000 },
+      thickness: 0.5,
+      color: colors.border,
+    });
+    
+    yPosition -= 15;
+    
+    // Данные
+    const rowHeight = 15;
+    const minY = margin + 50;
+    
+    // Отслеживаем границы таблицы на каждой странице
+    let pageBottomY = null;
+    let pageTopY = tableTopY; // Верхняя граница таблицы на текущей странице
+    
+    items.forEach((item, index) => {
+      // Проверяем, нужна ли новая страница
+      if (yPosition < minY) {
+        // Перерисовываем вертикальные линии до нижней границы на текущей странице
+        if (pageBottomY !== null) {
+          // Используем сохраненную верхнюю границу таблицы на этой странице
+          currentPage.drawLine({
+            start: { x: colX.sprzedawca, y: pageTopY },
+            end: { x: colX.sprzedawca, y: pageBottomY },
+            thickness: 0.5,
+            color: colors.border,
+          });
+          currentPage.drawLine({
+            start: { x: colX.objetosc, y: pageTopY },
+            end: { x: colX.objetosc, y: pageBottomY },
+            thickness: 0.5,
+            color: colors.border,
+          });
+          currentPage.drawLine({
+            start: { x: colX.typ, y: pageTopY },
+            end: { x: colX.typ, y: pageBottomY },
+            thickness: 0.5,
+            color: colors.border,
+          });
+          currentPage.drawLine({
+            start: { x: colX.ilosc, y: pageTopY },
+            end: { x: colX.ilosc, y: pageBottomY },
+            thickness: 0.5,
+            color: colors.border,
+          });
+          // Боковые линии
+          currentPage.drawLine({
+            start: { x: tableLeftX, y: pageTopY },
+            end: { x: tableLeftX, y: pageBottomY },
+            thickness: 1,
+            color: colors.border,
+          });
+          currentPage.drawLine({
+            start: { x: tableRightX, y: pageTopY },
+            end: { x: tableRightX, y: pageBottomY },
+            thickness: 1,
+            color: colors.border,
+          });
+          // Нижняя линия таблицы на этой странице
+          currentPage.drawLine({
+            start: { x: tableLeftX, y: pageBottomY },
+            end: { x: tableRightX, y: pageBottomY },
+            thickness: 1,
+            color: colors.border,
+          });
+        }
+        
+        currentPage = pdfDoc.addPage([792, 1224]); // Таблоид формат
+        yPosition = height - margin;
+        pageBottomY = null; // Сбрасываем для новой страницы
+        
+        // Повторяем заголовки на новой странице (жирным шрифтом)
+        const newTableTopY = yPosition;
+        pageTopY = yPosition - 5; // Сохраняем верхнюю границу таблицы на новой странице
+          currentPage.drawText('Nazwa', {
+            x: colX.nazwa + 2,
+            y: yPosition,
+            size: 9,
+            font: soraFont,
+            color: colors.textDark,
+          });
+          currentPage.drawText('Sprzedawca', {
+            x: colX.sprzedawca + 2,
+            y: yPosition,
+            size: 9,
+            font: soraFont,
+            color: colors.textDark,
+          });
+          currentPage.drawText('Objętość', {
+            x: colX.objetosc + 2,
+            y: yPosition,
+            size: 9,
+            font: soraFont,
+            color: colors.textDark,
+          });
+          currentPage.drawText('Typ', {
+            x: colX.typ + 2,
+            y: yPosition,
+            size: 9,
+            font: soraFont,
+            color: colors.textDark,
+          });
+          currentPage.drawText('Ilość', {
+            x: colX.ilosc + 2,
+            y: yPosition,
+            size: 9,
+            font: soraFont,
+            color: colors.textDark,
+          });
+        
+        // Верхняя линия таблицы на новой странице
+        const newTableTopYForLines = yPosition - 5;
+        currentPage.drawLine({
+          start: { x: tableLeftX, y: newTableTopYForLines },
+          end: { x: tableRightX, y: newTableTopYForLines },
+          thickness: 1,
+          color: colors.border,
+        });
+        
+        // Вертикальные линии между колонками на новой странице (будут перерисованы до нижней границы в конце)
+        currentPage.drawLine({
+          start: { x: colX.sprzedawca, y: newTableTopYForLines },
+          end: { x: colX.sprzedawca, y: newTableTopYForLines - 1000 },
+          thickness: 0.5,
+          color: colors.border,
+        });
+        currentPage.drawLine({
+          start: { x: colX.objetosc, y: newTableTopYForLines },
+          end: { x: colX.objetosc, y: newTableTopYForLines - 1000 },
+          thickness: 0.5,
+          color: colors.border,
+        });
+        currentPage.drawLine({
+          start: { x: colX.typ, y: newTableTopYForLines },
+          end: { x: colX.typ, y: newTableTopYForLines - 1000 },
+          thickness: 0.5,
+          color: colors.border,
+        });
+        currentPage.drawLine({
+          start: { x: colX.ilosc, y: newTableTopYForLines },
+          end: { x: colX.ilosc, y: newTableTopYForLines - 1000 },
+          thickness: 0.5,
+          color: colors.border,
+        });
+        
+        // Боковые линии таблицы на новой странице (будут перерисованы до нижней границы в конце)
+        currentPage.drawLine({
+          start: { x: tableLeftX, y: newTableTopYForLines },
+          end: { x: tableLeftX, y: newTableTopYForLines - 1000 },
+          thickness: 1,
+          color: colors.border,
+        });
+        currentPage.drawLine({
+          start: { x: tableRightX, y: newTableTopYForLines },
+          end: { x: tableRightX, y: newTableTopYForLines - 1000 },
+          thickness: 1,
+          color: colors.border,
+        });
+        
+        yPosition -= 20;
+      }
+      
+      // Данные строки
+      const nazwa = (item.nazwa || '').substring(0, 30);
+      const sprzedawca = (item.sprzedawca || '').substring(0, 15);
+      const ilosc = String(item.ilosc || 0);
+      const typConfig = getTypConfig(item.typ);
+      const typLabel = typConfig.label || '-';
+      const objetosc = item.objetosc ? `${item.objetosc} l` : '-';
+      
+      // Рисуем горизонтальную линию между строками
+      const lineY = yPosition - 2;
+      currentPage.drawLine({
+        start: { x: tableLeftX, y: lineY },
+        end: { x: tableRightX, y: lineY },
+        thickness: 0.5,
+        color: colors.border,
+      });
+      
+      // Рисуем текст typ без цветного фона
+      if (item.typ) {
+        // Центрируем текст по горизонтали в ячейке
+        const fontSize = 8;
+        const typTextWidth = soraFont.widthOfTextAtSize(typLabel, fontSize);
+        const typCellWidth = colX.ilosc - colX.typ;
+        const typTextX = colX.typ + (typCellWidth - typTextWidth) / 2;
+        
+        currentPage.drawText(typLabel, {
+          x: typTextX,
+          y: yPosition,
+          size: fontSize,
+          font: soraFont,
+          color: colors.text,
+        });
+      } else {
+        // Если нет типа, просто рисуем "-"
+        currentPage.drawText('-', {
+          x: colX.typ + 2,
+          y: yPosition,
+          size: 8,
+          font: soraFont,
+          color: colors.text,
+        });
+      }
+      
+      currentPage.drawText(nazwa, {
+        x: colX.nazwa + 2,
+        y: yPosition,
+        size: 8,
+        font: soraFont,
+        color: colors.text,
+      });
+      currentPage.drawText(sprzedawca, {
+        x: colX.sprzedawca + 2,
+        y: yPosition,
+        size: 8,
+        font: soraFont,
+        color: colors.text,
+      });
+      
+      // Центрируем objetosc по горизонтали
+      const objetoscTextWidth = soraFont.widthOfTextAtSize(objetosc, 8);
+      const objetoscTextX = colX.objetosc + (colWidths.objetosc - objetoscTextWidth) / 2;
+      
+      currentPage.drawText(objetosc, {
+        x: objetoscTextX,
+        y: yPosition,
+        size: 8,
+        font: soraFont,
+        color: colors.text,
+      });
+      
+      // Центрируем ilosc по горизонтали
+      const iloscTextWidth = soraFont.widthOfTextAtSize(ilosc, 8);
+      const iloscTextX = colX.ilosc + (colWidths.ilosc - iloscTextWidth) / 2;
+      
+      currentPage.drawText(ilosc, {
+        x: iloscTextX,
+        y: yPosition,
+        size: 8,
+        font: soraFont,
+        color: colors.text,
+      });
+      
+      yPosition -= rowHeight;
+      // Обновляем нижнюю границу таблицы на текущей странице
+      pageBottomY = yPosition;
+    });
+    
+    // Итого - нижняя линия таблицы
+    yPosition -= 10;
+    const tableBottomY = yPosition;
+    // Обновляем нижнюю границу для последней страницы
+    pageBottomY = tableBottomY;
+    currentPage.drawLine({
+      start: { x: tableLeftX, y: yPosition },
+      end: { x: tableRightX, y: yPosition },
+      thickness: 1,
+      color: colors.border,
+    });
+    
+    // Перерисовываем вертикальные линии между колонками до нижней линии таблицы на последней странице
+    // Используем сохраненную верхнюю границу таблицы на этой странице
+    const finalPageTopY = pageTopY || tableTopY;
+    currentPage.drawLine({
+      start: { x: colX.sprzedawca, y: finalPageTopY },
+      end: { x: colX.sprzedawca, y: tableBottomY },
+      thickness: 0.5,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: colX.objetosc, y: finalPageTopY },
+      end: { x: colX.objetosc, y: tableBottomY },
+      thickness: 0.5,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: colX.typ, y: finalPageTopY },
+      end: { x: colX.typ, y: tableBottomY },
+      thickness: 0.5,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: colX.ilosc, y: finalPageTopY },
+      end: { x: colX.ilosc, y: tableBottomY },
+      thickness: 0.5,
+      color: colors.border,
+    });
+    
+    // Боковые линии таблицы (левая и правая) - перерисовываем до нижней линии
+    currentPage.drawLine({
+      start: { x: tableLeftX, y: finalPageTopY },
+      end: { x: tableLeftX, y: tableBottomY },
+      thickness: 1,
+      color: colors.border,
+    });
+    currentPage.drawLine({
+      start: { x: tableRightX, y: finalPageTopY },
+      end: { x: tableRightX, y: tableBottomY },
+      thickness: 1,
+      color: colors.border,
+    });
+    
+    
+    const pdfBytes = await pdfDoc.save();
+    const filenameDay = String(now.getDate()).padStart(2, '0');
+    const filenameMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const filenameDate = `${filenameDay}-${filenameMonth}`; // DD-MM
+    const filename = `stany_${filenameDate}.pdf`;
+    
+    if (res.headersSent) {
+      console.error('Response already sent, cannot send PDF');
+      return;
+    }
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(Buffer.from(pdfBytes));
+  } catch (error) {
+    console.error('Error generating inventory report PDF:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate PDF' });
+    }
+  }
+}
+
+app.get('/api/inventory/report/pdf', async (req, res) => {
+  console.log('📊 GET /api/inventory/report/pdf - Generating inventory report');
+  
+  try {
+    // Получаем данные из working_sheets с фильтрами: ilosc > 0 и typ != 'aksesoria'
+    db.all(
+      `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
+       FROM working_sheets 
+       WHERE (archived = 0 OR archived IS NULL) 
+         AND ilosc > 0 
+         AND (typ IS NULL OR typ != 'aksesoria')
+       ORDER BY sprzedawca, 
+         CASE typ
+           WHEN 'czerwone' THEN 1
+           WHEN 'biale' THEN 2
+           WHEN 'musujace' THEN 3
+           WHEN 'rozowe' THEN 4
+           WHEN 'ferment' THEN 5
+           WHEN 'bezalkoholowe' THEN 6
+           WHEN 'slodkie' THEN 7
+           WHEN 'amber' THEN 8
+           ELSE 9
+         END,
+         ilosc DESC,
+         nazwa`,
+      [],
+      async (err, rows) => {
+        if (err) {
+          console.error('❌ Database error:', err);
+          return res.status(500).json({ error: err.message });
+        }
+        
+        console.log(`✅ Found ${rows.length} items for report`);
+        try {
+          await generateInventoryReportPDF(rows || [], res);
+        } catch (pdfError) {
+          console.error('❌ Error generating PDF:', pdfError);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to generate PDF' });
+          }
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error in inventory report generation:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
 // PDF Generation API
 app.get('/api/orders/:id/pdf', async (req, res) => {
   const { id } = req.params;
