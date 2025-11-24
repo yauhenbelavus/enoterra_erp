@@ -1107,11 +1107,11 @@ async function generateInventoryReportPDF(items, res) {
     // Заголовки таблицы
     const tableStartY = yPosition;
     const colWidths = {
-      nazwa: 280,
-      sprzedawca: 160,
+      nazwa: 300,
+      sprzedawca: 150,
       objetosc: 60,
       typ: 100,
-      ilosc: 40 // Уменьшена для увеличения sprzedawca
+      ilosc: 35
     };
     const colX = {
       nazwa: margin,
