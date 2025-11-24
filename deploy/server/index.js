@@ -1423,8 +1423,8 @@ async function generateInventoryReportPDF(items, res) {
         yPosition -= 20;
       }
       
-      // Рисуем горизонтальную линию между строками
-      const lineY = yPosition - 2;
+      // Рисуем горизонтальную линию между строками (верхняя граница ячейки)
+      const lineY = yPosition;
       currentPage.drawLine({
         start: { x: tableLeftX, y: lineY },
         end: { x: tableRightX, y: lineY },
@@ -1433,22 +1433,24 @@ async function generateInventoryReportPDF(items, res) {
       });
       
       // Рисуем nazwa на нескольких строках, если нужно
-      let nazwaY = yPosition;
+      // Вычисляем начальную позицию текста так, чтобы весь блок текста был центрирован в ячейке
+      // Высота всего блока текста = nazwaLines.length * 12
+      const totalTextHeight = nazwaLines.length * 12;
+      const textStartY = yPosition - (nazwaRowHeight - totalTextHeight) / 2 - 8; // -8 для базовой линии текста
+      
       nazwaLines.forEach((line, lineIndex) => {
         currentPage.drawText(line, {
           x: colX.nazwa + 2,
-          y: nazwaY,
+          y: textStartY - (lineIndex * 12),
           size: 8,
           font: soraFont,
           color: colors.text,
         });
-        if (lineIndex < nazwaLines.length - 1) {
-          nazwaY -= 12; // Переход на следующую строку
-        }
       });
       
       // Вычисляем вертикальный центр для других колонок (если nazwa занимает несколько строк)
-      const centerY = yPosition - (nazwaRowHeight - rowHeight) / 2;
+      // Центр должен быть в середине ячейки, которая имеет высоту nazwaRowHeight
+      const centerY = yPosition - nazwaRowHeight / 2;
       
       // Рисуем текст typ без цветного фона
       if (item.typ) {
