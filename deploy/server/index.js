@@ -1463,7 +1463,7 @@ async function generateInventoryReportPDF(items, res) {
       
       // Вычисляем вертикальный центр для других колонок (если nazwa занимает несколько строк)
       // Центр должен быть в середине ячейки, которая имеет высоту nazwaRowHeight
-      const singleLineBaselineY = cellCenterY + 6; // baseline 8pt шрифта для центрирования
+      const centerY = yPosition - nazwaRowHeight / 2;
       
       // Рисуем текст typ без цветного фона
       if (item.typ) {
@@ -1475,7 +1475,7 @@ async function generateInventoryReportPDF(items, res) {
         
         currentPage.drawText(typLabel, {
           x: typTextX,
-          y: singleLineBaselineY,
+          y: centerY,
           size: fontSize,
           font: soraFont,
           color: colors.text,
@@ -1484,7 +1484,7 @@ async function generateInventoryReportPDF(items, res) {
         // Если нет типа, просто рисуем "-"
         currentPage.drawText('-', {
           x: colX.typ + 2,
-          y: singleLineBaselineY,
+          y: centerY,
           size: 8,
           font: soraFont,
           color: colors.text,
@@ -1493,7 +1493,7 @@ async function generateInventoryReportPDF(items, res) {
       
       currentPage.drawText(sprzedawca, {
         x: colX.sprzedawca + 2,
-        y: singleLineBaselineY,
+        y: centerY,
         size: 8,
         font: soraFont,
         color: colors.text,
@@ -1505,7 +1505,7 @@ async function generateInventoryReportPDF(items, res) {
       
       currentPage.drawText(objetosc, {
         x: objetoscTextX,
-        y: singleLineBaselineY,
+        y: centerY,
         size: 8,
         font: soraFont,
         color: colors.text,
@@ -1517,7 +1517,7 @@ async function generateInventoryReportPDF(items, res) {
       
       currentPage.drawText(ilosc, {
         x: iloscTextX,
-        y: singleLineBaselineY,
+        y: centerY,
         size: 8,
         font: soraFont,
         color: colors.text,
@@ -4240,7 +4240,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                           console.log(`✅ Created working_sheets for ${productCode}`);
                               workingSheetsUpdated++;
                               resolve();
-                            }
+                  }
                           }
                         );
                   });
@@ -4266,7 +4266,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged;
                 const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc; // Если изменился только podatek_akcyzowy (не через objetosc)
                 const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate;
-                
+                  
                 if (!hasWsChanges && !needsReceiptParamsUpdate) {
                   console.log(`✅ No working_sheets changes for ${productCode}, skipping update`);
                   continue;
@@ -4343,8 +4343,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (needsKosztDostawyUpdate) {
                     updateFields.push('koszt_dostawy_per_unit = ?');
                     updateValues.push(kosztDostawyPerUnitForProduct);
-                  }
-                  
+                      }
+                      
                   if (needsPodatekAkcyzowyUpdate) {
                     updateFields.push('podatek_akcyzowy = ?');
                     updateValues.push(podatekValue);
@@ -4445,7 +4445,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   updateFields.push('podatek_akcyzowy = ?');
                   updateValues.push(podatekValue);
-                  
+            
                   // Пересчитываем koszt_wlasny с новым podatek_akcyzowy
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
@@ -4486,7 +4486,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 if ((workingSheetRecord.sprzedawca || '') !== (sprzedawca || '')) {
                   updateFields.push('sprzedawca = ?');
                   updateValues.push(sprzedawca || null);
-                }
+            }
                 
                 // Обновляем koszt_dostawy_per_unit, если изменился kosztDostawy или kurs
                 const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
@@ -4530,8 +4530,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                           console.log(`✅ Updated working_sheets for ${productCode}, fields: ${updateFields.join(', ')}`);
                           workingSheetsUpdated++;
                           resolve();
-                        }
-                      }
+              }
+            }
                     );
                   });
                 }
