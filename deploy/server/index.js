@@ -1463,7 +1463,6 @@ async function generateInventoryReportPDF(items, res) {
       
       // Вычисляем вертикальный центр для других колонок (если nazwa занимает несколько строк)
       // Центр должен быть в середине ячейки, которая имеет высоту nazwaRowHeight
-      const cellCenterY = yPosition - nazwaRowHeight / 2;
       const singleLineBaselineY = cellCenterY + 6; // baseline 8pt шрифта для центрирования
       
       // Рисуем текст typ без цветного фона
