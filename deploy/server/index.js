@@ -1218,13 +1218,67 @@ async function generateInventoryReportPDF(items, res) {
     const rowHeight = 15;
     const minY = margin + 50;
     
+    // Функция для разбиения текста на строки по ширине колонки
+    const wrapText = (text, maxWidth, fontSize, font) => {
+      const words = text.split(' ');
+      const lines = [];
+      let currentLine = '';
+      
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+        
+        if (testWidth <= maxWidth) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            // Если одно слово длиннее ширины, разбиваем его по символам
+            let wordLine = '';
+            for (const char of word) {
+              const testCharLine = wordLine + char;
+              const testCharWidth = font.widthOfTextAtSize(testCharLine, fontSize);
+              if (testCharWidth <= maxWidth) {
+                wordLine = testCharLine;
+              } else {
+                if (wordLine) lines.push(wordLine);
+                wordLine = char;
+              }
+            }
+            if (wordLine) currentLine = wordLine;
+          }
+        }
+      }
+      
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      
+      return lines.length > 0 ? lines : [''];
+    };
+    
     // Отслеживаем границы таблицы на каждой странице
     let pageBottomY = null;
     let pageTopY = tableTopY; // Верхняя граница таблицы на текущей странице
     
     items.forEach((item, index) => {
-      // Проверяем, нужна ли новая страница
-      if (yPosition < minY) {
+      // Данные строки
+      const nazwaText = item.nazwa || '';
+      const sprzedawca = (item.sprzedawca || '').substring(0, 15);
+      const ilosc = String(item.ilosc || 0);
+      const typConfig = getTypConfig(item.typ);
+      const typLabel = typConfig.label || '-';
+      const objetosc = item.objetosc ? `${item.objetosc} l` : '-';
+      
+      // Разбиваем nazwa на строки по ширине колонки (с учетом отступа)
+      const nazwaMaxWidth = colWidths.nazwa - 4; // -4 для отступов
+      const nazwaLines = wrapText(nazwaText, nazwaMaxWidth, 8, soraFont);
+      const nazwaRowHeight = Math.max(rowHeight, nazwaLines.length * 12); // Минимум 12 точек на строку
+      
+      // Проверяем, нужна ли новая страница с учетом высоты строки
+      if (yPosition - nazwaRowHeight < minY) {
         // Перерисовываем вертикальные линии до нижней границы на текущей странице
         if (pageBottomY !== null) {
           // Используем сохраненную верхнюю границу таблицы на этой странице
@@ -1369,14 +1423,6 @@ async function generateInventoryReportPDF(items, res) {
         yPosition -= 20;
       }
       
-      // Данные строки
-      const nazwa = (item.nazwa || '').substring(0, 30);
-      const sprzedawca = (item.sprzedawca || '').substring(0, 15);
-      const ilosc = String(item.ilosc || 0);
-      const typConfig = getTypConfig(item.typ);
-      const typLabel = typConfig.label || '-';
-      const objetosc = item.objetosc ? `${item.objetosc} l` : '-';
-      
       // Рисуем горизонтальную линию между строками
       const lineY = yPosition - 2;
       currentPage.drawLine({
@@ -1386,9 +1432,27 @@ async function generateInventoryReportPDF(items, res) {
         color: colors.border,
       });
       
+      // Рисуем nazwa на нескольких строках, если нужно
+      let nazwaY = yPosition;
+      nazwaLines.forEach((line, lineIndex) => {
+        currentPage.drawText(line, {
+          x: colX.nazwa + 2,
+          y: nazwaY,
+          size: 8,
+          font: soraFont,
+          color: colors.text,
+        });
+        if (lineIndex < nazwaLines.length - 1) {
+          nazwaY -= 12; // Переход на следующую строку
+        }
+      });
+      
+      // Вычисляем вертикальный центр для других колонок (если nazwa занимает несколько строк)
+      const centerY = yPosition - (nazwaRowHeight - rowHeight) / 2;
+      
       // Рисуем текст typ без цветного фона
       if (item.typ) {
-        // Центрируем текст по горизонтали в ячейке
+        // Центрируем текст по горизонтали и вертикали в ячейке
         const fontSize = 8;
         const typTextWidth = soraFont.widthOfTextAtSize(typLabel, fontSize);
         const typCellWidth = colX.ilosc - colX.typ;
@@ -1396,7 +1460,7 @@ async function generateInventoryReportPDF(items, res) {
         
         currentPage.drawText(typLabel, {
           x: typTextX,
-          y: yPosition,
+          y: centerY,
           size: fontSize,
           font: soraFont,
           color: colors.text,
@@ -1405,53 +1469,46 @@ async function generateInventoryReportPDF(items, res) {
         // Если нет типа, просто рисуем "-"
         currentPage.drawText('-', {
           x: colX.typ + 2,
-          y: yPosition,
+          y: centerY,
           size: 8,
           font: soraFont,
           color: colors.text,
         });
       }
       
-      currentPage.drawText(nazwa, {
-        x: colX.nazwa + 2,
-        y: yPosition,
-        size: 8,
-        font: soraFont,
-        color: colors.text,
-      });
       currentPage.drawText(sprzedawca, {
         x: colX.sprzedawca + 2,
-        y: yPosition,
+        y: centerY,
         size: 8,
         font: soraFont,
         color: colors.text,
       });
       
-      // Центрируем objetosc по горизонтали
+      // Центрируем objetosc по горизонтали и вертикали
       const objetoscTextWidth = soraFont.widthOfTextAtSize(objetosc, 8);
       const objetoscTextX = colX.objetosc + (colWidths.objetosc - objetoscTextWidth) / 2;
       
       currentPage.drawText(objetosc, {
         x: objetoscTextX,
-        y: yPosition,
+        y: centerY,
         size: 8,
         font: soraFont,
         color: colors.text,
       });
       
-      // Центрируем ilosc по горизонтали
+      // Центрируем ilosc по горизонтали и вертикали
       const iloscTextWidth = soraFont.widthOfTextAtSize(ilosc, 8);
       const iloscTextX = colX.ilosc + (colWidths.ilosc - iloscTextWidth) / 2;
       
       currentPage.drawText(ilosc, {
         x: iloscTextX,
-        y: yPosition,
+        y: centerY,
         size: 8,
         font: soraFont,
         color: colors.text,
       });
       
-      yPosition -= rowHeight;
+      yPosition -= nazwaRowHeight;
       // Обновляем нижнюю границу таблицы на текущей странице
       pageBottomY = yPosition;
     });
