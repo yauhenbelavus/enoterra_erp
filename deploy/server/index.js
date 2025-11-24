@@ -1371,8 +1371,12 @@ async function generateInventoryReportPDF(items, res) {
             color: colors.textDark,
           });
         
+        // Линия под заголовками (как на первой странице)
+        yPosition -= 5;
+        const newTableTopYForLines = yPosition;
+        pageTopY = newTableTopYForLines; // Обновляем верхнюю границу таблицы
+        
         // Верхняя линия таблицы на новой странице
-        const newTableTopYForLines = yPosition - 5;
         currentPage.drawLine({
           start: { x: tableLeftX, y: newTableTopYForLines },
           end: { x: tableRightX, y: newTableTopYForLines },
@@ -1420,7 +1424,8 @@ async function generateInventoryReportPDF(items, res) {
           color: colors.border,
         });
         
-        yPosition -= 20;
+        // Устанавливаем yPosition для первой строки данных (как на первой странице)
+        yPosition -= 15;
       }
       
       // Рисуем горизонтальную линию между строками (верхняя граница ячейки)
@@ -1436,7 +1441,15 @@ async function generateInventoryReportPDF(items, res) {
       // Вычисляем начальную позицию текста так, чтобы весь блок текста был центрирован в ячейке
       // Высота всего блока текста = nazwaLines.length * 12
       const totalTextHeight = nazwaLines.length * 12;
-      const textStartY = yPosition - (nazwaRowHeight - totalTextHeight) / 2 - 8; // -8 для базовой линии текста
+      // Центр ячейки: yPosition - nazwaRowHeight / 2
+      // Центр блока текста должен быть в центре ячейки
+      // Для drawText y-координата - это базовая линия текста (baseline)
+      // Размер шрифта 8, базовая линия примерно на 6 пикселей выше нижней части символа
+      // Первая строка рисуется на textStartY, последняя на textStartY - (nazwaLines.length - 1) * 12
+      // Центр блока текста (с учетом baseline): textStartY - (totalTextHeight - 12) / 2 - 6
+      // Это должно равняться yPosition - nazwaRowHeight / 2
+      const cellCenterY = yPosition - nazwaRowHeight / 2;
+      const textStartY = cellCenterY + (totalTextHeight - 12) / 2 + 6;
       
       nazwaLines.forEach((line, lineIndex) => {
         currentPage.drawText(line, {
@@ -1450,7 +1463,8 @@ async function generateInventoryReportPDF(items, res) {
       
       // Вычисляем вертикальный центр для других колонок (если nazwa занимает несколько строк)
       // Центр должен быть в середине ячейки, которая имеет высоту nazwaRowHeight
-      const centerY = yPosition - nazwaRowHeight / 2;
+      const cellCenterY = yPosition - nazwaRowHeight / 2;
+      const singleLineBaselineY = cellCenterY + 6; // baseline 8pt шрифта для центрирования
       
       // Рисуем текст typ без цветного фона
       if (item.typ) {
@@ -1462,7 +1476,7 @@ async function generateInventoryReportPDF(items, res) {
         
         currentPage.drawText(typLabel, {
           x: typTextX,
-          y: centerY,
+          y: singleLineBaselineY,
           size: fontSize,
           font: soraFont,
           color: colors.text,
@@ -1471,7 +1485,7 @@ async function generateInventoryReportPDF(items, res) {
         // Если нет типа, просто рисуем "-"
         currentPage.drawText('-', {
           x: colX.typ + 2,
-          y: centerY,
+          y: singleLineBaselineY,
           size: 8,
           font: soraFont,
           color: colors.text,
@@ -1480,7 +1494,7 @@ async function generateInventoryReportPDF(items, res) {
       
       currentPage.drawText(sprzedawca, {
         x: colX.sprzedawca + 2,
-        y: centerY,
+        y: singleLineBaselineY,
         size: 8,
         font: soraFont,
         color: colors.text,
@@ -1492,7 +1506,7 @@ async function generateInventoryReportPDF(items, res) {
       
       currentPage.drawText(objetosc, {
         x: objetoscTextX,
-        y: centerY,
+        y: singleLineBaselineY,
         size: 8,
         font: soraFont,
         color: colors.text,
@@ -1504,7 +1518,7 @@ async function generateInventoryReportPDF(items, res) {
       
       currentPage.drawText(ilosc, {
         x: iloscTextX,
-        y: centerY,
+        y: singleLineBaselineY,
         size: 8,
         font: soraFont,
         color: colors.text,
@@ -1567,6 +1581,47 @@ async function generateInventoryReportPDF(items, res) {
       end: { x: tableRightX, y: tableBottomY },
       thickness: 1,
       color: colors.border,
+    });
+    
+    // Скрываем продолжение вертикальных линий после последней горизонтальной линии
+    // Рисуем белые линии поверх старых длинных линий
+    const white = rgb(1, 1, 1);
+    const hideLineLength = 100; // Достаточно длинная линия, чтобы скрыть продолжение
+    currentPage.drawLine({
+      start: { x: colX.sprzedawca, y: tableBottomY },
+      end: { x: colX.sprzedawca, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: colX.objetosc, y: tableBottomY },
+      end: { x: colX.objetosc, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: colX.typ, y: tableBottomY },
+      end: { x: colX.typ, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: colX.ilosc, y: tableBottomY },
+      end: { x: colX.ilosc, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: tableLeftX, y: tableBottomY },
+      end: { x: tableLeftX, y: tableBottomY - hideLineLength },
+      thickness: 1,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: tableRightX, y: tableBottomY },
+      end: { x: tableRightX, y: tableBottomY - hideLineLength },
+      thickness: 1,
+      color: white,
     });
     
     
