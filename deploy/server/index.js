@@ -1371,12 +1371,8 @@ async function generateInventoryReportPDF(items, res) {
             color: colors.textDark,
           });
         
-        // Линия под заголовками (как на первой странице)
-        yPosition -= 5;
-        const newTableTopYForLines = yPosition;
-        pageTopY = newTableTopYForLines; // Обновляем верхнюю границу таблицы
-        
         // Верхняя линия таблицы на новой странице
+        const newTableTopYForLines = yPosition - 5;
         currentPage.drawLine({
           start: { x: tableLeftX, y: newTableTopYForLines },
           end: { x: tableRightX, y: newTableTopYForLines },
@@ -1424,8 +1420,7 @@ async function generateInventoryReportPDF(items, res) {
           color: colors.border,
         });
         
-        // Устанавливаем yPosition для первой строки данных (как на первой странице)
-        yPosition -= 15;
+        yPosition -= 20;
       }
       
       // Рисуем горизонтальную линию между строками (верхняя граница ячейки)
@@ -1441,15 +1436,7 @@ async function generateInventoryReportPDF(items, res) {
       // Вычисляем начальную позицию текста так, чтобы весь блок текста был центрирован в ячейке
       // Высота всего блока текста = nazwaLines.length * 12
       const totalTextHeight = nazwaLines.length * 12;
-      // Центр ячейки: yPosition - nazwaRowHeight / 2
-      // Центр блока текста должен быть в центре ячейки
-      // Для drawText y-координата - это базовая линия текста (baseline)
-      // Размер шрифта 8, базовая линия примерно на 6 пикселей выше нижней части символа
-      // Первая строка рисуется на textStartY, последняя на textStartY - (nazwaLines.length - 1) * 12
-      // Центр блока текста (с учетом baseline): textStartY - (totalTextHeight - 12) / 2 - 6
-      // Это должно равняться yPosition - nazwaRowHeight / 2
-      const cellCenterY = yPosition - nazwaRowHeight / 2;
-      const textStartY = cellCenterY + (totalTextHeight - 12) / 2 + 6;
+      const textStartY = yPosition - (nazwaRowHeight - totalTextHeight) / 2 - 8; // -8 для базовой линии текста
       
       nazwaLines.forEach((line, lineIndex) => {
         currentPage.drawText(line, {
@@ -1580,47 +1567,6 @@ async function generateInventoryReportPDF(items, res) {
       end: { x: tableRightX, y: tableBottomY },
       thickness: 1,
       color: colors.border,
-    });
-    
-    // Скрываем продолжение вертикальных линий после последней горизонтальной линии
-    // Рисуем белые линии поверх старых длинных линий
-    const white = rgb(1, 1, 1);
-    const hideLineLength = 100; // Достаточно длинная линия, чтобы скрыть продолжение
-    currentPage.drawLine({
-      start: { x: colX.sprzedawca, y: tableBottomY },
-      end: { x: colX.sprzedawca, y: tableBottomY - hideLineLength },
-      thickness: 0.5,
-      color: white,
-    });
-    currentPage.drawLine({
-      start: { x: colX.objetosc, y: tableBottomY },
-      end: { x: colX.objetosc, y: tableBottomY - hideLineLength },
-      thickness: 0.5,
-      color: white,
-    });
-    currentPage.drawLine({
-      start: { x: colX.typ, y: tableBottomY },
-      end: { x: colX.typ, y: tableBottomY - hideLineLength },
-      thickness: 0.5,
-      color: white,
-    });
-    currentPage.drawLine({
-      start: { x: colX.ilosc, y: tableBottomY },
-      end: { x: colX.ilosc, y: tableBottomY - hideLineLength },
-      thickness: 0.5,
-      color: white,
-    });
-    currentPage.drawLine({
-      start: { x: tableLeftX, y: tableBottomY },
-      end: { x: tableLeftX, y: tableBottomY - hideLineLength },
-      thickness: 1,
-      color: white,
-    });
-    currentPage.drawLine({
-      start: { x: tableRightX, y: tableBottomY },
-      end: { x: tableRightX, y: tableBottomY - hideLineLength },
-      thickness: 1,
-      color: white,
     });
     
     
@@ -4240,7 +4186,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                           console.log(`✅ Created working_sheets for ${productCode}`);
                               workingSheetsUpdated++;
                               resolve();
-                  }
+                            }
                           }
                         );
                   });
@@ -4266,7 +4212,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged;
                 const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc; // Если изменился только podatek_akcyzowy (не через objetosc)
                 const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate;
-                  
+                
                 if (!hasWsChanges && !needsReceiptParamsUpdate) {
                   console.log(`✅ No working_sheets changes for ${productCode}, skipping update`);
                   continue;
@@ -4343,8 +4289,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (needsKosztDostawyUpdate) {
                     updateFields.push('koszt_dostawy_per_unit = ?');
                     updateValues.push(kosztDostawyPerUnitForProduct);
-                      }
-                      
+                  }
+                  
                   if (needsPodatekAkcyzowyUpdate) {
                     updateFields.push('podatek_akcyzowy = ?');
                     updateValues.push(podatekValue);
@@ -4445,7 +4391,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   updateFields.push('podatek_akcyzowy = ?');
                   updateValues.push(podatekValue);
-            
+                  
                   // Пересчитываем koszt_wlasny с новым podatek_akcyzowy
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
@@ -4486,7 +4432,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 if ((workingSheetRecord.sprzedawca || '') !== (sprzedawca || '')) {
                   updateFields.push('sprzedawca = ?');
                   updateValues.push(sprzedawca || null);
-            }
+                }
                 
                 // Обновляем koszt_dostawy_per_unit, если изменился kosztDostawy или kurs
                 const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
@@ -4530,8 +4476,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                           console.log(`✅ Updated working_sheets for ${productCode}, fields: ${updateFields.join(', ')}`);
                           workingSheetsUpdated++;
                           resolve();
-              }
-            }
+                        }
+                      }
                     );
                   });
                 }
