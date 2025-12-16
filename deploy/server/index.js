@@ -243,6 +243,119 @@ db.serialize(() => {
     }
   });
 
+  // Таблица резерваций
+  db.run(`CREATE TABLE IF NOT EXISTS  reservations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL,
+    numer_rezerwacji TEXT UNIQUE NOT NULL,
+    data_utworzenia DATETIME DEFAULT CURRENT_TIMESTAMP,
+    data_zakonczenia DATE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'aktywna',
+    komentarz TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE RESTRICT
+  )`, (err) => {
+    if (err) {
+      console.error('❌ Error creating reservations table:', err);
+    } else {
+      console.log('✅ Reservations table ready');
+    }
+  });
+
+  // Таблица товаров в резервациях
+  db.run(`CREATE TABLE IF NOT EXISTS reservation_products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reservation_id INTEGER NOT NULL,
+    product_id INTEGER,
+    product_kod TEXT NOT NULL,
+    product_nazwa TEXT NOT NULL,
+    kod_kreskowy TEXT,
+    ilosc INTEGER NOT NULL DEFAULT 1,
+    komentarz TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reservation_id) REFERENCES reservations (id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE SET NULL
+  )`, (err) => {
+    if (err) {
+      console.error('❌ Error creating reservation_products table:', err);
+    } else {
+      console.log('✅ Reservation products table ready');
+      
+      // Добавляем колонку ilosc_wydane если её нет
+      db.run(`ALTER TABLE reservation_products ADD COLUMN ilosc_wydane INTEGER DEFAULT 0`, (alterErr) => {
+        if (alterErr) {
+          // Колонка уже существует - это нормально
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column ilosc_wydane already exists in reservation_products');
+          } else {
+            console.error('❌ Error adding ilosc_wydane column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column ilosc_wydane added to reservation_products');
+        }
+      });
+    }
+  });
+
+  // Таблица связи резерваций и заказов (для отслеживания выданных товаров)
+  db.run(`CREATE TABLE IF NOT EXISTS reservation_order_fulfillments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reservation_product_id INTEGER NOT NULL,
+    order_id INTEGER NOT NULL,
+    order_product_id INTEGER,
+    quantity INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reservation_product_id) REFERENCES reservation_products (id) ON DELETE CASCADE,
+    FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE,
+    FOREIGN KEY (order_product_id) REFERENCES order_products (id) ON DELETE SET NULL
+  )`, (err) => {
+    if (err) {
+      console.error('❌ Error creating reservation_order_fulfillments table:', err);
+    } else {
+      console.log('✅ Reservation order fulfillments table ready');
+    }
+  });
+
+  // Индексы для таблицы reservations
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reservations_client_id ON reservations(client_id)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_reservations_client_id:', err);
+  });
+  
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_reservations_status:', err);
+  });
+  
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reservations_data_zakonczenia ON reservations(data_zakonczenia)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_reservations_data_zakonczenia:', err);
+  });
+  
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reservations_numer_rezerwacji ON reservations(numer_rezerwacji)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_reservations_numer_rezerwacji:', err);
+  });
+
+  // Индексы для таблицы reservation_products
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reservation_products_reservation_id ON reservation_products(reservation_id)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_reservation_products_reservation_id:', err);
+  });
+  
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reservation_products_product_id ON reservation_products(product_id)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_reservation_products_product_id:', err);
+  });
+  
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reservation_products_product_kod ON reservation_products(product_kod)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_reservation_products_product_kod:', err);
+  });
+
+  // Индексы для таблицы reservation_order_fulfillments
+  db.run(`CREATE INDEX IF NOT EXISTS idx_fulfillments_reservation_product_id ON reservation_order_fulfillments(reservation_product_id)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_fulfillments_reservation_product_id:', err);
+  });
+  
+  db.run(`CREATE INDEX IF NOT EXISTS idx_fulfillments_order_id ON reservation_order_fulfillments(order_id)`, (err) => {
+    if (err) console.error('❌ Error creating index idx_fulfillments_order_id:', err);
+  });
+
   console.log('🎉 All database tables initialized successfully');
   
   // Миграция: добавляем недостающие поля в таблицу products
@@ -258,6 +371,385 @@ db.serialize(() => {
 
     
 
+  });
+});
+
+// ===== RESERVATIONS ROUTES =====
+// ВАЖНО: Регистрируем маршруты резерваций в начале, чтобы они точно обрабатывались
+
+// Endpoint для создания резерваций (регистрируем ПЕРВЫМ!)
+console.log('🔧 Registering POST /api/reservations endpoint (PRIORITY)');
+app.post('/api/reservations', (req, res) => {
+  console.log('✅ POST /api/reservations - ROUTE MATCHED AND EXECUTING');
+  console.log('📥 Incoming request:', req.method, req.url);
+  console.log('📥 Request body:', JSON.stringify(req.body, null, 2));
+  const { client_id, numer_rezerwacji: providedNumber, data_utworzenia, data_zakonczenia, komentarz, products } = req.body;
+  console.log('📋 POST /api/reservations - Creating new reservation:', { client_id, numer_rezerwacji: providedNumber, data_utworzenia, data_zakonczenia, productsCount: products?.length || 0 });
+  
+  if (!client_id || !data_zakonczenia) {
+    console.log('❌ Validation failed: client_id and data_zakonczenia are required');
+    return res.status(400).json({ error: 'Client ID and end date are required' });
+  }
+  
+  // Используем переданную дату создания или текущую дату
+  const reservationDate = data_utworzenia || new Date().toISOString().split('T')[0];
+  
+  if (!products || !Array.isArray(products) || products.length === 0) {
+    console.log('❌ Validation failed: products array is required and must not be empty');
+    return res.status(400).json({ error: 'Products array is required and must not be empty' });
+  }
+
+  // Используем переданный номер или генерируем новый
+  let numer_rezerwacji = providedNumber;
+  
+  // Проверяем доступность товаров перед созданием резервации
+  console.log('🔍 Checking product availability for reservation...');
+  
+  // Создаем массив для проверки доступности
+  const availabilityChecks = products.map(product => {
+    return new Promise((resolve, reject) => {
+      const { product_kod, product_nazwa, ilosc } = product;
+      
+      // Проверяем доступное количество с учетом активных резерваций
+      db.get(`
+        SELECT 
+          ws.ilosc as total_available,
+          COALESCE(SUM(CASE 
+            WHEN r.status = 'aktywna' 
+            THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
+            ELSE 0 
+          END), 0) as reserved
+        FROM working_sheets ws
+        LEFT JOIN reservation_products rp ON ws.kod = rp.product_kod
+        LEFT JOIN reservations r ON rp.reservation_id = r.id
+        WHERE ws.kod = ?
+        GROUP BY ws.kod, ws.ilosc
+      `, [product_kod], (err, row) => {
+        if (err) {
+          reject({ kod: product_kod, error: err.message });
+        } else if (!row) {
+          reject({ kod: product_kod, nazwa: product_nazwa, ilosc, available: 0, error: 'Product not found in working_sheets' });
+        } else {
+          const available = row.total_available - row.reserved;
+          if (available < ilosc) {
+            reject({ kod: product_kod, nazwa: product_nazwa, ilosc, available: available, reserved: row.reserved, total: row.total_available, error: 'Insufficient quantity' });
+          } else {
+            resolve({ kod: product_kod, nazwa: product_nazwa, ilosc, available: available });
+          }
+        }
+      });
+    });
+  });
+  
+  // Выполняем все проверки
+  Promise.all(availabilityChecks)
+    .then((results) => {
+      console.log('✅ All products are available for reservation');
+      
+      // Если все проверки прошли, создаем резервацию
+      const createReservation = (finalNumber, retryCount = 0) => {
+        // Защита от бесконечной рекурсии
+        if (retryCount > 5) {
+          console.error(`❌ Too many retries (${retryCount}) for reservation number generation`);
+          return res.status(500).json({ 
+            error: 'Failed to generate unique reservation number after multiple attempts',
+            details: { attemptedNumber: finalNumber, retries: retryCount }
+          });
+        }
+
+        // Создаем резервацию
+        db.run(
+          'INSERT INTO reservations (client_id, numer_rezerwacji, data_utworzenia, data_zakonczenia, status, komentarz) VALUES (?, ?, ?, ?, ?, ?)',
+          [client_id, finalNumber, reservationDate, data_zakonczenia, 'aktywna', komentarz || null],
+          function(err) {
+            if (err) {
+              // Если ошибка уникальности, пытаемся сгенерировать новый номер
+              if (err.message.includes('UNIQUE constraint') || err.message.includes('unique')) {
+                console.log(`⚠️ Reservation number ${finalNumber} already exists (attempt ${retryCount + 1}), generating new one...`);
+                getNextReservationNumber(reservationDate, (retryErr, newNumber, maxNumber) => {
+                  if (retryErr) {
+                    console.error('❌ Error finding max reservation number on retry:', retryErr);
+                    return res.status(500).json({ error: retryErr.message });
+                  }
+                  console.log(`✅ Retry ${retryCount + 1}: Generated new reservation number: ${newNumber} (max number: ${maxNumber})`);
+                  createReservation(newNumber, retryCount + 1);
+                });
+                return;
+              }
+              
+              console.error('❌ Database error creating reservation:', err);
+              return res.status(500).json({ error: err.message });
+            }
+        
+        const reservationId = this.lastID;
+        console.log(`✅ Reservation created with ID: ${reservationId}, number: ${finalNumber}`);
+        
+        // Создаем записи для каждого продукта
+        let productsCreated = 0;
+        let productsFailed = 0;
+        
+        products.forEach((product, index) => {
+          const { product_kod, product_nazwa, kod_kreskowy, ilosc } = product;
+          
+          // Получаем product_id из таблицы products по коду
+          db.get('SELECT id FROM products WHERE kod = ? LIMIT 1', [product_kod], (err, productRow) => {
+            if (err) {
+              console.error(`❌ Error finding product ${product_kod}:`, err);
+              productsFailed++;
+              checkCompletion();
+              return;
+            }
+
+            const productId = productRow ? productRow.id : null;
+            
+            // Создаем запись в reservation_products
+            db.run(
+              'INSERT INTO reservation_products (reservation_id, product_id, product_kod, product_nazwa, kod_kreskowy, ilosc) VALUES (?, ?, ?, ?, ?, ?)',
+              [reservationId, productId, product_kod, product_nazwa, kod_kreskowy || null, ilosc],
+              function(err) {
+                if (err) {
+                  console.error(`❌ Error creating reservation product ${index + 1}:`, err);
+                  productsFailed++;
+                  checkCompletion();
+                } else {
+                  productsCreated++;
+                  console.log(`✅ Product ${index + 1} created for reservation ${reservationId} with ID: ${this.lastID}`);
+                  checkCompletion();
+                }
+              }
+            );
+          });
+        });
+        
+        function checkCompletion() {
+          if (productsCreated + productsFailed === products.length) {
+            if (res.headersSent) {
+              console.log('⚠️ Response already sent, skipping checkCompletion');
+              return;
+            }
+            
+            if (productsFailed === 0) {
+              console.log(`✅ All ${productsCreated} products created successfully for reservation ${reservationId}`);
+              res.json({ 
+                id: reservationId,
+                numer_rezerwacji: finalNumber,
+                message: 'Reservation and all products added successfully',
+                productsCreated: productsCreated,
+                success: true
+              });
+            } else {
+              console.log(`⚠️ Reservation created but ${productsFailed} products failed to create`);
+              res.status(500).json({ 
+                id: reservationId,
+                numer_rezerwacji: finalNumber,
+                error: `Reservation created but ${productsFailed} products failed to create`,
+                productsCreated: productsCreated,
+                productsFailed: productsFailed
+              });
+            }
+          }
+        }
+      }
+    );
+  };
+  
+      if (!numer_rezerwacji) {
+        // Генерируем номер резервации: R001_день_месяц_год (глобальная нумерация)
+        console.log(`🔢 Generating reservation number for date: ${reservationDate}`);
+        getNextReservationNumber(reservationDate, (err, nextNumberString, maxNumber) => {
+          if (err) {
+            console.error('❌ Error finding max reservation number:', err);
+            return res.status(500).json({ error: err.message });
+          }
+          numer_rezerwacji = nextNumberString;
+          console.log(`✅ Generated reservation number: ${numer_rezerwacji} (max number was: ${maxNumber}, next: ${maxNumber + 1})`);
+          createReservation(numer_rezerwacji);
+        });
+      } else {
+        // Проверяем уникальность переданного номера
+        db.get('SELECT id FROM reservations WHERE numer_rezerwacji = ?', [numer_rezerwacji], (err, existing) => {
+          if (err) {
+            console.error('❌ Error checking reservation number uniqueness:', err);
+            return res.status(500).json({ error: err.message });
+          }
+          
+          if (existing) {
+            console.log(`❌ Reservation number ${numer_rezerwacji} already exists`);
+            return res.status(400).json({ error: `Reservation number ${numer_rezerwacji} already exists` });
+          }
+          
+        createReservation(numer_rezerwacji);
+        });
+      }
+    })
+    .catch((error) => {
+      // Обрабатываем ошибки доступности
+      // Promise.all отклоняется с первой ошибкой
+      console.log('❌ Availability check failed for reservation');
+      
+      if (error.error === 'Insufficient quantity') {
+        const { kod, nazwa, ilosc, available, reserved, total } = error;
+        console.log(`❌ Product ${kod} (${nazwa}) - requested: ${ilosc}, available: ${available}, reserved: ${reserved}, total: ${total}`);
+        res.status(400).json({ 
+          error: 'Insufficient quantity',
+          details: {
+            kod,
+            nazwa,
+            requested: ilosc,
+            available: available,
+            reserved: reserved,
+            total: total,
+            message: `Niewystarczająca ilość produktu "${nazwa}" (kod: ${kod}). Zapytano: ${ilosc}, dostępne: ${available} (łącznie: ${total}, zarezerwowane: ${reserved})`
+          }
+        });
+      } else if (error.error === 'Product not found in working_sheets') {
+        const { kod, nazwa } = error;
+        console.log(`❌ Product ${kod} (${nazwa}) not found in working_sheets`);
+        res.status(400).json({ 
+          error: 'Product not found',
+          details: {
+            kod,
+            nazwa,
+            message: `Produkt "${nazwa}" (kod: ${kod}) nie został znaleziony w systemie`
+          }
+        });
+      } else {
+        console.log(`❌ Database error checking availability:`, error);
+        res.status(500).json({ 
+          error: 'Database error during availability check',
+          details: {
+            kod: error.kod || 'unknown',
+            message: `Błąd bazy danych podczas sprawdzania dostępności produktu ${error.kod || 'unknown'}`
+          }
+        });
+      }
+    });
+});
+
+// ===== RESERVATIONS ROUTES =====
+// Endpoint для получения только числовой части следующего номера резервации (без даты)
+// ВАЖНО: Регистрируем ПЕРВЫМ среди маршрутов резерваций, чтобы не перехватывался другими
+console.log('🔧 Registering GET /api/reservations/next-number-only endpoint (PRIORITY)');
+app.get('/api/reservations/next-number-only', (req, res) => {
+  console.log('🔢 GET /api/reservations/next-number-only - Generating next reservation number (without date)');
+  
+  // Получаем все номера резерваций для поиска максимального номера
+  db.all('SELECT numer_rezerwacji FROM reservations WHERE numer_rezerwacji LIKE ?', ['R%'], (err, allRows) => {
+    if (err) {
+      console.error('❌ Error finding max reservation number:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    console.log(`📋 Found ${allRows.length} reservations with R% pattern`);
+    if (allRows.length > 0) {
+      console.log('📋 Reservation numbers:', allRows.map(r => r.numer_rezerwacji).join(', '));
+    }
+    
+    // Извлекаем числовую часть из каждого номера и находим максимум
+    let maxNumber = 0;
+    const numbers = [];
+    allRows.forEach(row => {
+      const match = row.numer_rezerwacji.match(/^R(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        numbers.push(num);
+        if (num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    });
+    
+    console.log(`📊 Extracted numbers: [${numbers.sort((a,b) => a-b).join(', ')}], max: ${maxNumber}`);
+    
+    const nextNumber = maxNumber + 1;
+    const numer_rezerwacji_only = `R${nextNumber.toString().padStart(3, '0')}`;
+    console.log(`✅ Generated next reservation number (without date): ${numer_rezerwacji_only} (max number was: ${maxNumber}, next: ${nextNumber})`);
+    res.json({ numer_rezerwacji: numer_rezerwacji_only });
+  });
+});
+
+// Получение всех товаров из активных резерваций (для анализа)
+app.get('/api/reservations/active-products', (req, res) => {
+  console.log('📋 GET /api/reservations/active-products - Fetching active reservation products');
+
+  db.all(`
+    SELECT 
+      r.id as reservation_id,
+      r.numer_rezerwacji,
+      c.nazwa as klient,
+      rp.product_kod,
+      rp.product_nazwa,
+      COALESCE(rp.ilosc, 0) as ilosc,
+      COALESCE(rp.ilosc_wydane, 0) as ilosc_wydane
+    FROM reservations r
+    LEFT JOIN reservation_products rp ON rp.reservation_id = r.id
+    LEFT JOIN clients c ON r.client_id = c.id
+    WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny')
+    ORDER BY r.data_utworzenia ASC, rp.product_nazwa ASC
+  `, (err, rows) => {
+    if (err) {
+      console.error('❌ Database error fetching active reservation products:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+
+    // Для каждой записи находим заказы через таблицу связи
+    const processedRows = rows.map(row => {
+      return new Promise((resolve) => {
+        if (!row.reservation_id || !row.product_kod || row.ilosc_wydane === 0) {
+          resolve({ ...row, numer_zamowienia_list: [], zamowienia_z_iloscia: [] });
+          return;
+        }
+
+        // Находим заказы через таблицу связи fulfillment с количеством
+        // Сначала находим reservation_product_id, затем ищем заказы
+        db.get(`
+          SELECT id FROM reservation_products 
+          WHERE reservation_id = ? AND product_kod = ?
+        `, [row.reservation_id, row.product_kod], (err, rpRow) => {
+          if (err || !rpRow) {
+            console.error(`❌ Error finding reservation_product for reservation ${row.reservation_id}, product ${row.product_kod}:`, err);
+            resolve({ ...row, numer_zamowienia_list: [], zamowienia_z_iloscia: [] });
+            return;
+          }
+
+          const reservationProductId = rpRow.id;
+          
+          // Теперь ищем заказы по reservation_product_id
+          db.all(`
+            SELECT o.numer_zamowienia, SUM(rof.quantity) as ilosc_wydane_w_zamowieniu
+            FROM reservation_order_fulfillments rof
+            INNER JOIN orders o ON rof.order_id = o.id
+            WHERE rof.reservation_product_id = ?
+            GROUP BY o.numer_zamowienia
+            ORDER BY o.data_utworzenia DESC
+          `, [reservationProductId], (err, orderRows) => {
+            if (err) {
+              console.error(`❌ Error fetching orders for reservation_product ${reservationProductId}:`, err);
+              resolve({ ...row, numer_zamowienia_list: [], zamowienia_z_iloscia: [] });
+            } else {
+              console.log(`📋 Found ${orderRows.length} orders for reservation ${row.reservation_id}, product ${row.product_kod}, ilosc_wydane: ${row.ilosc_wydane}, reservation_product_id: ${reservationProductId}`);
+              if (orderRows.length === 0 && row.ilosc_wydane > 0) {
+                console.log(`⚠️ Warning: ilosc_wydane = ${row.ilosc_wydane} but no orders found in fulfillment table for reservation_product_id ${reservationProductId}`);
+              }
+              resolve({
+                ...row,
+                numer_zamowienia_list: orderRows.map(or => or.numer_zamowienia),
+                zamowienia_z_iloscia: orderRows.map(or => ({
+                  numer_zamowienia: or.numer_zamowienia,
+                  ilosc: or.ilosc_wydane_w_zamowieniu || 0
+                }))
+              });
+            }
+          });
+        });
+      });
+    });
+
+    Promise.all(processedRows).then(results => {
+      console.log(`✅ Found ${results.length} active reservation products`);
+      res.json(results);
+    });
   });
 });
 
@@ -425,6 +917,30 @@ app.get('/api/products/samples-count', (req, res) => {
   );
 });
 
+// Получение количества товаров в активных резервациях
+app.get('/api/products/reservations-count', (req, res) => {
+  console.log('📦 GET /api/products/reservations-count - Fetching reservations count');
+  db.all(
+    `SELECT 
+      rp.product_kod as kod,
+      SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as total_ilosc
+     FROM reservation_products rp
+     INNER JOIN reservations r ON rp.reservation_id = r.id
+     WHERE r.status = 'aktywna'
+     GROUP BY rp.product_kod`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      console.log(`✅ Found reservations count for ${rows.length} products`);
+      res.json(rows || []);
+    }
+  );
+});
+
 // Получение стоимости товаров (SUM(ilosc * cena) для каждого kod)
 app.get('/api/products/wartosc-towaru', (req, res) => {
   console.log('📦 GET /api/products/wartosc-towaru - Fetching product values');
@@ -471,6 +987,66 @@ app.get('/api/products/:id', (req, res) => {
     });
   });
 });
+
+// Функция для проверки и обновления истекших резерваций
+function checkExpiredReservations() {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  
+  db.run(`
+    UPDATE reservations 
+    SET status = 'wygasła' 
+    WHERE status = 'aktywna' 
+      AND date(data_zakonczenia) < date(?)
+  `, [today], function(err) {
+    if (err) {
+      console.error('❌ Error checking expired reservations:', err);
+    } else if (this.changes > 0) {
+      console.log(`✅ ${this.changes} reservation(s) marked as 'wygasła'`);
+    }
+  });
+}
+
+// Запускаем проверку истекших резерваций при старте сервера
+setTimeout(() => {
+  checkExpiredReservations();
+}, 2000);
+
+// Запускаем проверку каждый час
+setInterval(() => {
+  checkExpiredReservations();
+}, 60 * 60 * 1000);
+
+// Функция для проверки и обновления статуса резервации на 'zrealizowana'
+function checkAndUpdateReservationStatus(reservationId) {
+  // Проверяем, все ли товары в резервации полностью выданы
+  db.get(`
+    SELECT 
+      COUNT(*) as total_products,
+      SUM(CASE WHEN COALESCE(ilosc_wydane, 0) >= ilosc THEN 1 ELSE 0 END) as completed_products
+    FROM reservation_products 
+    WHERE reservation_id = ?
+  `, [reservationId], (err, row) => {
+    if (err) {
+      console.error(`❌ Error checking reservation ${reservationId} status:`, err);
+      return;
+    }
+    
+    if (row && row.total_products > 0 && row.total_products === row.completed_products) {
+      // Все товары выданы - меняем статус на 'zrealizowana'
+      db.run(
+        'UPDATE reservations SET status = ? WHERE id = ? AND status = ?',
+        ['zrealizowana', reservationId, 'aktywna'],
+        function(updateErr) {
+          if (updateErr) {
+            console.error(`❌ Error updating reservation ${reservationId} status:`, updateErr);
+          } else if (this.changes > 0) {
+            console.log(`✅ Reservation ${reservationId} status changed to 'zrealizowana'`);
+          }
+        }
+      );
+    }
+  });
+}
 
 // Вспомогательная функция для разбивки текста на строки по ширине
 function wrapText(text, font, fontSize, maxWidth) {
@@ -1371,8 +1947,12 @@ async function generateInventoryReportPDF(items, res) {
             color: colors.textDark,
           });
         
+        // Линия под заголовками (как на первой странице)
+        yPosition -= 5;
+        const newTableTopYForLines = yPosition;
+        pageTopY = newTableTopYForLines; // Обновляем верхнюю границу таблицы
+        
         // Верхняя линия таблицы на новой странице
-        const newTableTopYForLines = yPosition - 5;
         currentPage.drawLine({
           start: { x: tableLeftX, y: newTableTopYForLines },
           end: { x: tableRightX, y: newTableTopYForLines },
@@ -1420,7 +2000,8 @@ async function generateInventoryReportPDF(items, res) {
           color: colors.border,
         });
         
-        yPosition -= 20;
+        // Устанавливаем yPosition для первой строки данных (как на первой странице)
+        yPosition -= 15;
       }
       
       // Рисуем горизонтальную линию между строками (верхняя граница ячейки)
@@ -1567,6 +2148,47 @@ async function generateInventoryReportPDF(items, res) {
       end: { x: tableRightX, y: tableBottomY },
       thickness: 1,
       color: colors.border,
+    });
+    
+    // Скрываем продолжение вертикальных линий после последней горизонтальной линии
+    // Рисуем белые линии поверх старых длинных линий
+    const white = rgb(1, 1, 1);
+    const hideLineLength = 100; // Достаточно длинная линия, чтобы скрыть продолжение
+    currentPage.drawLine({
+      start: { x: colX.sprzedawca, y: tableBottomY },
+      end: { x: colX.sprzedawca, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: colX.objetosc, y: tableBottomY },
+      end: { x: colX.objetosc, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: colX.typ, y: tableBottomY },
+      end: { x: colX.typ, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: colX.ilosc, y: tableBottomY },
+      end: { x: colX.ilosc, y: tableBottomY - hideLineLength },
+      thickness: 0.5,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: tableLeftX, y: tableBottomY },
+      end: { x: tableLeftX, y: tableBottomY - hideLineLength },
+      thickness: 1,
+      color: white,
+    });
+    currentPage.drawLine({
+      start: { x: tableRightX, y: tableBottomY },
+      end: { x: tableRightX, y: tableBottomY - hideLineLength },
+      thickness: 1,
+      color: white,
     });
     
     
@@ -1745,6 +2367,16 @@ app.post('/api/orders', (req, res) => {
   // Вычисляем общее количество всех продуктов
   const laczna_ilosc = products.reduce((total, product) => total + (product.ilosc || 0), 0);
   
+  // Получаем client_id по имени клиента
+  db.get('SELECT id FROM clients WHERE nazwa = ? LIMIT 1', [clientName], (err, clientRow) => {
+    if (err) {
+      console.error('❌ Database error finding client:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    const clientId = clientRow ? clientRow.id : null;
+    console.log(`🔍 Client ID for "${clientName}": ${clientId || 'not found'}`);
+  
   // Проверяем доступность товаров перед созданием заказа
   console.log('🔍 Checking product availability...');
   
@@ -1753,15 +2385,82 @@ app.post('/api/orders', (req, res) => {
     return new Promise((resolve, reject) => {
       const { kod, nazwa, ilosc } = product;
       
-      db.get('SELECT ilosc as available FROM working_sheets WHERE kod = ?', [kod], (err, row) => {
+        // Проверяем доступное количество с учетом активных резерваций (используя ilosc - ilosc_wydane)
+        db.get(`
+          SELECT 
+            ws.ilosc as total_available,
+            COALESCE(SUM(CASE 
+              WHEN r.status = 'aktywna' 
+              THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
+              ELSE 0 
+            END), 0) as reserved
+          FROM working_sheets ws
+          LEFT JOIN reservation_products rp ON ws.kod = rp.product_kod
+          LEFT JOIN reservations r ON rp.reservation_id = r.id
+          WHERE ws.kod = ?
+          GROUP BY ws.kod, ws.ilosc
+        `, [kod], (err, row) => {
         if (err) {
           reject({ kod, error: err.message });
-        } else if (!row) {
+            return;
+          }
+          
+          if (!row) {
           reject({ kod, nazwa, ilosc, available: 0, error: 'Product not found in working_sheets' });
-        } else if (row.available < ilosc) {
-          reject({ kod, nazwa, ilosc, available: row.available, error: 'Insufficient quantity' });
+            return;
+          }
+          
+          const availableOnWarehouse = row.total_available - row.reserved;
+          
+          // Если у клиента есть резервация, проверяем её
+          if (clientId) {
+            db.get(`
+              SELECT 
+                SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available_in_reservation
+              FROM reservation_products rp
+              INNER JOIN reservations r ON rp.reservation_id = r.id
+              WHERE rp.product_kod = ? 
+                AND r.client_id = ? 
+                AND r.status = 'aktywna'
+            `, [kod, clientId], (err, reservationRow) => {
+              if (err) {
+                reject({ kod, error: err.message });
+                return;
+              }
+              
+              const availableInReservation = reservationRow ? (reservationRow.available_in_reservation || 0) : 0;
+              
+              // Если у клиента есть резервация, разрешаем заказ (даже если превышает доступное на складе)
+              if (availableInReservation > 0) {
+                // Проверяем, не превышает ли запрашиваемое количество резервацию
+                if (ilosc > availableInReservation) {
+                  // Разрешаем, но с предупреждением (на фронтенде уже показано)
+                  console.log(`⚠️ Order exceeds client reservation for ${kod}: requested ${ilosc}, available in reservation ${availableInReservation}`);
+                }
+                resolve({ 
+                  kod, 
+                  nazwa, 
+                  ilosc, 
+                  available: availableInReservation,
+                  fromReservation: true,
+                  availableOnWarehouse: availableOnWarehouse
+                });
         } else {
-          resolve({ kod, nazwa, ilosc, available: row.available });
+                // У клиента нет резервации - проверяем доступное на складе
+                if (availableOnWarehouse < ilosc) {
+                  reject({ kod, nazwa, ilosc, available: availableOnWarehouse, error: 'Insufficient quantity' });
+                } else {
+                  resolve({ kod, nazwa, ilosc, available: availableOnWarehouse, fromReservation: false });
+                }
+              }
+            });
+          } else {
+            // Клиент не найден - проверяем доступное на складе
+            if (availableOnWarehouse < ilosc) {
+              reject({ kod, nazwa, ilosc, available: availableOnWarehouse, error: 'Insufficient quantity' });
+            } else {
+              resolve({ kod, nazwa, ilosc, available: availableOnWarehouse, fromReservation: false });
+            }
         }
       });
     });
@@ -1794,8 +2493,31 @@ app.post('/api/orders', (req, res) => {
           products.forEach((product, index) => {
             const { kod, nazwa, ilosc, typ, kod_kreskowy } = product;
             
+            // Находим информацию о доступности из результатов проверки
+            const availabilityInfo = results.find(r => r.kod === kod);
+            const fromReservation = availabilityInfo?.fromReservation || false;
+            const availableOnWarehouse = availabilityInfo?.availableOnWarehouse || 0;
+            
+            // Определяем, сколько брать из резервации и сколько со склада
+            // В ПЕРВУЮ ОЧЕРЕДЬ берем из резервации, затем со склада
+            let quantityFromWarehouse = 0;
+            let quantityFromReservation = 0;
+            
+            if (fromReservation) {
+              // Товар из резервации клиента
+              // Сначала берем из резервации: минимум из доступного в резервации и запрашиваемого
+              const availableInReservation = availabilityInfo?.available || 0;
+              quantityFromReservation = Math.min(availableInReservation, ilosc);
+              // Остальное со склада
+              quantityFromWarehouse = ilosc - quantityFromReservation;
+            } else {
+              // Товар полностью со склада
+              quantityFromWarehouse = ilosc;
+              quantityFromReservation = 0;
+            }
+            
             // Сначала создаем запись в order_products
-            console.log(`📝 Creating order_products record for: ${kod} (orderId: ${orderId})`);
+            console.log(`📝 Creating order_products record for: ${kod} (orderId: ${orderId}, fromWarehouse: ${quantityFromWarehouse}, fromReservation: ${quantityFromReservation})`);
             db.run(
               'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy) VALUES (?, ?, ?, ?, ?, ?)',
               [orderId, kod, nazwa, ilosc, typ || 'sprzedaz', kod_kreskowy || null],
@@ -1806,22 +2528,14 @@ app.post('/api/orders', (req, res) => {
                   productsFailed++;
                   checkCompletion();
                 } else {
+                  const orderProductId = this.lastID;
                   productsCreated++;
-                  console.log(`✅ Product ${index + 1} created for order ${orderId} with ID: ${this.lastID}`);
+                  console.log(`✅ Product ${index + 1} created for order ${orderId} with ID: ${orderProductId}`);
                   
-                  // Теперь обновляем количество в working_sheets
-                  db.run(
-                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                    [ilosc, kod],
-                    function(updateErr) {
-                      if (updateErr) {
-                        console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
-                        checkCompletion();
-                      } else {
-                        console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${ilosc})`);
-                        workingSheetsUpdated++;
-                        
+                  // Функция для продолжения после обновления резерваций
+                  const proceedWithFIFO = () => {
                         // Теперь списываем по FIFO из products с отслеживанием
+                    // Списываем всё количество заказа (фактическая отгрузка)
                         consumeFromProducts(kod, ilosc)
                           .then(({ consumed, remaining, consumptions }) => {
                             console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
@@ -1849,6 +2563,89 @@ app.post('/api/orders', (req, res) => {
                             console.error(`❌ FIFO consumption error for ${kod}:`, fifoError);
                             checkCompletion();
                           });
+                  };
+                  
+                  // Обновляем количество в working_sheets (всегда списываем ВСЁ количество заказа)
+                  db.run(
+                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                    [ilosc, kod],
+                    function(updateErr) {
+                      if (updateErr) {
+                        console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
+                        checkCompletion();
+                      } else {
+                        console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${ilosc})`);
+                        workingSheetsUpdated++;
+                        
+                        // Если товар берется из резервации, увеличиваем ilosc_wydane
+                        if (quantityFromReservation > 0 && clientId) {
+                          // Находим резервации клиента для этого товара и обновляем их
+                          db.all(`
+                            SELECT rp.id, rp.reservation_id, (rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available
+                            FROM reservation_products rp
+                            INNER JOIN reservations r ON rp.reservation_id = r.id
+                            WHERE rp.product_kod = ? 
+                              AND r.client_id = ? 
+                              AND r.status = 'aktywna'
+                            ORDER BY r.data_utworzenia ASC
+                          `, [kod, clientId], (err, reservationProducts) => {
+                            if (err) {
+                              console.error(`❌ Error fetching reservation products for ${kod}:`, err);
+                              // Продолжаем выполнение даже при ошибке
+                              proceedWithFIFO();
+                            } else if (reservationProducts.length === 0) {
+                              console.log(`⚠️ No reservation products found for ${kod} and client ${clientId}`);
+                              proceedWithFIFO();
+                            } else {
+                              // Распределяем количество по резервациям (FIFO)
+                              let remainingToFulfill = quantityFromReservation;
+                              let reservationsUpdated = 0;
+                              
+                              reservationProducts.forEach((rp) => {
+                                if (remainingToFulfill <= 0) return;
+                                
+                                const toFulfill = Math.min(remainingToFulfill, rp.available);
+                                
+                                db.run(
+                                  'UPDATE reservation_products SET ilosc_wydane = COALESCE(ilosc_wydane, 0) + ? WHERE id = ?',
+                                  [toFulfill, rp.id],
+                                  function(updateErr) {
+                                    if (updateErr) {
+                                      console.error(`❌ Error updating reservation_product ${rp.id}:`, updateErr);
+                                    } else {
+                                      console.log(`✅ Updated reservation_product ${rp.id}: ilosc_wydane increased by ${toFulfill}`);
+                                      
+                                      // Записываем связь между резервацией и заказом
+                                      db.run(
+                                        'INSERT INTO reservation_order_fulfillments (reservation_product_id, order_id, order_product_id, quantity) VALUES (?, ?, ?, ?)',
+                                        [rp.id, orderId, orderProductId, toFulfill],
+                                        (fulfillErr) => {
+                                          if (fulfillErr) {
+                                            console.error(`❌ Error creating fulfillment record for reservation_product ${rp.id}:`, fulfillErr);
+                                          } else {
+                                            console.log(`✅ Created fulfillment record: reservation_product ${rp.id} -> order ${orderId}, quantity: ${toFulfill}`);
+                                          }
+                                        }
+                                      );
+                                      
+                                      // Проверяем, полностью ли реализована резервация
+                                      checkAndUpdateReservationStatus(rp.reservation_id);
+                                    }
+                                    
+                                    reservationsUpdated++;
+                                    remainingToFulfill -= toFulfill;
+                                    
+                                    if (reservationsUpdated === reservationProducts.length) {
+                                      proceedWithFIFO();
+                                    }
+                                  }
+                                );
+                              });
+                            }
+                          });
+                        } else {
+                          proceedWithFIFO();
+                        }
                       }
                     }
                   );
@@ -1935,6 +2732,494 @@ app.post('/api/orders', (req, res) => {
           }
         });
       }
+    });
+});
+
+// Хелпер: получить следующий номер резервации (глобально, вне зависимости от даты)
+function getNextReservationNumber(dateString, callback) {
+  if (!dateString) {
+    return callback(new Error('Date parameter is required'));
+  }
+
+  const [year, month, day] = dateString.split('-');
+
+  // Получаем все номера резерваций для поиска максимального номера
+  db.all('SELECT numer_rezerwacji FROM reservations WHERE numer_rezerwacji LIKE ?', ['R%'], (err, allRows) => {
+    if (err) return callback(err);
+    
+    // Извлекаем числовую часть из каждого номера и находим максимум
+    let maxNumber = 0;
+    const numbers = [];
+    allRows.forEach(row => {
+      const match = row.numer_rezerwacji.match(/^R(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        numbers.push(num);
+        if (num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    });
+    
+    console.log(`📊 Reservation numbers analysis: found ${allRows.length} reservations, numbers: [${numbers.sort((a,b) => a-b).join(', ')}], max: ${maxNumber}`);
+    
+    const nextNumber = maxNumber + 1;
+    const numer_rezerwacji = `R${nextNumber.toString().padStart(3, '0')}_${day}_${month}_${year}`;
+    console.log(`✅ Generated next reservation number: ${numer_rezerwacji} (sequence: ${nextNumber}, date: ${day}/${month}/${year})`);
+    
+    callback(null, numer_rezerwacji, maxNumber, nextNumber);
+  });
+}
+
+// Endpoint для получения следующего номера резервации (с датой, для обратной совместимости)
+console.log('🔧 Registering GET /api/reservations/next-number endpoint');
+app.get('/api/reservations/next-number', (req, res) => {
+  const { date } = req.query;
+  console.log('🔢 GET /api/reservations/next-number - Generating next reservation number');
+  
+  if (!date) {
+    return res.status(400).json({ error: 'Date parameter is required' });
+  }
+
+  getNextReservationNumber(date, (err, numer_rezerwacji, maxNumber) => {
+      if (err) {
+      console.error('❌ Error finding max reservation number:', err);
+        return res.status(500).json({ error: err.message });
+      }
+    console.log(`✅ Next reservation number: ${numer_rezerwacji} (max number: ${maxNumber})`);
+      res.json({ numer_rezerwacji });
+  });
+});
+
+});
+
+// Endpoint для анулирования резервации
+app.put('/api/reservations/:id/cancel', (req, res) => {
+  const { id } = req.params;
+  console.log(`📋 PUT /api/reservations/${id}/cancel - Cancelling reservation`);
+  
+  // Проверяем, существует ли резервация
+  db.get('SELECT * FROM reservations WHERE id = ?', [id], (err, reservation) => {
+    if (err) {
+      console.error('❌ Database error:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (!reservation) {
+      res.status(404).json({ error: 'Rezerwacja nie znaleziona' });
+      return;
+    }
+    
+    if (reservation.status === 'anulowana') {
+      res.status(400).json({ error: 'Rezerwacja jest już anulowana' });
+      return;
+    }
+    
+    // Обновляем статус на 'anulowana'
+    db.run(
+      'UPDATE reservations SET status = ? WHERE id = ?',
+      ['anulowana', id],
+      function(err) {
+        if (err) {
+          console.error('❌ Database error updating status:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        
+        console.log(`✅ Reservation ${id} cancelled successfully`);
+        res.json({ success: true, message: 'Rezerwacja została anulowana' });
+      }
+    );
+  });
+});
+
+// Endpoint для обновления резервации
+app.put('/api/reservations/:id', (req, res) => {
+  const { id } = req.params;
+  const { klient, numer_rezerwacji, data_utworzenia, data_zakonczenia, status, komentarz, products } = req.body;
+  console.log(`📋 PUT /api/reservations/${id} - Updating reservation`);
+  
+  // Валидация обязательных полей
+  if (!klient || !klient.trim()) {
+    console.log('❌ Validation failed: client name is required');
+    res.status(400).json({ error: 'Wybierz klienta' });
+    return;
+  }
+  
+  if (!products || products.length === 0) {
+    console.log('❌ Validation failed: products are required');
+    res.status(400).json({ error: 'Dodaj produkty do rezerwacji' });
+    return;
+  }
+  
+  
+  // Сначала находим client_id по имени клиента
+  db.get('SELECT id FROM clients WHERE nazwa = ? LIMIT 1', [klient], (err, client) => {
+    if (err) {
+      console.error('❌ Database error finding client:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (!client) {
+      console.log('❌ Client not found:', klient);
+      res.status(404).json({ error: 'Klient nie znaleziony' });
+      return;
+    }
+    
+    const clientId = client.id;
+    
+    // Получаем текущую резервацию и её продукты
+    db.get('SELECT * FROM reservations WHERE id = ?', [id], (err, currentReservation) => {
+      if (err) {
+        console.error('❌ Database error fetching reservation:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      if (!currentReservation) {
+        res.status(404).json({ error: 'Rezerwacja nie znaleziona' });
+        return;
+      }
+      
+      // Получаем текущие продукты резервации с ilosc_wydane
+      db.all('SELECT * FROM reservation_products WHERE reservation_id = ?', [id], (err, oldProducts) => {
+        if (err) {
+          console.error('❌ Database error fetching old products:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        
+        // Проверяем, изменился ли клиент и есть ли выданные товары
+        const hasIssuedProducts = oldProducts.some(p => (p.ilosc_wydane || 0) > 0);
+        if (hasIssuedProducts && currentReservation.client_id !== clientId) {
+          console.log(`❌ Cannot change client - reservation has issued products`);
+          res.status(400).json({ 
+            error: 'Nie można zmienić klienta - część towaru z tej rezerwacji została już wydana' 
+          });
+          return;
+        }
+        
+        // Создаём карту старых продуктов для быстрого доступа
+        const oldProductsMap = {};
+        oldProducts.forEach(p => {
+          oldProductsMap[p.product_kod] = p;
+        });
+        
+        // Валидация: проверяем что новое количество >= ilosc_wydane
+      for (const product of products) {
+        const oldProduct = oldProductsMap[product.kod];
+        if (oldProduct) {
+          const iloscWydane = oldProduct.ilosc_wydane || 0;
+          if (product.ilosc < iloscWydane) {
+            console.log(`❌ Validation failed: cannot reduce ${product.kod} below issued quantity (${iloscWydane})`);
+            res.status(400).json({ 
+              error: `Nie można zmniejszyć ilości produktu ${product.kod} poniżej wydanej ilości (${iloscWydane} szt.)` 
+            });
+            return;
+          }
+        }
+      }
+      
+      // Проверяем доступность на складе для увеличенных количеств
+      const checkAvailability = (callback) => {
+        const productsToCheck = products.filter(p => {
+          const oldProduct = oldProductsMap[p.kod];
+          const oldQuantity = oldProduct ? oldProduct.ilosc : 0;
+          return p.ilosc > oldQuantity;
+        });
+        
+        if (productsToCheck.length === 0) {
+          callback(null);
+          return;
+        }
+        
+        let checked = 0;
+        let hasError = false;
+        
+        productsToCheck.forEach(product => {
+          const oldProduct = oldProductsMap[product.kod];
+          const oldQuantity = oldProduct ? oldProduct.ilosc : 0;
+          const additionalNeeded = product.ilosc - oldQuantity;
+          
+          // Проверяем доступность на складе
+          db.get(`
+            SELECT 
+              ws.ilosc as stock,
+              COALESCE((
+                SELECT SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0))
+                FROM reservation_products rp
+                INNER JOIN reservations r ON rp.reservation_id = r.id
+                WHERE rp.product_kod = ws.kod AND r.status = 'aktywna' AND r.id != ?
+              ), 0) as other_reserved
+            FROM working_sheets ws
+            WHERE ws.kod = ?
+          `, [id, product.kod], (err, row) => {
+            if (err || hasError) {
+              if (!hasError) {
+                console.error('❌ Error checking availability:', err);
+              }
+              checked++;
+              return;
+            }
+            
+            const stockQuantity = row ? row.stock : 0;
+            const otherReserved = row ? row.other_reserved : 0;
+            const availableForReserve = stockQuantity - otherReserved;
+            
+            console.log(`📊 Product ${product.kod}: stock=${stockQuantity}, otherReserved=${otherReserved}, available=${availableForReserve}, needed=${additionalNeeded}`);
+            
+            if (additionalNeeded > availableForReserve) {
+              hasError = true;
+              callback(`Niewystarczająca ilość produktu ${product.kod} - dostępne do rezerwacji: ${availableForReserve} szt.`);
+              return;
+            }
+            
+            checked++;
+            if (checked === productsToCheck.length && !hasError) {
+              callback(null);
+            }
+          });
+        });
+      };
+      
+      checkAvailability((error) => {
+        if (error) {
+          res.status(400).json({ error });
+          return;
+        }
+        
+        // Обновляем резервацию
+        db.run(`
+          UPDATE reservations 
+          SET client_id = ?, numer_rezerwacji = ?, data_zakonczenia = ?, status = ?, komentarz = ?
+          WHERE id = ?
+        `, [clientId, numer_rezerwacji, data_zakonczenia, status, komentarz, id], function(err) {
+          if (err) {
+            console.error('❌ Database error updating reservation:', err);
+            res.status(500).json({ error: err.message });
+            return;
+          }
+          
+          if (this.changes === 0) {
+            res.status(404).json({ error: 'Rezerwacja nie znaleziona' });
+            return;
+          }
+          
+          // Умное обновление продуктов (сохраняем ilosc_wydane)
+          smartUpdateReservationProducts(oldProductsMap);
+        });
+      });
+      
+      function smartUpdateReservationProducts(oldProductsMap) {
+        console.log(`🧠 Smart update: processing ${products.length} products`);
+        
+        // ВАЖНО: Сначала СИНХРОННО определяем какие продукты нужно удалить
+        // (те что есть в oldProductsMap, но нет в новом списке products)
+        const productsToKeep = new Set(products.map(p => p.kod));
+        const productsToDelete = Object.keys(oldProductsMap).filter(kod => !productsToKeep.has(kod));
+        
+        let operationsCompleted = 0;
+        const totalOperations = products.length + productsToDelete.length;
+        
+        if (totalOperations === 0) {
+          console.log(`✅ No operations needed, reservation ${id} unchanged`);
+          res.json({ success: true, id: id });
+          return;
+        }
+        
+        const checkCompletion = () => {
+          operationsCompleted++;
+          if (operationsCompleted >= totalOperations) {
+            console.log(`✅ Reservation ${id} updated successfully with ${products.length} products`);
+            res.json({ success: true, id: id });
+          }
+        };
+        
+        // Обновляем или добавляем продукты
+        products.forEach(product => {
+          const oldProduct = oldProductsMap[product.kod];
+          
+          if (oldProduct) {
+            // Продукт существует - обновляем количество, сохраняем ilosc_wydane
+            db.run(`
+              UPDATE reservation_products 
+              SET ilosc = ?, product_nazwa = ?
+              WHERE reservation_id = ? AND product_kod = ?
+            `, [product.ilosc, product.nazwa, id, product.kod], (err) => {
+              if (err) {
+                console.error(`❌ Error updating product ${product.kod}:`, err);
+              } else {
+                console.log(`✅ Updated product ${product.kod}: ${oldProduct.ilosc} → ${product.ilosc}`);
+              }
+              checkCompletion();
+            });
+          } else {
+            // Новый продукт - добавляем
+            db.run(`
+              INSERT INTO reservation_products (reservation_id, product_kod, product_nazwa, ilosc, ilosc_wydane)
+              VALUES (?, ?, ?, ?, 0)
+            `, [id, product.kod, product.nazwa, product.ilosc], (err) => {
+              if (err) {
+                console.error(`❌ Error inserting product ${product.kod}:`, err);
+              } else {
+                console.log(`✅ Inserted new product ${product.kod}: ${product.ilosc}`);
+              }
+              checkCompletion();
+            });
+          }
+        });
+        
+        // Удаляем только те продукты, которых НЕТ в новом списке (и только если ilosc_wydane = 0)
+        productsToDelete.forEach(kod => {
+          const oldProduct = oldProductsMap[kod];
+          if ((oldProduct.ilosc_wydane || 0) > 0) {
+            console.log(`⚠️ Cannot delete product ${kod} - has issued quantity: ${oldProduct.ilosc_wydane}`);
+            checkCompletion();
+          } else {
+            db.run(`
+              DELETE FROM reservation_products 
+              WHERE reservation_id = ? AND product_kod = ?
+            `, [id, kod], (err) => {
+              if (err) {
+                console.error(`❌ Error deleting product ${kod}:`, err);
+              } else {
+                console.log(`✅ Deleted product ${kod}`);
+              }
+              checkCompletion();
+            });
+          }
+        });
+      }
+    });
+    });
+  });
+});
+
+// Получение резерваций клиента по конкретному товару
+app.get('/api/reservations/client/:client_id/products/:product_kod', (req, res) => {
+  const { client_id, product_kod } = req.params;
+  console.log(`📋 GET /api/reservations/client/${client_id}/products/${product_kod} - Fetching client reservations for product`);
+  
+  db.all(`
+    SELECT 
+      rp.id,
+      rp.reservation_id,
+      rp.ilosc,
+      rp.ilosc_wydane,
+      (rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available,
+      r.numer_rezerwacji,
+      r.data_utworzenia,
+      r.data_zakonczenia
+    FROM reservation_products rp
+    INNER JOIN reservations r ON rp.reservation_id = r.id
+    WHERE r.client_id = ? 
+      AND rp.product_kod = ? 
+      AND r.status = 'aktywna'
+  `, [client_id, product_kod], (err, rows) => {
+    if (err) {
+      console.error('❌ Database error fetching client reservations:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (!rows || rows.length === 0) {
+      console.log(`✅ No active reservations found for client ${client_id} and product ${product_kod}`);
+      res.json({ 
+        hasReservation: false,
+        totalAvailable: 0,
+        reservations: []
+      });
+      return;
+    }
+    
+    // Суммируем доступное количество из всех резерваций
+    const totalAvailable = rows.reduce((sum, row) => sum + (row.available || 0), 0);
+    
+    console.log(`✅ Found ${rows.length} active reservations for client ${client_id} and product ${product_kod}, total available: ${totalAvailable}`);
+    res.json({ 
+      hasReservation: true,
+      totalAvailable: totalAvailable,
+      reservations: rows
+    });
+  });
+});
+
+// Получение всех резерваций с продуктами
+app.get('/api/reservations-with-products', (req, res) => {
+  console.log('📋 GET /api/reservations-with-products - Fetching all reservations with products');
+  
+  // Сначала проверяем истекшие резервации
+  checkExpiredReservations();
+  
+  // Получаем все резервации с информацией о клиенте
+  db.all(`
+    SELECT 
+      r.id,
+      r.numer_rezerwacji,
+      r.data_utworzenia,
+      r.data_zakonczenia,
+      r.status,
+      r.komentarz,
+      c.nazwa as klient_nazwa,
+      c.firma as klient_firma
+    FROM reservations r
+    LEFT JOIN clients c ON r.client_id = c.id
+    ORDER BY r.data_utworzenia DESC
+  `, (err, reservations) => {
+    if (err) {
+      console.error('❌ Database error fetching reservations:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    console.log(`✅ Found ${reservations.length} reservations`);
+    
+    if (reservations.length === 0) {
+      res.json([]);
+      return;
+    }
+    
+    // Для каждой резервации получаем продукты
+    let processedReservations = 0;
+    const result = [];
+    
+    reservations.forEach((reservation) => {
+      db.all('SELECT * FROM reservation_products WHERE reservation_id = ?', [reservation.id], (err, products) => {
+        if (err) {
+          console.error(`❌ Database error fetching products for reservation ${reservation.id}:`, err);
+        } else {
+          console.log(`✅ Found ${products.length} products for reservation ${reservation.id}`);
+        }
+        
+        // Вычисляем общее количество продуктов
+        const laczna_ilosc = products.reduce((total, product) => total + (product.ilosc || 0), 0);
+        
+        // Формируем структуру резервации с продуктами
+        const reservationWithProducts = {
+          id: reservation.id,
+          numer_rezerwacji: reservation.numer_rezerwacji,
+          klient: reservation.klient_nazwa || '',
+          firma: reservation.klient_firma || '',
+          data_utworzenia: reservation.data_utworzenia,
+          data_zakonczenia: reservation.data_zakonczenia,
+          status: reservation.status,
+          komentarz: reservation.komentarz,
+          laczna_ilosc: laczna_ilosc,
+          products: products || []
+        };
+        
+        result.push(reservationWithProducts);
+        processedReservations++;
+        
+        // Когда все резервации обработаны, отправляем результат
+        if (processedReservations === reservations.length) {
+          console.log(`✅ Sending ${result.length} reservations with products`);
+          res.json(result);
+        }
+      });
+    });
     });
 });
 
@@ -2644,9 +3929,22 @@ app.put('/api/orders/:id', (req, res) => {
     console.log(`🔍 processQuantityIncrease called with: productKod=${productKod}, quantityDiff=${quantityDiff}`);
     console.log(`🔍 processQuantityIncrease: starting FIFO consumption...`);
     
-    // Проверяем доступность товара
+      // Проверяем доступность товара с учетом активных резерваций
     console.log(`🔍 processQuantityIncrease: checking availability in working_sheets for ${productKod}`);
-    db.get('SELECT ilosc FROM working_sheets WHERE kod = ?', [productKod], (err, row) => {
+      db.get(`
+        SELECT 
+          ws.ilosc as total_available,
+          COALESCE(SUM(CASE 
+            WHEN r.status = 'aktywna' 
+            THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
+            ELSE 0 
+          END), 0) as reserved
+        FROM working_sheets ws
+        LEFT JOIN reservation_products rp ON ws.kod = rp.product_kod
+        LEFT JOIN reservations r ON rp.reservation_id = r.id
+        WHERE ws.kod = ?
+        GROUP BY ws.kod, ws.ilosc
+      `, [productKod], (err, row) => {
       if (err) {
         console.error(`❌ Error checking availability for ${productKod}:`, err);
         callback();
@@ -2659,8 +3957,8 @@ app.put('/api/orders/:id', (req, res) => {
         return;
       }
       
-      const availableQuantity = row.ilosc;
-      console.log(`🔍 processQuantityIncrease: available quantity in working_sheets = ${availableQuantity}`);
+        const availableQuantity = row.total_available - row.reserved;
+        console.log(`🔍 processQuantityIncrease: available quantity in working_sheets = ${availableQuantity} (total: ${row.total_available}, reserved: ${row.reserved})`);
       if (availableQuantity < quantityDiff) {
         console.error(`❌ Insufficient quantity for ${productKod}: need ${quantityDiff}, available ${availableQuantity}`);
         callback();
@@ -4186,7 +5484,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                           console.log(`✅ Created working_sheets for ${productCode}`);
                               workingSheetsUpdated++;
                               resolve();
-                            }
+                  }
                           }
                         );
                   });
@@ -4212,7 +5510,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged;
                 const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc; // Если изменился только podatek_akcyzowy (не через objetosc)
                 const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate;
-                
+                  
                 if (!hasWsChanges && !needsReceiptParamsUpdate) {
                   console.log(`✅ No working_sheets changes for ${productCode}, skipping update`);
                   continue;
@@ -4289,8 +5587,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (needsKosztDostawyUpdate) {
                     updateFields.push('koszt_dostawy_per_unit = ?');
                     updateValues.push(kosztDostawyPerUnitForProduct);
-                  }
-                  
+                      }
+                      
                   if (needsPodatekAkcyzowyUpdate) {
                     updateFields.push('podatek_akcyzowy = ?');
                     updateValues.push(podatekValue);
@@ -4391,7 +5689,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   updateFields.push('podatek_akcyzowy = ?');
                   updateValues.push(podatekValue);
-                  
+            
                   // Пересчитываем koszt_wlasny с новым podatek_akcyzowy
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
@@ -4432,7 +5730,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 if ((workingSheetRecord.sprzedawca || '') !== (sprzedawca || '')) {
                   updateFields.push('sprzedawca = ?');
                   updateValues.push(sprzedawca || null);
-                }
+            }
                 
                 // Обновляем koszt_dostawy_per_unit, если изменился kosztDostawy или kurs
                 const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
@@ -4476,8 +5774,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                           console.log(`✅ Updated working_sheets for ${productCode}, fields: ${updateFields.join(', ')}`);
                           workingSheetsUpdated++;
                           resolve();
-                        }
-                      }
+              }
+            }
                     );
                   });
                 }
@@ -4727,15 +6025,19 @@ app.get('/api/working-sheets', (req, res) => {
 
 // Search working sheets
 app.get('/api/working-sheets/search', (req, res) => {
-  const { query } = req.query;
-  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"`);
+  const { query, client_id } = req.query;
+  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}`);
   
-  if (!query) {
+  if (query === undefined || query === null) {
     console.log('❌ Validation failed: query parameter is required');
     return res.status(400).json({ error: 'Query parameter is required' });
   }
   
-  db.all(`
+  // Если query пустой, используем '%' для поиска всех
+  const searchQuery = query.trim() === '' ? '%' : `%${query}%`;
+  
+  // Строим SQL запрос в зависимости от наличия client_id
+  const sqlQuery = client_id ? `
     WITH ws_products AS (
       SELECT 
         w.kod,
@@ -4744,6 +6046,24 @@ app.get('/api/working-sheets/search', (req, res) => {
       FROM working_sheets w
       WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
       GROUP BY w.kod
+    ),
+    reserved_products AS (
+      SELECT 
+        rp.product_kod as kod,
+        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
+      FROM reservation_products rp
+      INNER JOIN reservations r ON rp.reservation_id = r.id
+      WHERE r.status = 'aktywna'
+      GROUP BY rp.product_kod
+    ),
+    client_reservations AS (
+      SELECT 
+        rp.product_kod as kod,
+        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_client_reserved
+      FROM reservation_products rp
+      INNER JOIN reservations r ON rp.reservation_id = r.id
+      WHERE r.status = 'aktywna' AND r.client_id = ?
+      GROUP BY rp.product_kod
     ),
     samples_products AS (
       SELECT 
@@ -4763,6 +6083,8 @@ app.get('/api/working-sheets/search', (req, res) => {
       ws.kod,
       ws.nazwa,
       COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) as ilosc,
+      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
+      COALESCE(cr.ilosc_client_reserved, 0) as ilosc_client_reserved,
       NULL as status,
       CASE 
         WHEN ws.kod LIKE ? THEN 0
@@ -4770,6 +6092,8 @@ app.get('/api/working-sheets/search', (req, res) => {
         ELSE 2
       END as match_priority
     FROM ws_products ws
+    LEFT JOIN reserved_products rp ON ws.kod = rp.kod
+    LEFT JOIN client_reservations cr ON ws.kod = cr.kod
     LEFT JOIN samples_products sp ON ws.kod = sp.kod
     WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0
     
@@ -4779,6 +6103,8 @@ app.get('/api/working-sheets/search', (req, res) => {
       sp.kod,
       sp.nazwa || ' (samples)' as nazwa,
       sp.ilosc_samples as ilosc,
+      0 as ilosc_reserved,
+      0 as ilosc_client_reserved,
       'samples' as status,
       CASE 
         WHEN sp.kod LIKE ? THEN 0
@@ -4791,8 +6117,86 @@ app.get('/api/working-sheets/search', (req, res) => {
     ) OR sp.kod LIKE ? OR sp.nazwa LIKE ?
     
     ORDER BY match_priority, kod, status, nazwa
-    LIMIT 50
-  `, [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `${query}%`, `%${query}%`, `${query}%`, `%${query}%`, `%${query}%`, `%${query}%`],
+    LIMIT ${query.trim() === '' ? 500 : 50}
+  ` : `
+    WITH ws_products AS (
+      SELECT 
+        w.kod,
+        MAX(w.nazwa) as nazwa,
+        SUM(w.ilosc) as ilosc_main
+      FROM working_sheets w
+      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+      GROUP BY w.kod
+    ),
+    reserved_products AS (
+      SELECT 
+        rp.product_kod as kod,
+        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
+      FROM reservation_products rp
+      INNER JOIN reservations r ON rp.reservation_id = r.id
+      WHERE r.status = 'aktywna'
+      GROUP BY rp.product_kod
+    ),
+    samples_products AS (
+      SELECT 
+        kod, 
+        MAX(nazwa) as nazwa, 
+        SUM(ilosc) as ilosc_samples
+      FROM products
+      WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
+        AND status = 'samples'
+      GROUP BY kod
+      HAVING SUM(ilosc) > 0
+    ),
+    ws_codes AS (
+      SELECT DISTINCT kod FROM ws_products
+    )
+    SELECT 
+      ws.kod,
+      ws.nazwa,
+      COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) as ilosc,
+      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
+      NULL as status,
+      CASE 
+        WHEN ws.kod LIKE ? THEN 0
+        WHEN ws.nazwa LIKE ? THEN 1
+        ELSE 2
+      END as match_priority
+    FROM ws_products ws
+    LEFT JOIN reserved_products rp ON ws.kod = rp.kod
+    LEFT JOIN samples_products sp ON ws.kod = sp.kod
+    WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0
+    
+    UNION ALL
+    
+    SELECT 
+      sp.kod,
+      sp.nazwa || ' (samples)' as nazwa,
+      sp.ilosc_samples as ilosc,
+      0 as ilosc_reserved,
+      'samples' as status,
+      CASE 
+        WHEN sp.kod LIKE ? THEN 0
+        WHEN sp.nazwa LIKE ? THEN 1
+        ELSE 2
+      END as match_priority
+    FROM samples_products sp
+    WHERE EXISTS (
+      SELECT 1 FROM ws_codes wc WHERE wc.kod = sp.kod
+    ) OR sp.kod LIKE ? OR sp.nazwa LIKE ?
+    
+    ORDER BY match_priority, kod, status, nazwa
+    LIMIT ${query.trim() === '' ? 500 : 50}
+  `;
+
+  // searchQuery уже определен выше: '%' если query пустой, иначе `%${query}%`
+  const startsWithQuery = query.trim() === '' ? '%' : `${query}%`;
+  
+  const params = client_id 
+    ? [searchQuery, searchQuery, searchQuery, client_id, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery, searchQuery]
+    : [searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery];
+  
+  db.all(sqlQuery, params,
     (err, rows) => {
       if (err) {
         console.error('❌ Database error:', err);
@@ -5752,14 +7156,43 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
 }
 
 // Serve static files from parent directory (frontend)
-app.use(express.static(path.join(__dirname, '..')));
+// В dev режиме фронт работает на Vite (порт 3000), поэтому сервер на 3001 не должен обслуживать статику
+// В production режиме обслуживаем статические файлы из dist
+// ВАЖНО: В dev режиме (когда фронт на Vite) НЕ обслуживаем статику, чтобы не перехватывать API запросы
+const isProduction = process.env.NODE_ENV === 'production';
+console.log(`🔧 Server mode: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+
+if (isProduction) {
+  // Явно исключаем /api из статических файлов
+  app.use((req, res, next) => {
+    // КРИТИЧЕСКИ ВАЖНО: Пропускаем все API запросы - они должны обрабатываться роутами выше
+    if (req.path.startsWith('/api/')) {
+      console.log(`🔵 API request bypassing static middleware: ${req.method} ${req.path}`);
+      return next();
+    }
+    // Для остальных запросов обслуживаем статические файлы
+    console.log(`📁 Static file request: ${req.method} ${req.path}`);
+    express.static(path.join(__dirname, '../dist'))(req, res, next);
+  });
 
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
+  // Но он не должен перехватывать API запросы
 app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, '../index.html');
+    // Если это API запрос, возвращаем 404
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    const indexPath = path.join(__dirname, '../dist/index.html');
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
+} else {
+  // В dev режиме только API, статические файлы не обслуживаем (они на Vite на порту 3000)
+  console.log('🔧 Development mode: static files served by Vite on port 3000');
+  console.log('🔧 API requests will be handled by routes above, no static middleware');
+  // НЕ добавляем никаких middleware для статических файлов в dev режиме
+  // API роуты обрабатываются выше, а для несуществующих API endpoints Express вернет 404 автоматически
+}
 
 // Migration endpoint (only in development)
 if (process.env.NODE_ENV !== 'production') {
@@ -5814,12 +7247,194 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
+// WMS Integration API
+const WMS_BASE_URLS = [
+  'http://wms.veis.pl',           // Основной адрес
+  'http://wms.veis.pl:8080',      // Альтернативный порт
+  'http://wms.veis.pl:5000',      // Другой порт
+  'http://api.wms.veis.pl',       // API поддомен
+  'http://dataconnect.wms.veis.pl' // DataConnect поддомен
+];
+const WMS_API_URL = WMS_BASE_URLS[0]; // Используем первый по умолчанию
+const WMS_LOGIN = 'enoterra';
+const WMS_PASSWORD = 'enoterra';
+const WMS_COMPANY_ID = 'enoterra';
+
+// Возможные пути к API (попробуем по очереди)
+const POSSIBLE_API_PATHS = [
+  '/authorize',                           // Базовый путь из документации
+  '/api/authorize',                       // С префиксом /api
+  '/api/auth',                            // Сокращённое
+  '/api/login',                           // Альтернативное название
+  '/dataconnect/authorize',               // DataConnect модуль
+  '/dataconnect/api/authorize',           // DataConnect с /api
+  '/dc/authorize',                        // Сокращённое название
+  '/integration/authorize',               // Интеграция
+  '/integration/api/authorize',           // Интеграция с /api
+  '/external/authorize',                  // Внешний API
+  '/rest/authorize',                      // REST API
+  '/rest/api/authorize',                  // REST с /api
+  '/webapi/authorize',                    // Web API
+  '/services/authorize',                  // Сервисы
+  '/ws/authorize',                        // Web Service
+  '/api/v6/authorize',                    // С версией
+  '/api/v6.0.0/authorize',                // Полная версия
+  '/v6/authorize',                        // Только версия
+  '/company/enoterra/authorize',          // С companyId в пути
+  '/enoterra/authorize',                  // Только companyId
+  '/ExpertWMS/api/authorize',             // С названием продукта
+  '/expertwms/api/authorize',             // Lowercase
+  '/DC.Expert/api/authorize',             // Полное название
+  '/DataConnect/authorize',               // С большой буквы
+  '/Authorize',                           // С большой буквы
+  '/API/Authorize'                        // Всё с большой буквы
+];
+
+// Авторизация в WMS (пробуем разные пути)
+async function authenticateWMS() {
+  const FormData = require('form-data');
+  const fetch = require('node-fetch');
+  
+  // Пробуем разные комбинации параметров
+  const paramVariants = [
+    { username: 'Username', password: 'Password' },       // Из документации
+    { username: 'username', password: 'password' },       // Lowercase
+    { username: 'login', password: 'password' },          // Альтернативное название
+    { username: 'user', password: 'pass' }                // Сокращённое
+  ];
+
+  // Пробуем разные пути к API
+  for (const apiPath of POSSIBLE_API_PATHS) {
+    for (const params of paramVariants) {
+      try {
+        const formData = new FormData();
+        formData.append(params.username, WMS_LOGIN);
+        formData.append(params.password, WMS_PASSWORD);
+
+        const url = `${WMS_API_URL}${apiPath}`;
+        console.log(`🔐 Попытка: ${url} с параметрами ${params.username}/${params.password}`);
+        
+        const response = await fetch(url, {
+          method: 'POST',
+          body: formData
+        });
+
+        console.log(`📡 Ответ (${apiPath}):`, response.status);
+
+        const responseText = await response.text();
+        
+        // Если 404, пробуем следующий путь
+        if (response.status === 404) {
+          continue;
+        }
+
+        if (!response.ok) {
+          console.log(`❌ ${response.status} на ${apiPath}`);
+          continue;
+        }
+
+        console.log('📄 Тело ответа:', responseText.substring(0, 200));
+
+        const data = JSON.parse(responseText);
+        console.log('✅ Данные авторизации:', data);
+        
+        const token = data.token || data.access_token || data.Token || data.AccessToken || null;
+        
+        if (token) {
+          console.log(`✅ Успешная авторизация: ${url} с ${params.username}/${params.password}`);
+          return token;
+        }
+      } catch (error) {
+        // Продолжаем пробовать другие варианты
+      }
+    }
+  }
+  
+  throw new Error('Не удалось авторизоваться ни по одному из путей API');
+}
+
+// Отправка заявки в WMS
+app.post('/api/wms/send-shipment', async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    
+    console.log('📦 Запрос на отправку заявки в WMS, orderId:', orderId);
+
+    // Получаем данные заявки из БД
+    db.get('SELECT * FROM orders WHERE id = ?', [orderId], async (err, order) => {
+      if (err) {
+        console.error('❌ Ошибка БД:', err);
+        return res.status(500).json({ error: 'Ошибка получения заявки из БД' });
+      }
+
+      if (!order) {
+        return res.status(404).json({ error: 'Заявка не найдена' });
+      }
+
+      try {
+        // Шаг 1: Авторизация
+        const token = await authenticateWMS();
+        if (!token) {
+          throw new Error('Не удалось получить токен авторизации');
+        }
+
+        // Шаг 2: Подготовка данных
+        const shipmentData = {
+          type: 'PWM-K',
+          state: 1,
+          status: 0,
+          activeDate: order.data_utworzenia || new Date().toISOString(),
+          items: []
+        };
+
+        console.log('📤 Отправка заявки в WMS:', shipmentData);
+
+        // Шаг 3: Отправка заявки
+        const fetch = require('node-fetch');
+        const response = await fetch(`${WMS_API_URL}/company/${WMS_COMPANY_ID}/shipments`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(shipmentData)
+        });
+
+        const responseText = await response.text();
+        console.log('📡 Ответ WMS shipments:', response.status, responseText);
+
+        if (!response.ok) {
+          throw new Error(`WMS вернул ошибку: ${response.status} - ${responseText}`);
+        }
+
+        const result = JSON.parse(responseText);
+        console.log('✅ Заявка успешно отправлена в WMS:', result);
+
+        res.json({ 
+          success: true, 
+          wmsShipmentId: result.id,
+          message: 'Заявка успешно отправлена в WMS'
+        });
+      } catch (error) {
+        console.error('❌ Ошибка отправки в WMS:', error);
+        res.status(500).json({ 
+          error: error.message || 'Ошибка отправки в WMS' 
+        });
+      }
+    });
+  } catch (error) {
+    console.error('❌ Ошибка обработки запроса:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 EnoTerra ERP Server running on port ${PORT}`);
   console.log(`📂 Serving static files from: ${__dirname}`);
   console.log(`💾 Database located at: ${dbPath}`);
+  console.log(`✅ All routes registered, including POST /api/reservations`);
 });
 
 // ===== NEW CONSUME FROM PRODUCTS (FIFO) =====
