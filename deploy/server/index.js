@@ -669,85 +669,97 @@ app.get('/api/reservations/next-number-only', (req, res) => {
 });
 
 // Получение всех товаров из активных резерваций (для анализа)
+// Группирует товары по product_kod и суммирует количество
 app.get('/api/reservations/active-products', (req, res) => {
-  console.log('📋 GET /api/reservations/active-products - Fetching active reservation products');
+  console.log('📋 GET /api/reservations/active-products - Fetching active reservation products (grouped by product)');
 
+  // Сначала получаем сгруппированные данные по товарам
   db.all(`
     SELECT 
-      r.id as reservation_id,
-      r.numer_rezerwacji,
-      c.nazwa as klient,
       rp.product_kod,
-      rp.product_nazwa,
-      COALESCE(rp.ilosc, 0) as ilosc,
-      COALESCE(rp.ilosc_wydane, 0) as ilosc_wydane
+      MAX(rp.product_nazwa) as product_nazwa,
+      SUM(COALESCE(rp.ilosc, 0)) as ilosc,
+      SUM(COALESCE(rp.ilosc_wydane, 0)) as ilosc_wydane
     FROM reservations r
-    LEFT JOIN reservation_products rp ON rp.reservation_id = r.id
-    LEFT JOIN clients c ON r.client_id = c.id
+    INNER JOIN reservation_products rp ON rp.reservation_id = r.id
     WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny')
-    ORDER BY r.data_utworzenia ASC, rp.product_nazwa ASC
-  `, (err, rows) => {
+    GROUP BY rp.product_kod
+    ORDER BY rp.product_nazwa ASC
+  `, (err, groupedRows) => {
     if (err) {
       console.error('❌ Database error fetching active reservation products:', err);
       res.status(500).json({ error: err.message });
       return;
     }
 
-    // Для каждой записи находим заказы через таблицу связи
-    const processedRows = rows.map(row => {
+    // Для каждого уникального товара собираем информацию о клиентах и заказах
+    const processedRows = groupedRows.map(groupedRow => {
       return new Promise((resolve) => {
-        if (!row.reservation_id || !row.product_kod || row.ilosc_wydane === 0) {
-          resolve({ ...row, numer_zamowienia_list: [], zamowienia_z_iloscia: [] });
+        if (!groupedRow.product_kod) {
+          resolve({ ...groupedRow, klienci: [], zamowienia_z_iloscia: [] });
           return;
         }
 
-        // Находим заказы через таблицу связи fulfillment с количеством
-        // Сначала находим reservation_product_id, затем ищем заказы
-        db.get(`
-          SELECT id FROM reservation_products 
-          WHERE reservation_id = ? AND product_kod = ?
-        `, [row.reservation_id, row.product_kod], (err, rpRow) => {
-          if (err || !rpRow) {
-            console.error(`❌ Error finding reservation_product for reservation ${row.reservation_id}, product ${row.product_kod}:`, err);
-            resolve({ ...row, numer_zamowienia_list: [], zamowienia_z_iloscia: [] });
+        // Получаем список клиентов для этого товара
+        db.all(`
+          SELECT DISTINCT
+            c.nazwa as klient,
+            rp.ilosc as ilosc_per_client
+          FROM reservations r
+          INNER JOIN reservation_products rp ON rp.reservation_id = r.id
+          LEFT JOIN clients c ON r.client_id = c.id
+          WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny')
+            AND rp.product_kod = ?
+          ORDER BY c.nazwa ASC
+        `, [groupedRow.product_kod], (err, clientRows) => {
+          if (err) {
+            console.error(`❌ Error fetching clients for product ${groupedRow.product_kod}:`, err);
+            resolve({ ...groupedRow, klienci: [], zamowienia_z_iloscia: [] });
             return;
           }
 
-          const reservationProductId = rpRow.id;
-          
-          // Теперь ищем заказы по reservation_product_id
+          // Получаем все заказы для этого товара из всех резерваций
           db.all(`
-            SELECT o.numer_zamowienia, SUM(rof.quantity) as ilosc_wydane_w_zamowieniu
+            SELECT 
+              o.numer_zamowienia,
+              SUM(rof.quantity) as ilosc_wydane_w_zamowieniu
             FROM reservation_order_fulfillments rof
             INNER JOIN orders o ON rof.order_id = o.id
-            WHERE rof.reservation_product_id = ?
+            INNER JOIN reservation_products rp ON rof.reservation_product_id = rp.id
+            INNER JOIN reservations r ON rp.reservation_id = r.id
+            WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny')
+              AND rp.product_kod = ?
             GROUP BY o.numer_zamowienia
             ORDER BY o.data_utworzenia DESC
-          `, [reservationProductId], (err, orderRows) => {
+          `, [groupedRow.product_kod], (err, orderRows) => {
             if (err) {
-              console.error(`❌ Error fetching orders for reservation_product ${reservationProductId}:`, err);
-              resolve({ ...row, numer_zamowienia_list: [], zamowienia_z_iloscia: [] });
-            } else {
-              console.log(`📋 Found ${orderRows.length} orders for reservation ${row.reservation_id}, product ${row.product_kod}, ilosc_wydane: ${row.ilosc_wydane}, reservation_product_id: ${reservationProductId}`);
-              if (orderRows.length === 0 && row.ilosc_wydane > 0) {
-                console.log(`⚠️ Warning: ilosc_wydane = ${row.ilosc_wydane} but no orders found in fulfillment table for reservation_product_id ${reservationProductId}`);
-              }
-              resolve({
-                ...row,
-                numer_zamowienia_list: orderRows.map(or => or.numer_zamowienia),
-                zamowienia_z_iloscia: orderRows.map(or => ({
-                  numer_zamowienia: or.numer_zamowienia,
-                  ilosc: or.ilosc_wydane_w_zamowieniu || 0
-                }))
+              console.error(`❌ Error fetching orders for product ${groupedRow.product_kod}:`, err);
+              resolve({ 
+                ...groupedRow, 
+                klienci: clientRows.map(cr => ({ klient: cr.klient, ilosc: cr.ilosc_per_client })),
+                zamowienia_z_iloscia: [] 
               });
+              return;
             }
+
+            resolve({
+              product_kod: groupedRow.product_kod,
+              product_nazwa: groupedRow.product_nazwa,
+              ilosc: groupedRow.ilosc || 0,
+              ilosc_wydane: groupedRow.ilosc_wydane || 0,
+              klienci: clientRows.map(cr => ({ klient: cr.klient, ilosc: cr.ilosc_per_client })),
+              zamowienia_z_iloscia: orderRows.map(or => ({
+                numer_zamowienia: or.numer_zamowienia,
+                ilosc: or.ilosc_wydane_w_zamowieniu || 0
+              }))
+            });
           });
         });
       });
     });
 
     Promise.all(processedRows).then(results => {
-      console.log(`✅ Found ${results.length} active reservation products`);
+      console.log(`✅ Found ${results.length} unique products in active reservations`);
       res.json(results);
     });
   });
@@ -941,11 +953,31 @@ app.get('/api/products/reservations-count', (req, res) => {
   );
 });
 
-// Получение стоимости товаров (SUM(ilosc * cena) для каждого kod)
+// Получение стоимости товаров (ilosc * cena для каждого kod из working_sheets)
 app.get('/api/products/wartosc-towaru', (req, res) => {
-  console.log('📦 GET /api/products/wartosc-towaru - Fetching product values');
+  console.log('📦 GET /api/products/wartosc-towaru - Fetching product values from working_sheets');
   db.all(
-    `SELECT kod, SUM(ilosc * cena) as wartosc 
+    `SELECT kod, (ilosc * cena) as wartosc 
+     FROM working_sheets 
+     WHERE archived = 0 OR archived IS NULL`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      console.log(`✅ Found wartosc for ${rows.length} products from working_sheets`);
+      res.json(rows || []);
+    }
+  );
+});
+
+// Получение самой старой даты created_at из products для каждого kod (для расчёта среднего потребления)
+app.get('/api/products/oldest-date', (req, res) => {
+  console.log('📦 GET /api/products/oldest-date - Fetching oldest created_at for each kod');
+  db.all(
+    `SELECT kod, MIN(created_at) as oldest_created_at 
      FROM products 
      GROUP BY kod`,
     [],
@@ -955,7 +987,7 @@ app.get('/api/products/wartosc-towaru', (req, res) => {
         res.status(500).json({ error: err.message });
         return;
       }
-      console.log(`✅ Found wartosc for ${rows.length} products`);
+      console.log(`✅ Found oldest dates for ${rows.length} products`);
       res.json(rows || []);
     }
   );
