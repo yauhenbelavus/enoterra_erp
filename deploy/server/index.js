@@ -154,7 +154,106 @@ db.serialize(() => {
     } else {
       console.log('✅ Order products table ready');
       
+      // Миграция: удаляем колонку powod_odpisania если она существует
+      db.all("PRAGMA table_info(order_products)", (err, columns) => {
+        if (err) {
+          console.error('❌ Error checking order_products table structure:', err);
+          return;
+        }
+        
+        const hasPowodOdpisania = columns.some(col => col.name === 'powod_odpisania');
+        
+        if (hasPowodOdpisania) {
+          console.log('🔄 Migrating order_products table: removing powod_odpisania column...');
+          
+          // Удаляем временную таблицу если она существует (на случай прерванной миграции)
+          db.run(`DROP TABLE IF EXISTS order_products_new`, (dropErr) => {
+            if (dropErr && !dropErr.message.includes('no such table')) {
+              console.error('❌ Error dropping temp table:', dropErr);
+              return;
+            }
+            
+            // Создаем временную таблицу без колонки powod_odpisania
+            db.run(`
+              CREATE TABLE order_products_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                orderId INTEGER NOT NULL,
+                product_id INTEGER,
+                kod TEXT NOT NULL,
+                nazwa TEXT NOT NULL,
+                kod_kreskowy TEXT,
+                ilosc INTEGER NOT NULL,
+                typ TEXT DEFAULT 'sprzedaz',
+                product_kod TEXT,
+                powod_zwrotu TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (orderId) REFERENCES orders (id) ON DELETE CASCADE,
+                FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE SET NULL
+              )
+            `, (err) => {
+              if (err) {
+                console.error('❌ Error creating new order_products table:', err);
+                return;
+              }
+              
+              // Копируем данные из старой таблицы в новую
+              db.run(`
+                INSERT INTO order_products_new 
+                (id, orderId, product_id, kod, nazwa, kod_kreskowy, ilosc, typ, product_kod, powod_zwrotu, created_at)
+                SELECT 
+                  id, orderId, product_id, kod, nazwa, kod_kreskowy, ilosc, typ, product_kod, powod_zwrotu, created_at
+                FROM order_products
+              `, (err) => {
+                if (err) {
+                  console.error('❌ Error copying data to new table:', err);
+                  // Удаляем временную таблицу при ошибке
+                  db.run(`DROP TABLE IF EXISTS order_products_new`);
+                  return;
+                }
+                
+                // Удаляем старую таблицу
+                db.run(`DROP TABLE order_products`, (err) => {
+                  if (err) {
+                    console.error('❌ Error dropping old table:', err);
+                    // Удаляем временную таблицу при ошибке
+                    db.run(`DROP TABLE IF EXISTS order_products_new`);
+                    return;
+                  }
+                  
+                  // Переименовываем новую таблицу
+                  db.run(`ALTER TABLE order_products_new RENAME TO order_products`, (err) => {
+                    if (err) {
+                      console.error('❌ Error renaming table:', err);
+                      return;
+                    }
+                    
+                    console.log('✅ Column powod_odpisania removed from order_products');
+                  });
+                });
+              });
+            });
+          });
+        } else {
+          console.log('✅ Column powod_odpisania does not exist in order_products (migration not needed)');
+        }
+      });
+    }
+  });
 
+  // Миграция: удаляем устаревшие таблицы writeoffs и writeoff_products (если существуют)
+  db.run(`DROP TABLE IF EXISTS writeoffs`, (err) => {
+    if (err) {
+      console.error('❌ Error dropping writeoffs table:', err);
+    } else {
+      console.log('✅ Table writeoffs dropped (if existed)');
+    }
+  });
+  
+  db.run(`DROP TABLE IF EXISTS writeoff_products`, (err) => {
+    if (err) {
+      console.error('❌ Error dropping writeoff_products table:', err);
+    } else {
+      console.log('✅ Table writeoff_products dropped (if existed)');
     }
   });
 
@@ -3498,9 +3597,261 @@ function restoreProductQuantitiesFromOrder(orderId, products, callback) {
   });
 }
 
+// Endpoint для получения следующего номера списания
+app.get('/api/writeoffs/next-number-only', (req, res) => {
+  console.log('🔢 GET /api/writeoffs/next-number-only - Generating next write-off number');
+  
+  // Получаем все номера списаний для поиска максимального номера
+  db.all('SELECT numer_zamowienia FROM orders WHERE typ = ? AND numer_zamowienia LIKE ?', ['odpisanie', 'OP%'], (err, allRows) => {
+    if (err) {
+      console.error('❌ Error finding max write-off number:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    console.log(`📋 Found ${allRows.length} write-offs with OP% pattern`);
+    
+    // Извлекаем числовую часть из каждого номера и находим максимум
+    let maxNumber = 0;
+    const numbers = [];
+    allRows.forEach(row => {
+      const match = row.numer_zamowienia.match(/^OP(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        numbers.push(num);
+        if (num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    });
+    
+    console.log(`📊 Extracted numbers: [${numbers.sort((a,b) => a-b).join(', ')}], max: ${maxNumber}`);
+    
+    const nextNumber = maxNumber + 1;
+    const numer_odpisania_only = `OP${nextNumber.toString().padStart(3, '0')}`;
+    console.log(`✅ Generated next write-off number: ${numer_odpisania_only}`);
+    res.json({ numer_odpisania: numer_odpisania_only });
+  });
+});
+
+// Endpoint для создания списаний товаров (добавляем как заказ с типом 'odpisanie')
+app.post('/api/writeoffs', (req, res) => {
+  const { data_odpisania, numer_odpisania, products } = req.body;
+  console.log('📦 POST /api/writeoffs - Creating new write-off:', { data_odpisania, numer_odpisania, productsCount: products?.length || 0 });
+  
+  if (!data_odpisania || !numer_odpisania || !products || !Array.isArray(products) || products.length === 0) {
+    console.log('❌ Validation failed: data_odpisania, numer_odpisania and products array are required');
+    return res.status(400).json({ error: 'Date, number and products array are required' });
+  }
+
+  // Вычисляем общее количество списанных товаров
+  const laczna_ilosc = products.reduce((total, product) => total + (product.ilosc || 0), 0);
+
+  // Преобразуем дату в формат DATETIME SQLite (YYYY-MM-DD HH:MM:SS)
+  let dataUtworzenia;
+  if (data_odpisania) {
+    const date = new Date(data_odpisania);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    dataUtworzenia = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  } else {
+    // Если дата не указана, используем текущую дату и время
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    dataUtworzenia = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  }
+
+  // 1. Проверяем доступность товаров (как при создании заказа)
+  console.log('🔍 Checking product availability for write-off...');
+  
+  const availabilityChecks = products.map(product => {
+    return new Promise((resolve, reject) => {
+      const { kod, nazwa, ilosc } = product;
+      
+      // Проверяем доступное количество в working_sheets
+      db.get(`
+        SELECT 
+          ws.ilosc as total_available,
+          COALESCE(SUM(CASE 
+            WHEN r.status = 'aktywna' 
+            THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
+            ELSE 0 
+          END), 0) as reserved
+        FROM working_sheets ws
+        LEFT JOIN reservation_products rp ON ws.kod = rp.product_kod
+        LEFT JOIN reservations r ON rp.reservation_id = r.id
+        WHERE ws.kod = ?
+        GROUP BY ws.kod, ws.ilosc
+      `, [kod], (err, row) => {
+        if (err) {
+          reject({ kod, error: err.message });
+          return;
+        }
+        
+        if (!row) {
+          reject({ kod, nazwa, ilosc, available: 0, error: 'Product not found in working_sheets' });
+          return;
+        }
+        
+        const availableQuantity = row.total_available - row.reserved;
+        
+        if (availableQuantity < ilosc) {
+          reject({ kod, nazwa, ilosc, available: availableQuantity, error: 'Insufficient quantity' });
+        } else {
+          resolve({ kod, nazwa, ilosc, available: availableQuantity });
+        }
+      });
+    });
+  });
+  
+  // Выполняем все проверки
+  Promise.all(availabilityChecks)
+    .then((results) => {
+      console.log('✅ All products are available for write-off');
+      
+      // 2. Создаем запись в таблице orders с типом 'odpisanie'
+      db.run(
+        `INSERT INTO orders (klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
+        ['VEIS', numer_odpisania, dataUtworzenia, laczna_ilosc, 'odpisanie'],
+        function(err) {
+          if (err) {
+            console.error('❌ Database error creating write-off:', err);
+            return res.status(500).json({ error: err.message });
+          }
+
+          const writeoffId = this.lastID;
+          console.log(`✅ Write-off created with ID: ${writeoffId}, number: ${numer_odpisania}`);
+
+          // 3. Добавляем продукты списания в order_products
+          let productsCreated = 0;
+          let productsFailed = 0;
+          let workingSheetsUpdated = 0;
+
+          products.forEach((product, index) => {
+            const { kod, nazwa, ilosc, powod } = product;
+            
+            // Создаем запись в order_products (записываем powod в поле typ)
+            console.log(`📝 Creating order_products record for write-off: ${kod} (writeoffId: ${writeoffId})`);
+            db.run(
+              `INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
+              [writeoffId, kod || '', nazwa, ilosc, powod || ''],
+              function(err) {
+                if (err) {
+                  console.error(`❌ Error creating write-off product ${index + 1}:`, err);
+                  productsFailed++;
+                  checkCompletion();
+                } else {
+                  productsCreated++;
+                  console.log(`✅ Write-off product ${index + 1} created for write-off ${writeoffId}`);
+                  
+                  // 4. FIFO списание через consumeFromProducts (как при создании заказа)
+                  if (kod) {
+                    consumeFromProducts(kod, ilosc)
+                      .then(({ consumed, remaining, consumptions }) => {
+                        console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
+                        
+                        // 5. Записываем списания партий в order_consumptions
+                        if (consumptions && consumptions.length > 0) {
+                          const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
+                          const values = consumptions.flatMap(c => [writeoffId, kod, c.batchId, c.qty, c.cena || 0]);
+                          db.run(
+                            `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
+                            values,
+                            (consErr) => {
+                              if (consErr) {
+                                console.error('❌ Error saving order_consumptions for write-off:', consErr);
+                              } else {
+                                console.log(`✅ Saved ${consumptions.length} consumption rows for write-off ${writeoffId}`);
+                              }
+                              
+                              // 6. Обновляем working_sheets (как при создании заказа)
+                              updateWorkingSheets();
+                            }
+                          );
+                        } else {
+                          // Обновляем working_sheets даже если нет записей в order_consumptions
+                          updateWorkingSheets();
+                        }
+                      })
+                      .catch(fifoErr => {
+                        console.error(`❌ Error in FIFO consumption for ${kod}:`, fifoErr);
+                        // Всё равно обновляем working_sheets
+                        updateWorkingSheets();
+                      });
+                  } else {
+                    checkCompletion();
+                  }
+                  
+                  function updateWorkingSheets() {
+                    db.run(
+                      'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                      [ilosc, kod],
+                      function(updateErr) {
+                        if (updateErr) {
+                          console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
+                        } else {
+                          workingSheetsUpdated++;
+                          console.log(`✅ working_sheets updated for ${kod}: reduced by ${ilosc}`);
+                        }
+                        checkCompletion();
+                      }
+                    );
+                  }
+                }
+              }
+            );
+          });
+
+          function checkCompletion() {
+            if (productsCreated + productsFailed === products.length) {
+              if (productsFailed > 0) {
+                console.log(`⚠️ Write-off created with ${productsFailed} failed products`);
+                res.status(207).json({ 
+                  message: 'Write-off created with some failed products',
+                  writeoffId,
+                  productsCreated,
+                  productsFailed,
+                  workingSheetsUpdated,
+                  numer_odpisania
+                });
+              } else {
+                console.log(`✅ Write-off ${writeoffId} completed successfully`);
+                res.json({ 
+                  message: 'Write-off created successfully',
+                  writeoffId,
+                  productsCreated,
+                  workingSheetsUpdated,
+                  numer_odpisania
+                });
+              }
+            }
+          }
+        }
+      );
+    })
+    .catch((failedProduct) => {
+      console.log(`❌ Product availability check failed:`, failedProduct);
+      res.status(400).json({ 
+        error: 'Insufficient quantity',
+        product: failedProduct.kod,
+        nazwa: failedProduct.nazwa,
+        requested: failedProduct.ilosc,
+        available: failedProduct.available
+      });
+    });
+});
+
 app.put('/api/orders/:id', (req, res) => {
   const { id } = req.params;
-  const { klient, numer_zamowienia, products } = req.body;
+  let { klient, numer_zamowienia, products } = req.body;
   console.log(`📋 PUT /api/orders/${id} - Updating order:`, { klient, numer_zamowienia, productsCount: products?.length || 0 });
   
   if (!klient || !numer_zamowienia) {
@@ -3508,37 +3859,57 @@ app.put('/api/orders/:id', (req, res) => {
     return res.status(400).json({ error: 'Client name and order number are required' });
   }
   
-  // Сначала получаем старые продукты заказа для восстановления количества в working_sheets
-  db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, oldOrderProducts) => {
+  // Сначала проверяем тип заказа (для списаний клиент всегда VEIS)
+  db.get('SELECT typ FROM orders WHERE id = ?', [id], (err, orderRow) => {
     if (err) {
-      console.error('❌ Database error fetching old order products:', err);
+      console.error('❌ Database error fetching order type:', err);
       res.status(500).json({ error: err.message });
       return;
     }
     
-    console.log(`🔄 Found ${oldOrderProducts.length} old products to restore in working_sheets`);
-    console.log(`🔍 Old order products:`, JSON.stringify(oldOrderProducts, null, 2));
+    if (!orderRow) {
+      console.log(`❌ Order ${id} not found`);
+      return res.status(404).json({ error: 'Order not found' });
+    }
     
-    // Вычисляем общее количество всех продуктов
-    const laczna_ilosc = products ? products.reduce((total, product) => total + (product.ilosc || 0), 0) : 0;
+    // Для списаний принудительно устанавливаем клиента VEIS
+    if (orderRow.typ === 'odpisanie') {
+      klient = 'VEIS';
+      console.log(`📝 Write-off detected, forcing client to VEIS`);
+    }
     
-    // Обновляем основную информацию о заказе
-    db.run(
-      'UPDATE orders SET klient = ?, numer_zamowienia = ?, laczna_ilosc = ? WHERE id = ?',
-      [klient, numer_zamowienia, laczna_ilosc, id],
-      function(err) {
-                  if (err) {
-          console.error('❌ Database error updating order:', err);
-          res.status(500).json({ error: err.message });
-          return;
-        }
-        
-        console.log(`✅ Order ${id} updated successfully`);
-        
-        // Умное обновление продуктов заказа
-        smartUpdateOrderProducts(oldOrderProducts);
+    // Получаем старые продукты заказа для восстановления количества в working_sheets
+    db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, oldOrderProducts) => {
+      if (err) {
+        console.error('❌ Database error fetching old order products:', err);
+        res.status(500).json({ error: err.message });
+        return;
       }
-    );
+      
+      console.log(`🔄 Found ${oldOrderProducts.length} old products to restore in working_sheets`);
+      console.log(`🔍 Old order products:`, JSON.stringify(oldOrderProducts, null, 2));
+      
+      // Вычисляем общее количество всех продуктов
+      const laczna_ilosc = products ? products.reduce((total, product) => total + (product.ilosc || 0), 0) : 0;
+      
+      // Обновляем основную информацию о заказе
+      db.run(
+        'UPDATE orders SET klient = ?, numer_zamowienia = ?, laczna_ilosc = ? WHERE id = ?',
+        [klient, numer_zamowienia, laczna_ilosc, id],
+        function(err) {
+          if (err) {
+            console.error('❌ Database error updating order:', err);
+            res.status(500).json({ error: err.message });
+            return;
+          }
+          
+          console.log(`✅ Order ${id} updated successfully`);
+          
+          // Умное обновление продуктов заказа
+          smartUpdateOrderProducts(oldOrderProducts);
+        }
+      );
+    });
   });
   
   function smartUpdateOrderProducts(oldOrderProducts) {
@@ -4203,7 +4574,7 @@ app.delete('/api/orders/:id', (req, res) => {
   const { id } = req.params;
   console.log(`📋 DELETE /api/orders/${id} - Deleting order`);
   
-  // Сначала получаем продукты заказа для восстановления количества в working_sheets
+  // Сначала получаем продукты заказа для восстановления количества
   db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, orderProducts) => {
     if (err) {
       console.error('❌ Database error fetching order products:', err);
@@ -4211,78 +4582,120 @@ app.delete('/api/orders/:id', (req, res) => {
       return;
     }
     
-    console.log(`🔄 Found ${orderProducts.length} products to restore in working_sheets`);
+    console.log(`🔄 Found ${orderProducts.length} products to restore`);
     
-          // Сначала удаляем записи о списаниях
-      db.run('DELETE FROM order_consumptions WHERE order_id = ?', [id], function(deleteConsumptionsErr) {
-        if (deleteConsumptionsErr) {
-          console.error('❌ Database error deleting order consumptions:', deleteConsumptionsErr);
-          res.status(500).json({ error: deleteConsumptionsErr.message });
-          return;
-        }
-        
-        console.log(`🗑️ Order consumptions deleted for order ${id}`);
-        
-        // Затем удаляем продукты заказа
-        db.run('DELETE FROM order_products WHERE orderId = ?', [id], function(deleteProductsErr) {
-          if (deleteProductsErr) {
-            console.error('❌ Database error deleting order products:', deleteProductsErr);
-            res.status(500).json({ error: deleteProductsErr.message });
-            return;
-          }
-          
-          console.log(`🗑️ Order products deleted for order ${id}`);
-          
-          // Затем удаляем заказ
-    db.run('DELETE FROM orders WHERE id = ?', [id], function(err) {
+    // Получаем записи о списаниях для восстановления в products
+    db.all('SELECT * FROM order_consumptions WHERE order_id = ?', [id], (err, consumptions) => {
       if (err) {
-        console.error('❌ Database error deleting order:', err);
+        console.error('❌ Database error fetching order consumptions:', err);
         res.status(500).json({ error: err.message });
         return;
       }
       
-      console.log(`✅ Order ${id} deleted successfully`);
+      console.log(`🔄 Found ${consumptions.length} consumptions to restore in products`);
       
-      // Восстанавливаем количество в working_sheets
-      let restoredCount = 0;
-      let totalProducts = orderProducts.length;
+      // 1. Восстанавливаем количество в products для каждой партии
+      let consumptionsRestored = 0;
+      const totalConsumptions = consumptions.length;
       
-      if (totalProducts === 0) {
-        console.log('💡 No products to restore');
-        res.json({ 
-          message: 'Order deleted successfully',
-          workingSheetsRestored: 0
-        });
-        return;
-      }
-      
-      let processedCount = 0;
-      
-      orderProducts.forEach((product) => {
-        db.run(
-          'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-          [product.ilosc, product.kod],
-          function(restoreErr) {
-            if (restoreErr) {
-              console.error(`❌ Error restoring quantity for product ${product.kod}:`, restoreErr);
-            } else {
-              console.log(`✅ Restored quantity for product ${product.kod}: +${product.ilosc}`);
-              restoredCount++;
+      const proceedAfterProductsRestore = () => {
+        // 2. Удаляем записи о списаниях
+        db.run('DELETE FROM order_consumptions WHERE order_id = ?', [id], function(deleteConsumptionsErr) {
+          if (deleteConsumptionsErr) {
+            console.error('❌ Database error deleting order consumptions:', deleteConsumptionsErr);
+            res.status(500).json({ error: deleteConsumptionsErr.message });
+            return;
+          }
+          
+          console.log(`🗑️ Order consumptions deleted for order ${id}`);
+          
+          // 3. Удаляем продукты заказа
+          db.run('DELETE FROM order_products WHERE orderId = ?', [id], function(deleteProductsErr) {
+            if (deleteProductsErr) {
+              console.error('❌ Database error deleting order products:', deleteProductsErr);
+              res.status(500).json({ error: deleteProductsErr.message });
+              return;
             }
             
-            if (restoredCount === totalProducts) {
-              console.log(`📊 Working sheets restored: ${restoredCount}/${totalProducts} products`);
-              res.json({ 
-                message: 'Order deleted successfully',
-          workingSheetsRestored: restoredCount,
-          productsProcessed: processedCount
+            console.log(`🗑️ Order products deleted for order ${id}`);
+            
+            // 4. Удаляем заказ
+            db.run('DELETE FROM orders WHERE id = ?', [id], function(err) {
+              if (err) {
+                console.error('❌ Database error deleting order:', err);
+                res.status(500).json({ error: err.message });
+                return;
+              }
+              
+              console.log(`✅ Order ${id} deleted successfully`);
+              
+              // 5. Восстанавливаем количество в working_sheets
+              let restoredCount = 0;
+              let totalProducts = orderProducts.length;
+              
+              if (totalProducts === 0) {
+                console.log('💡 No products to restore in working_sheets');
+                res.json({ 
+                  message: 'Order deleted successfully',
+                  workingSheetsRestored: 0,
+                  productsRestored: consumptionsRestored
+                });
+                return;
+              }
+              
+              orderProducts.forEach((product) => {
+                db.run(
+                  'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
+                  [product.ilosc, product.kod],
+                  function(restoreErr) {
+                    restoredCount++;
+                    if (restoreErr) {
+                      console.error(`❌ Error restoring quantity in working_sheets for product ${product.kod}:`, restoreErr);
+                    } else {
+                      console.log(`✅ Restored quantity in working_sheets for product ${product.kod}: +${product.ilosc}`);
+                    }
+                    
+                    if (restoredCount === totalProducts) {
+                      console.log(`📊 Working sheets restored: ${restoredCount}/${totalProducts} products`);
+                      res.json({ 
+                        message: 'Order deleted successfully',
+                        workingSheetsRestored: restoredCount,
+                        productsRestored: consumptionsRestored
+                      });
+                    }
+                  }
+                );
               });
-            }
-          }
-        );
-      });
+            });
+          });
         });
-      });
+      };
+      
+      // Восстанавливаем каждую партию в products
+      if (totalConsumptions === 0) {
+        console.log('💡 No consumptions to restore in products');
+        proceedAfterProductsRestore();
+      } else {
+        consumptions.forEach((consumption) => {
+          db.run(
+            'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
+            [consumption.quantity, consumption.batch_id],
+            function(restoreErr) {
+              consumptionsRestored++;
+              if (restoreErr) {
+                console.error(`❌ Error restoring quantity in products for batch ${consumption.batch_id}:`, restoreErr);
+              } else {
+                console.log(`✅ Restored ${consumption.quantity} units to batch ${consumption.batch_id} (product: ${consumption.product_kod})`);
+              }
+              
+              if (consumptionsRestored === totalConsumptions) {
+                console.log(`📊 Products restored: ${consumptionsRestored}/${totalConsumptions} batches`);
+                proceedAfterProductsRestore();
+              }
+            }
+          );
+        });
+      }
     });
   });
 });
