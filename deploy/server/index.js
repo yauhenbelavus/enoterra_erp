@@ -1358,7 +1358,7 @@ async function generateOrderPDF(order, products, res) {
     // Таблица товаров
     const tableX = containerMargin + 10;
     const tableYTop = yPosition;
-    const colWidths = [70, 210, 120, 40]; // Kod, Nazwa, Kod kreskowy, Ilość
+    const colWidths = [90, 210, 120, 30]; // Kod, Nazwa, Kod kreskowy, Ilość
     const headers = ['Kod', 'Nazwa', 'Kod kreskowy', 'Ilość'];
     let cursorX = tableX;
     headers.forEach((h, idx) => {
