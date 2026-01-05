@@ -1358,8 +1358,8 @@ async function generateOrderPDF(order, products, res) {
     // Таблица товаров
     const tableX = containerMargin + 10;
     const tableYTop = yPosition;
-    const colWidths = [280, 120, 40]; // Nazwa как было, Kod kreskowy как было, Ilość узкая у правого края
-    const headers = ['Nazwa', 'Kod kreskowy', 'Ilość'];
+    const colWidths = [70, 210, 120, 40]; // Kod, Nazwa, Kod kreskowy, Ilość
+    const headers = ['Kod', 'Nazwa', 'Kod kreskowy', 'Ilość'];
     let cursorX = tableX;
     headers.forEach((h, idx) => {
       page.drawText(h, { x: cursorX + 2, y: tableYTop, size: 10, font: soraFont, color: colors.text });
@@ -1379,12 +1379,13 @@ async function generateOrderPDF(order, products, res) {
     console.log(`🧾 PDF(main) products count: ${products?.length || 0}`);
     let currentPage = page;
     (products || []).forEach((p, index) => {
-      const name = p.nazwa || p.product_name || p.kod || '-';
+      const kod = p.kod || '-';
+      const name = p.nazwa || p.product_name || '-';
       const barcode = p.kod_kreskowy || '-';
       const qty = Number(p.ilosc || p.qty || 0);
 
-      // Разбиваем название на строки если оно слишком длинное (ширина колонки Nazwa)
-      const nameLines = wrapText(name, soraFont, 10, 280 - 4);
+      // Разбиваем название на строки если оно слишком длинное (ширина колонки Nazwa = 210)
+      const nameLines = wrapText(name, soraFont, 10, colWidths[1] - 4);
       const rowHeight = nameLines.length * 12; // Высота строки товара зависит от количества строк в названии
       
       // Проверка: если строка не помещается, создаём новую страницу
@@ -1410,11 +1411,20 @@ async function generateOrderPDF(order, products, res) {
         rowY -= 28;
       }
       
-      // Рисуем название (может быть многострочным)
+      // Рисуем kod (первая колонка)
+      currentPage.drawText(kod, { 
+        x: tableX + 2, 
+        y: rowY, 
+        size: 10, 
+        font: soraFont, 
+        color: colors.text 
+      });
+      
+      // Рисуем название (может быть многострочным, вторая колонка)
       let nameY = rowY;
       nameLines.forEach((line, lineIdx) => {
         currentPage.drawText(line, { 
-          x: tableX + 2, 
+          x: tableX + colWidths[0] + 2, 
           y: nameY - (lineIdx * 12), 
               size: 10,
           font: soraFont, 
@@ -1422,17 +1432,18 @@ async function generateOrderPDF(order, products, res) {
             });
           });
       
-      // Рисуем код крескowy и количество (на первой строке товара)
+      // Рисуем код крескowy (третья колонка)
       currentPage.drawText(barcode, { 
-        x: tableX + colWidths[0] + 2, 
+        x: tableX + colWidths[0] + colWidths[1] + 2, 
         y: rowY, 
         size: 10, 
         font: soraFont, 
         color: colors.text 
       });
       
+      // Рисуем количество (четвёртая колонка)
       currentPage.drawText(String(qty), { 
-        x: tableX + colWidths[0] + colWidths[1] + 2, 
+        x: tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, 
         y: rowY, 
         size: 10, 
         font: soraFont, 
@@ -1456,7 +1467,7 @@ async function generateOrderPDF(order, products, res) {
     
     // Метка Razem с двоеточием
     currentPage.drawText('Razem:', {
-      x: tableX + colWidths[0] + colWidths[1] - 55,
+      x: tableX + colWidths[0] + colWidths[1] + colWidths[2] - 55,
               y: yPosition,
       size: 10,
       font: soraFont,
@@ -1464,7 +1475,7 @@ async function generateOrderPDF(order, products, res) {
     });
     
     // Значение выровнено с колонкой Ilość, жирным шрифтом
-    const razemValueX = tableX + colWidths[0] + colWidths[1] + 2; // Точное выравнивание с колонкой Ilość
+    const razemValueX = tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2; // Точное выравнивание с колонкой Ilość
     const razemValue = String(order.laczna_ilosc || 0);
     
     currentPage.drawText(razemValue, {
