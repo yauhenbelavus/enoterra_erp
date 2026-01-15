@@ -1028,16 +1028,16 @@ app.get('/api/products/samples-count', (req, res) => {
   );
 });
 
-// Получение количества товаров в резервациях (активных и реализованных - для истории)
+// Получение количества товаров в активных резервациях (невыданное количество)
 app.get('/api/products/reservations-count', (req, res) => {
   console.log('📦 GET /api/products/reservations-count - Fetching reservations count');
   db.all(
     `SELECT 
       rp.product_kod as kod,
-      SUM(rp.ilosc) as total_ilosc
+      SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as total_ilosc
      FROM reservation_products rp
      INNER JOIN reservations r ON rp.reservation_id = r.id
-     WHERE r.status IN ('aktywna', 'zrealizowana')
+     WHERE r.status = 'aktywna'
      GROUP BY rp.product_kod`,
     [],
     (err, rows) => {
