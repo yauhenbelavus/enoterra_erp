@@ -6821,19 +6821,19 @@ app.get('/api/working-sheets/search', (req, res) => {
     reserved_products AS (
       SELECT 
         rp.product_kod as kod,
-        SUM(rp.ilosc) as ilosc_reserved
+        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
       FROM reservation_products rp
       INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status IN ('aktywna', 'zrealizowana')
+      WHERE r.status = 'aktywna'
       GROUP BY rp.product_kod
     ),
     client_reservations AS (
       SELECT 
         rp.product_kod as kod,
-        SUM(rp.ilosc) as ilosc_client_reserved
+        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_client_reserved
       FROM reservation_products rp
       INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status IN ('aktywna', 'zrealizowana') AND r.client_id = ?
+      WHERE r.status = 'aktywna' AND r.client_id = ?
       GROUP BY rp.product_kod
     ),
     samples_products AS (
@@ -6902,10 +6902,10 @@ app.get('/api/working-sheets/search', (req, res) => {
     reserved_products AS (
       SELECT 
         rp.product_kod as kod,
-        SUM(rp.ilosc) as ilosc_reserved
+        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
       FROM reservation_products rp
       INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status IN ('aktywna', 'zrealizowana')
+      WHERE r.status = 'aktywna'
       GROUP BY rp.product_kod
     ),
     samples_products AS (
