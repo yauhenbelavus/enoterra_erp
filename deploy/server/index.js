@@ -4053,7 +4053,7 @@ app.put('/api/orders/:id', (req, res) => {
       const oldQuantity = Number(oldProduct.ilosc);
       const newQuantity = Number(ilosc);
       const quantityDiff = newQuantity - oldQuantity;
-      const orderProductId = oldProduct.id; // ID существующего order_product для записи fulfillments
+      const orderProductId = oldProduct.id;
       
       console.log(`🔄 Updating existing product ${key}: ${oldQuantity} → ${newQuantity} (diff: ${quantityDiff})`);
       
@@ -4064,28 +4064,177 @@ app.put('/api/orders/:id', (req, res) => {
         function(err) {
           if (err) {
             console.error(`❌ Error updating product ${key}:`, err);
-          } else {
-            console.log(`✅ Updated product ${key} (ID: ${oldProduct.id})`);
+            operationCompleted();
+            return;
+          }
           
-            // Обрабатываем изменение количества
-            if (quantityDiff > 0) {
-              console.log(`📈 Quantity increased by ${quantityDiff}`);
-              // Передаём orderProductId для записи в reservation_order_fulfillments
-              processQuantityIncrease(kod, quantityDiff, () => {
-                operationCompleted();
-              }, orderProductId);
-            } else if (quantityDiff < 0) {
-              console.log(`📉 Quantity decreased by ${Math.abs(quantityDiff)}`);
-              processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
-                operationCompleted();
-              });
-            } else {
-              console.log(`➡️ Quantity unchanged`);
+          console.log(`✅ Updated product ${key} (ID: ${oldProduct.id})`);
+        
+          if (quantityDiff > 0) {
+            console.log(`📈 Quantity increased by ${quantityDiff}`);
+            // Используем ту же логику, что и в POST - сначала working_sheets, потом резервации, потом FIFO
+            handleQuantityIncrease(kod, quantityDiff, orderProductId, () => {
               operationCompleted();
-            }
+            });
+          } else if (quantityDiff < 0) {
+            console.log(`📉 Quantity decreased by ${Math.abs(quantityDiff)}`);
+            handleQuantityDecrease(kod, Math.abs(quantityDiff), orderProductId, () => {
+              operationCompleted();
+            });
+          } else {
+            console.log(`➡️ Quantity unchanged`);
+            operationCompleted();
           }
         }
       );
+    }
+    
+    // Новая функция для увеличения количества (как в POST)
+    function handleQuantityIncrease(kod, quantity, orderProductId, callback) {
+      console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId})`);
+      
+      // 1. Сначала обновляем working_sheets
+      db.run(
+        'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+        [quantity, kod],
+        function(updateErr) {
+          if (updateErr) {
+            console.error(`❌ Error updating working_sheets for ${kod}:`, updateErr);
+            callback();
+            return;
+          }
+          console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${quantity})`);
+          
+          // 2. Проверяем, есть ли у клиента резервация
+          if (clientId) {
+            db.get(`
+              SELECT SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available_in_reservation
+              FROM reservation_products rp
+              INNER JOIN reservations r ON rp.reservation_id = r.id
+              WHERE rp.product_kod = ? AND r.client_id = ? AND r.status = 'aktywna'
+            `, [kod, clientId], (err, reservationRow) => {
+              if (err) {
+                console.error(`❌ Error checking reservation for ${kod}:`, err);
+                proceedWithFIFO();
+                return;
+              }
+              
+              const availableInReservation = reservationRow?.available_in_reservation || 0;
+              const quantityFromReservation = Math.min(availableInReservation, quantity);
+              
+              console.log(`🔍 Client ${clientId} reservation for ${kod}: available=${availableInReservation}, will use=${quantityFromReservation}`);
+              
+              if (quantityFromReservation > 0) {
+                // Обновляем ilosc_wydane в резервациях
+                db.all(`
+                  SELECT rp.id, rp.reservation_id, (rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available
+                  FROM reservation_products rp
+                  INNER JOIN reservations r ON rp.reservation_id = r.id
+                  WHERE rp.product_kod = ? AND r.client_id = ? AND r.status = 'aktywna'
+                  ORDER BY r.data_utworzenia ASC
+                `, [kod, clientId], (err, reservationProducts) => {
+                  if (err || reservationProducts.length === 0) {
+                    console.log(`⚠️ No reservation products found for ${kod}`);
+                    proceedWithFIFO();
+                    return;
+                  }
+                  
+                  let remainingToFulfill = quantityFromReservation;
+                  let reservationsUpdated = 0;
+                  
+                  reservationProducts.forEach((rp) => {
+                    if (remainingToFulfill <= 0) {
+                      reservationsUpdated++;
+                      if (reservationsUpdated === reservationProducts.length) {
+                        proceedWithFIFO();
+                      }
+                      return;
+                    }
+                    
+                    const toFulfill = Math.min(remainingToFulfill, rp.available);
+                    
+                    db.run(
+                      'UPDATE reservation_products SET ilosc_wydane = COALESCE(ilosc_wydane, 0) + ? WHERE id = ?',
+                      [toFulfill, rp.id],
+                      function(updateErr) {
+                        if (updateErr) {
+                          console.error(`❌ Error updating reservation_product ${rp.id}:`, updateErr);
+                        } else {
+                          console.log(`✅ Updated reservation_product ${rp.id}: ilosc_wydane +${toFulfill}`);
+                          
+                          // Записываем связь резервации с заказом
+                          db.run(
+                            'INSERT INTO reservation_order_fulfillments (reservation_product_id, order_id, order_product_id, quantity) VALUES (?, ?, ?, ?)',
+                            [rp.id, id, orderProductId, toFulfill],
+                            (fulfillErr) => {
+                              if (fulfillErr) {
+                                console.error(`❌ Error creating fulfillment:`, fulfillErr);
+                              } else {
+                                console.log(`✅ Created fulfillment: reservation_product ${rp.id} -> order ${id}`);
+                              }
+                            }
+                          );
+                          
+                          checkAndUpdateReservationStatus(rp.reservation_id);
+                        }
+                        
+                        reservationsUpdated++;
+                        remainingToFulfill -= toFulfill;
+                        
+                        if (reservationsUpdated === reservationProducts.length) {
+                          proceedWithFIFO();
+                        }
+                      }
+                    );
+                  });
+                });
+              } else {
+                proceedWithFIFO();
+              }
+            });
+          } else {
+            proceedWithFIFO();
+          }
+          
+          function proceedWithFIFO() {
+            // 3. FIFO списание из партий
+            consumeFromProducts(kod, quantity)
+              .then(({ consumed, remaining, consumptions }) => {
+                console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
+                if (consumptions && consumptions.length > 0) {
+                  const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
+                  const values = consumptions.flatMap(c => [id, kod, c.batchId, c.qty, c.cena || 0]);
+                  db.run(
+                    `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
+                    values,
+                    (consErr) => {
+                      if (consErr) {
+                        console.error('❌ Error saving order_consumptions:', consErr);
+                      } else {
+                        console.log(`✅ Saved ${consumptions.length} consumption rows`);
+                      }
+                      callback();
+                    }
+                  );
+                } else {
+                  callback();
+                }
+              })
+              .catch((fifoError) => {
+                console.error(`❌ FIFO error for ${kod}:`, fifoError);
+                callback();
+              });
+          }
+        }
+      );
+    }
+    
+    // Новая функция для уменьшения количества
+    function handleQuantityDecrease(kod, quantity, orderProductId, callback) {
+      console.log(`🔄 handleQuantityDecrease: ${kod} -${quantity}`);
+      
+      // Вызываем существующую функцию processQuantityDecrease
+      processQuantityDecrease(kod, quantity, callback);
     }
     
     function insertNewProduct(newProduct, key) {
@@ -4105,10 +4254,10 @@ app.put('/api/orders/:id', (req, res) => {
             const orderProductId = this.lastID;
             console.log(`✅ Inserted new product ${key} (ID: ${orderProductId})`);
             
-            // Списываем количество по FIFO (с поддержкой резерваций)
-            processQuantityIncrease(kod, Number(ilosc), () => {
+            // Используем новую функцию handleQuantityIncrease (как в POST)
+            handleQuantityIncrease(kod, Number(ilosc), orderProductId, () => {
               operationCompleted();
-            }, orderProductId);
+            });
           }
         }
       );
