@@ -4053,6 +4053,7 @@ app.put('/api/orders/:id', (req, res) => {
       const oldQuantity = Number(oldProduct.ilosc);
       const newQuantity = Number(ilosc);
       const quantityDiff = newQuantity - oldQuantity;
+      const orderProductId = oldProduct.id; // ID существующего order_product для записи fulfillments
       
       console.log(`🔄 Updating existing product ${key}: ${oldQuantity} → ${newQuantity} (diff: ${quantityDiff})`);
       
@@ -4069,9 +4070,10 @@ app.put('/api/orders/:id', (req, res) => {
             // Обрабатываем изменение количества
             if (quantityDiff > 0) {
               console.log(`📈 Quantity increased by ${quantityDiff}`);
+              // Передаём orderProductId для записи в reservation_order_fulfillments
               processQuantityIncrease(kod, quantityDiff, () => {
                 operationCompleted();
-              });
+              }, orderProductId);
             } else if (quantityDiff < 0) {
               console.log(`📉 Quantity decreased by ${Math.abs(quantityDiff)}`);
               processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
