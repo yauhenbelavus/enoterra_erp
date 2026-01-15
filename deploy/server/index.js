@@ -767,10 +767,10 @@ app.get('/api/reservations/next-number-only', (req, res) => {
   });
 });
 
-// Получение всех товаров из активных резерваций (для анализа)
+// Получение всех товаров из резерваций (активных и реализованных - для истории)
 // Группирует товары по product_kod и суммирует количество
 app.get('/api/reservations/active-products', (req, res) => {
-  console.log('📋 GET /api/reservations/active-products - Fetching active reservation products (grouped by product)');
+  console.log('📋 GET /api/reservations/active-products - Fetching reservation products history (grouped by product)');
 
   // Сначала получаем сгруппированные данные по товарам
   db.all(`
@@ -781,12 +781,12 @@ app.get('/api/reservations/active-products', (req, res) => {
       SUM(COALESCE(rp.ilosc_wydane, 0)) as ilosc_wydane
     FROM reservations r
     INNER JOIN reservation_products rp ON rp.reservation_id = r.id
-    WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny')
+    WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny', 'zrealizowana')
     GROUP BY rp.product_kod
     ORDER BY rp.product_nazwa ASC
   `, (err, groupedRows) => {
     if (err) {
-      console.error('❌ Database error fetching active reservation products:', err);
+      console.error('❌ Database error fetching reservation products:', err);
       res.status(500).json({ error: err.message });
       return;
     }
@@ -799,7 +799,7 @@ app.get('/api/reservations/active-products', (req, res) => {
           return;
         }
 
-        // Получаем список клиентов для этого товара
+        // Получаем список клиентов для этого товара (из активных и реализованных резерваций)
         db.all(`
           SELECT DISTINCT
             c.nazwa as klient,
@@ -807,7 +807,7 @@ app.get('/api/reservations/active-products', (req, res) => {
           FROM reservations r
           INNER JOIN reservation_products rp ON rp.reservation_id = r.id
           LEFT JOIN clients c ON r.client_id = c.id
-          WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny')
+          WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny', 'zrealizowana')
             AND rp.product_kod = ?
           ORDER BY c.nazwa ASC
         `, [groupedRow.product_kod], (err, clientRows) => {
@@ -817,7 +817,7 @@ app.get('/api/reservations/active-products', (req, res) => {
             return;
           }
 
-          // Получаем все заказы для этого товара из всех резерваций
+          // Получаем все заказы для этого товара из всех резерваций (активных и реализованных)
           db.all(`
             SELECT 
               o.numer_zamowienia,
@@ -826,7 +826,7 @@ app.get('/api/reservations/active-products', (req, res) => {
             INNER JOIN orders o ON rof.order_id = o.id
             INNER JOIN reservation_products rp ON rof.reservation_product_id = rp.id
             INNER JOIN reservations r ON rp.reservation_id = r.id
-            WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny')
+            WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny', 'zrealizowana')
               AND rp.product_kod = ?
             GROUP BY o.numer_zamowienia
             ORDER BY o.data_utworzenia DESC
@@ -858,7 +858,7 @@ app.get('/api/reservations/active-products', (req, res) => {
     });
 
     Promise.all(processedRows).then(results => {
-      console.log(`✅ Found ${results.length} unique products in active reservations`);
+      console.log(`✅ Found ${results.length} unique products in reservations (history)`);
       res.json(results);
     });
   });
@@ -1028,16 +1028,16 @@ app.get('/api/products/samples-count', (req, res) => {
   );
 });
 
-// Получение количества товаров в активных резервациях
+// Получение количества товаров в резервациях (активных и реализованных - для истории)
 app.get('/api/products/reservations-count', (req, res) => {
   console.log('📦 GET /api/products/reservations-count - Fetching reservations count');
   db.all(
     `SELECT 
       rp.product_kod as kod,
-      SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as total_ilosc
+      SUM(rp.ilosc) as total_ilosc
      FROM reservation_products rp
      INNER JOIN reservations r ON rp.reservation_id = r.id
-     WHERE r.status = 'aktywna'
+     WHERE r.status IN ('aktywna', 'zrealizowana')
      GROUP BY rp.product_kod`,
     [],
     (err, rows) => {
@@ -1147,7 +1147,7 @@ setInterval(() => {
   checkExpiredReservations();
 }, 60 * 60 * 1000);
 
-// Функция для проверки и обновления статуса резервации на 'zrealizowana'
+// Функция для проверки и обновления статуса резервации на 'zrealizowana' или обратно на 'aktywna'
 function checkAndUpdateReservationStatus(reservationId) {
   // Проверяем, все ли товары в резервации полностью выданы
   db.get(`
@@ -1172,6 +1172,19 @@ function checkAndUpdateReservationStatus(reservationId) {
             console.error(`❌ Error updating reservation ${reservationId} status:`, updateErr);
           } else if (this.changes > 0) {
             console.log(`✅ Reservation ${reservationId} status changed to 'zrealizowana'`);
+          }
+        }
+      );
+    } else if (row && row.total_products > 0 && row.completed_products < row.total_products) {
+      // Не все товары выданы - если статус 'zrealizowana', возвращаем на 'aktywna'
+      db.run(
+        'UPDATE reservations SET status = ? WHERE id = ? AND status = ?',
+        ['aktywna', reservationId, 'zrealizowana'],
+        function(updateErr) {
+          if (updateErr) {
+            console.error(`❌ Error reverting reservation ${reservationId} status:`, updateErr);
+          } else if (this.changes > 0) {
+            console.log(`✅ Reservation ${reservationId} status reverted to 'aktywna' (not all products fulfilled)`);
           }
         }
       );
@@ -3878,42 +3891,55 @@ app.put('/api/orders/:id', (req, res) => {
       console.log(`📝 Write-off detected, forcing client to VEIS`);
     }
     
-    // Получаем старые продукты заказа для восстановления количества в working_sheets
-    db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, oldOrderProducts) => {
+    // Получаем clientId по имени клиента для обработки резерваций
+    const clientName = klient.trim();
+    db.get('SELECT id FROM clients WHERE LOWER(TRIM(nazwa)) = LOWER(?)', [clientName], (err, clientRow) => {
       if (err) {
-        console.error('❌ Database error fetching old order products:', err);
+        console.error('❌ Database error fetching client:', err);
         res.status(500).json({ error: err.message });
         return;
       }
       
-      console.log(`🔄 Found ${oldOrderProducts.length} old products to restore in working_sheets`);
-      console.log(`🔍 Old order products:`, JSON.stringify(oldOrderProducts, null, 2));
-      
-      // Вычисляем общее количество всех продуктов
-      const laczna_ilosc = products ? products.reduce((total, product) => total + (product.ilosc || 0), 0) : 0;
-      
-      // Обновляем основную информацию о заказе
-      db.run(
-        'UPDATE orders SET klient = ?, numer_zamowienia = ?, laczna_ilosc = ? WHERE id = ?',
-        [klient, numer_zamowienia, laczna_ilosc, id],
-        function(err) {
-          if (err) {
-            console.error('❌ Database error updating order:', err);
-            res.status(500).json({ error: err.message });
-            return;
-          }
-          
-          console.log(`✅ Order ${id} updated successfully`);
-          
-          // Умное обновление продуктов заказа
-          smartUpdateOrderProducts(oldOrderProducts);
+      const clientId = clientRow ? clientRow.id : null;
+      console.log(`🔍 Client ID for "${clientName}": ${clientId || 'not found'}`);
+    
+      // Получаем старые продукты заказа для восстановления количества в working_sheets
+      db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, oldOrderProducts) => {
+        if (err) {
+          console.error('❌ Database error fetching old order products:', err);
+          res.status(500).json({ error: err.message });
+          return;
         }
-      );
+        
+        console.log(`🔄 Found ${oldOrderProducts.length} old products to restore in working_sheets`);
+        console.log(`🔍 Old order products:`, JSON.stringify(oldOrderProducts, null, 2));
+        
+        // Вычисляем общее количество всех продуктов
+        const laczna_ilosc = products ? products.reduce((total, product) => total + (product.ilosc || 0), 0) : 0;
+        
+        // Обновляем основную информацию о заказе
+        db.run(
+          'UPDATE orders SET klient = ?, numer_zamowienia = ?, laczna_ilosc = ? WHERE id = ?',
+          [klient, numer_zamowienia, laczna_ilosc, id],
+          function(err) {
+            if (err) {
+              console.error('❌ Database error updating order:', err);
+              res.status(500).json({ error: err.message });
+              return;
+            }
+            
+            console.log(`✅ Order ${id} updated successfully`);
+            
+            // Умное обновление продуктов заказа
+            smartUpdateOrderProducts(oldOrderProducts, clientId);
+          }
+        );
+      });
     });
   });
   
-  function smartUpdateOrderProducts(oldOrderProducts) {
-    console.log(`🧠 Smart update: processing ${products.length} new products against ${oldOrderProducts.length} existing products`);
+  function smartUpdateOrderProducts(oldOrderProducts, clientId) {
+    console.log(`🧠 Smart update: processing ${products.length} new products against ${oldOrderProducts.length} existing products (clientId: ${clientId})`);
     
     // Создаем карты для быстрого поиска - используем массивы для каждого ключа
     const oldProductsMap = {};
@@ -4074,12 +4100,13 @@ app.put('/api/orders/:id', (req, res) => {
             console.error(`❌ Error inserting product ${key}:`, err);
             operationCompleted();
           } else {
-            console.log(`✅ Inserted new product ${key} (ID: ${this.lastID})`);
+            const orderProductId = this.lastID;
+            console.log(`✅ Inserted new product ${key} (ID: ${orderProductId})`);
             
-            // Списываем количество по FIFO
+            // Списываем количество по FIFO (с поддержкой резерваций)
             processQuantityIncrease(kod, Number(ilosc), () => {
               operationCompleted();
-            });
+            }, orderProductId);
           }
         }
       );
@@ -4338,27 +4365,142 @@ app.put('/api/orders/:id', (req, res) => {
   }
   
   // Функция для обработки увеличения количества продукта
-  function processQuantityIncrease(productKod, quantityDiff, callback) {
-    console.log(`🔄 Processing quantity increase for ${productKod}: +${quantityDiff}`);
+  function processQuantityIncrease(productKod, quantityDiff, callback, orderProductId = null) {
+    console.log(`🔄 Processing quantity increase for ${productKod}: +${quantityDiff} (clientId: ${clientId}, orderProductId: ${orderProductId})`);
     console.log(`🔍 processQuantityIncrease called with: productKod=${productKod}, quantityDiff=${quantityDiff}`);
     console.log(`🔍 processQuantityIncrease: starting FIFO consumption...`);
     
-      // Проверяем доступность товара с учетом активных резерваций
-    console.log(`🔍 processQuantityIncrease: checking availability in working_sheets for ${productKod}`);
+    // Проверяем, есть ли у клиента резервация на этот товар
+    const checkClientReservation = (afterReservationCallback) => {
+      if (!clientId) {
+        console.log(`🔍 No clientId, skipping reservation check for ${productKod}`);
+        afterReservationCallback(0); // quantityFromReservation = 0
+        return;
+      }
+      
       db.get(`
-        SELECT 
-          ws.ilosc as total_available,
-          COALESCE(SUM(CASE 
-            WHEN r.status = 'aktywna' 
-            THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
-            ELSE 0 
-          END), 0) as reserved
-        FROM working_sheets ws
-        LEFT JOIN reservation_products rp ON ws.kod = rp.product_kod
-        LEFT JOIN reservations r ON rp.reservation_id = r.id
-        WHERE ws.kod = ?
-        GROUP BY ws.kod, ws.ilosc
-      `, [productKod], (err, row) => {
+        SELECT
+          SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available_in_reservation
+        FROM reservation_products rp
+        INNER JOIN reservations r ON rp.reservation_id = r.id
+        WHERE rp.product_kod = ?
+          AND r.client_id = ?
+          AND r.status = 'aktywna'
+      `, [productKod, clientId], (err, reservationRow) => {
+        if (err) {
+          console.error(`❌ Error checking client reservation for ${productKod}:`, err);
+          afterReservationCallback(0);
+          return;
+        }
+        
+        const availableInReservation = reservationRow?.available_in_reservation || 0;
+        const quantityFromReservation = Math.min(availableInReservation, quantityDiff);
+        
+        console.log(`🔍 Client ${clientId} reservation for ${productKod}: available=${availableInReservation}, will use=${quantityFromReservation}`);
+        
+        if (quantityFromReservation > 0) {
+          // Обновляем ilosc_wydane в резервациях клиента
+          db.all(`
+            SELECT rp.id, rp.reservation_id, (rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available
+            FROM reservation_products rp
+            INNER JOIN reservations r ON rp.reservation_id = r.id
+            WHERE rp.product_kod = ?
+              AND r.client_id = ?
+              AND r.status = 'aktywna'
+            ORDER BY r.data_utworzenia ASC
+          `, [productKod, clientId], (err, reservationProducts) => {
+            if (err) {
+              console.error(`❌ Error fetching reservation products for ${productKod}:`, err);
+              afterReservationCallback(quantityFromReservation);
+              return;
+            }
+            
+            if (reservationProducts.length === 0) {
+              console.log(`⚠️ No reservation products found for ${productKod} and client ${clientId}`);
+              afterReservationCallback(quantityFromReservation);
+              return;
+            }
+            
+            // Распределяем количество по резервациям (FIFO)
+            let remainingToFulfill = quantityFromReservation;
+            let reservationsUpdated = 0;
+            
+            reservationProducts.forEach((rp) => {
+              if (remainingToFulfill <= 0) {
+                reservationsUpdated++;
+                if (reservationsUpdated === reservationProducts.length) {
+                  afterReservationCallback(quantityFromReservation);
+                }
+                return;
+              }
+              
+              const toFulfill = Math.min(remainingToFulfill, rp.available);
+              
+              db.run(
+                'UPDATE reservation_products SET ilosc_wydane = COALESCE(ilosc_wydane, 0) + ? WHERE id = ?',
+                [toFulfill, rp.id],
+                function(updateErr) {
+                  if (updateErr) {
+                    console.error(`❌ Error updating reservation_product ${rp.id}:`, updateErr);
+                  } else {
+                    console.log(`✅ Updated reservation_product ${rp.id}: ilosc_wydane increased by ${toFulfill}`);
+                    
+                    // Записываем связь между резервацией и заказом
+                    if (orderProductId) {
+                      db.run(
+                        'INSERT INTO reservation_order_fulfillments (reservation_product_id, order_id, order_product_id, quantity) VALUES (?, ?, ?, ?)',
+                        [rp.id, id, orderProductId, toFulfill],
+                        (fulfillErr) => {
+                          if (fulfillErr) {
+                            console.error(`❌ Error creating fulfillment record for reservation_product ${rp.id}:`, fulfillErr);
+                          } else {
+                            console.log(`✅ Created fulfillment record: reservation_product ${rp.id} -> order ${id}, quantity: ${toFulfill}`);
+                          }
+                        }
+                      );
+                    }
+                    
+                    // Проверяем, полностью ли реализована резервация
+                    checkAndUpdateReservationStatus(rp.reservation_id);
+                  }
+                  
+                  reservationsUpdated++;
+                  remainingToFulfill -= toFulfill;
+                  
+                  if (reservationsUpdated === reservationProducts.length) {
+                    afterReservationCallback(quantityFromReservation);
+                  }
+                }
+              );
+            });
+          });
+        } else {
+          afterReservationCallback(0);
+        }
+      });
+    };
+    
+    // Проверяем доступность товара с учетом активных резерваций
+    console.log(`🔍 processQuantityIncrease: checking availability in working_sheets for ${productKod}`);
+    db.get(`
+      SELECT 
+        ws.ilosc as total_available,
+        COALESCE(SUM(CASE 
+          WHEN r.status = 'aktywna' 
+          THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
+          ELSE 0 
+        END), 0) as reserved,
+        COALESCE(SUM(CASE 
+          WHEN r.status = 'aktywna' AND r.client_id = ?
+          THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
+          ELSE 0 
+        END), 0) as client_reserved
+      FROM working_sheets ws
+      LEFT JOIN reservation_products rp ON ws.kod = rp.product_kod
+      LEFT JOIN reservations r ON rp.reservation_id = r.id
+      WHERE ws.kod = ?
+      GROUP BY ws.kod, ws.ilosc
+    `, [clientId || 0, productKod], (err, row) => {
       if (err) {
         console.error(`❌ Error checking availability for ${productKod}:`, err);
         callback();
@@ -4371,68 +4513,74 @@ app.put('/api/orders/:id', (req, res) => {
         return;
       }
       
-        const availableQuantity = row.total_available - row.reserved;
-        console.log(`🔍 processQuantityIncrease: available quantity in working_sheets = ${availableQuantity} (total: ${row.total_available}, reserved: ${row.reserved})`);
+      // Доступно: общее количество - резервации других клиентов (резервации этого клиента доступны для него)
+      const reservedByOthers = row.reserved - (row.client_reserved || 0);
+      const availableQuantity = row.total_available - reservedByOthers;
+      console.log(`🔍 processQuantityIncrease: available quantity in working_sheets = ${availableQuantity} (total: ${row.total_available}, reserved: ${row.reserved}, client_reserved: ${row.client_reserved})`);
+      
       if (availableQuantity < quantityDiff) {
         console.error(`❌ Insufficient quantity for ${productKod}: need ${quantityDiff}, available ${availableQuantity}`);
         callback();
         return;
       }
       
-      // Товар доступен, списываем разницу по FIFO
-      console.log(`🎯 FIFO consumption for ${productKod}: ${quantityDiff} szt.`);
-      console.log(`🔍 processQuantityIncrease: calling consumeFromProducts...`);
-      consumeFromProducts(productKod, quantityDiff)
-        .then(({ consumed, remaining, consumptions }) => {
-          console.log(`🎯 FIFO consumption for ${productKod}: ${consumed} szt. consumed`);
-          // Записываем списания партий в order_consumptions
-          if (consumptions && consumptions.length > 0) {
-            const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
-            const values = consumptions.flatMap(c => [id, productKod, c.batchId, c.qty, c.cena || 0]);
-                    db.run(
-              `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
-              values,
-              (consErr) => {
-                if (consErr) {
-                  console.error('❌ Error saving order_consumptions:', consErr);
-                        } else {
-                  console.log(`✅ Saved ${consumptions.length} consumption rows for order ${id}`);
-              }
-          // Обновляем working_sheets после FIFO списания
-                    db.run(
-                      'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-            [quantityDiff, productKod],
-                      function(updateErr) {
-                        if (updateErr) {
-                console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
-                        } else {
-                console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
-              }
-              callback();
-            }
-          );
-            }
-          );
-          } else {
-            // Обновляем working_sheets даже если нет записей в order_consumptions
-            db.run(
-              'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-              [quantityDiff, productKod],
-              function(updateErr) {
-                if (updateErr) {
-                  console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
-                } else {
-                  console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+      // Сначала обрабатываем резервации клиента
+      checkClientReservation((quantityFromReservation) => {
+        // Товар доступен, списываем разницу по FIFO
+        console.log(`🎯 FIFO consumption for ${productKod}: ${quantityDiff} szt. (${quantityFromReservation} from reservation)`);
+        console.log(`🔍 processQuantityIncrease: calling consumeFromProducts...`);
+        consumeFromProducts(productKod, quantityDiff)
+          .then(({ consumed, remaining, consumptions }) => {
+            console.log(`🎯 FIFO consumption for ${productKod}: ${consumed} szt. consumed`);
+            // Записываем списания партий в order_consumptions
+            if (consumptions && consumptions.length > 0) {
+              const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
+              const values = consumptions.flatMap(c => [id, productKod, c.batchId, c.qty, c.cena || 0]);
+              db.run(
+                `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
+                values,
+                (consErr) => {
+                  if (consErr) {
+                    console.error('❌ Error saving order_consumptions:', consErr);
+                  } else {
+                    console.log(`✅ Saved ${consumptions.length} consumption rows for order ${id}`);
+                  }
+                  // Обновляем working_sheets после FIFO списания
+                  db.run(
+                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                    [quantityDiff, productKod],
+                    function(updateErr) {
+                      if (updateErr) {
+                        console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+                      } else {
+                        console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+                      }
+                      callback();
+                    }
+                  );
                 }
-                callback();
-              }
-            );
-          }
-        })
-        .catch((fifoError) => {
-          console.error(`❌ FIFO consumption error for ${productKod}:`, fifoError);
-          callback();
-        });
+              );
+            } else {
+              // Обновляем working_sheets даже если нет записей в order_consumptions
+              db.run(
+                'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                [quantityDiff, productKod],
+                function(updateErr) {
+                  if (updateErr) {
+                    console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+                  } else {
+                    console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+                  }
+                  callback();
+                }
+              );
+            }
+          })
+          .catch((fifoError) => {
+            console.error(`❌ FIFO consumption error for ${productKod}:`, fifoError);
+            callback();
+          });
+      });
     });
   }
   
@@ -4441,117 +4589,115 @@ app.put('/api/orders/:id', (req, res) => {
     console.log(`🔄 Processing quantity decrease for ${productKod}: -${quantityDiff}`);
     console.log(`🔍 processQuantityDecrease: starting restoration process...`);
     
-    // Получаем существующие записи в order_consumptions для этого продукта
-    // Сортируем по batch_id DESC для LIFO возвратов (сначала новые партии)
-    db.all('SELECT * FROM order_consumptions WHERE order_id = ? AND product_kod = ? ORDER BY batch_id DESC', [id, productKod], (err, consumptions) => {
+    // Сначала восстанавливаем ilosc_wydane в резервациях, если они были использованы
+    db.all(`
+      SELECT rof.*, rp.product_kod, rp.reservation_id
+      FROM reservation_order_fulfillments rof
+      INNER JOIN reservation_products rp ON rof.reservation_product_id = rp.id
+      WHERE rof.order_id = ? AND rp.product_kod = ?
+      ORDER BY rof.created_at DESC
+    `, [id, productKod], (err, fulfillments) => {
       if (err) {
-        console.error(`❌ Error fetching consumptions for ${productKod}:`, err);
-        callback();
+        console.error(`❌ Error fetching fulfillments for ${productKod}:`, err);
+        // Продолжаем даже при ошибке
+        proceedWithConsumptions();
         return;
       }
       
-      if (consumptions.length === 0) {
-        console.log(`⚠️ No consumptions found for ${productKod}, restoring only in working_sheets`);
-        // Просто восстанавливаем в working_sheets
-        db.run(
-          'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-          [quantityDiff, productKod],
-          function(updateErr) {
-            if (updateErr) {
-              console.error(`❌ Error updating working_sheets for ${productKod}:`, updateErr);
-            } else {
-              console.log(`✅ Updated working_sheets: ${productKod} (quantity restored by ${quantityDiff})`);
-            }
-            callback();
+      if (fulfillments.length === 0) {
+        console.log(`💡 No reservation fulfillments found for ${productKod}`);
+        proceedWithConsumptions();
+        return;
+      }
+      
+      console.log(`📊 Found ${fulfillments.length} reservation fulfillments for ${productKod}`);
+      
+      // Восстанавливаем ilosc_wydane в резервациях (LIFO - сначала последние выдачи)
+      let remainingToRestoreFromReservation = quantityDiff;
+      let fulfillmentsProcessed = 0;
+      
+      fulfillments.forEach((fulfillment) => {
+        if (remainingToRestoreFromReservation <= 0) {
+          fulfillmentsProcessed++;
+          if (fulfillmentsProcessed === fulfillments.length) {
+            proceedWithConsumptions();
           }
-        );
-        return;
-      }
-      
-      console.log(`📊 Found ${consumptions.length} consumptions for ${productKod}`);
-      console.log(`🔍 Consumptions details:`, JSON.stringify(consumptions, null, 2));
-      
-      // Восстанавливаем количество в products и уменьшаем/удаляем записи в order_consumptions
-      let remainingToRestore = quantityDiff;
-      let consumptionsProcessed = 0;
-      
-      consumptions.forEach((consumption) => {
-        if (remainingToRestore <= 0) {
-          consumptionsProcessed++;
-          checkConsumptionCompletion();
           return;
         }
         
-        // Восстанавливаем то количество, которое было списано из этой партии
-        const quantityToRestore = Math.min(remainingToRestore, consumption.quantity);
-        const newQuantity = consumption.quantity - quantityToRestore;
+        const toRestore = Math.min(remainingToRestoreFromReservation, fulfillment.quantity);
+        const newFulfillmentQuantity = fulfillment.quantity - toRestore;
         
-        console.log(`🔍 Restoring from consumption ${consumption.id}: batch_id=${consumption.batch_id}, original_quantity=${consumption.quantity}, to_restore=${quantityToRestore}, new_quantity=${newQuantity}`);
+        console.log(`🔍 Restoring reservation fulfillment ${fulfillment.id}: quantity=${fulfillment.quantity}, to_restore=${toRestore}, new_quantity=${newFulfillmentQuantity}`);
         
-        if (newQuantity > 0) {
-          // Уменьшаем количество в существующей записи
-          db.run(
-            'UPDATE order_consumptions SET quantity = ? WHERE id = ?',
-            [newQuantity, consumption.id],
-            function(updateErr) {
-              if (updateErr) {
-                console.error(`❌ Error updating consumption ${consumption.id}:`, updateErr);
-                  } else {
-                console.log(`✅ Updated consumption ${consumption.id}: ${consumption.quantity} → ${newQuantity}`);
-              }
+        // Уменьшаем ilosc_wydane в reservation_products
+        db.run(
+          'UPDATE reservation_products SET ilosc_wydane = COALESCE(ilosc_wydane, 0) - ? WHERE id = ?',
+          [toRestore, fulfillment.reservation_product_id],
+          function(updateErr) {
+            if (updateErr) {
+              console.error(`❌ Error restoring ilosc_wydane for reservation_product ${fulfillment.reservation_product_id}:`, updateErr);
+            } else {
+              console.log(`✅ Restored ilosc_wydane for reservation_product ${fulfillment.reservation_product_id}: -${toRestore}`);
               
-              // Восстанавливаем в конкретную партию (batch_id)
+              // Проверяем и обновляем статус резервации (может вернуться на 'aktywna')
+              checkAndUpdateReservationStatus(fulfillment.reservation_id);
+            }
+            
+            // Удаляем или обновляем запись fulfillment
+            if (newFulfillmentQuantity <= 0) {
               db.run(
-                'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
-                [quantityToRestore, consumption.batch_id],
-                function(restoreErr) {
-                  if (restoreErr) {
-                    console.error(`❌ Error restoring to batch ${consumption.batch_id}:`, restoreErr);
+                'DELETE FROM reservation_order_fulfillments WHERE id = ?',
+                [fulfillment.id],
+                function(deleteErr) {
+                  if (deleteErr) {
+                    console.error(`❌ Error deleting fulfillment ${fulfillment.id}:`, deleteErr);
                   } else {
-                    console.log(`✅ Restored ${quantityToRestore} to batch ${consumption.batch_id} for ${productKod}`);
+                    console.log(`🗑️ Deleted fulfillment ${fulfillment.id}`);
                   }
-                  consumptionsProcessed++;
-                  checkConsumptionCompletion();
+                  fulfillmentsProcessed++;
+                  if (fulfillmentsProcessed === fulfillments.length) {
+                    proceedWithConsumptions();
+                  }
+                }
+              );
+            } else {
+              db.run(
+                'UPDATE reservation_order_fulfillments SET quantity = ? WHERE id = ?',
+                [newFulfillmentQuantity, fulfillment.id],
+                function(updateFulfillErr) {
+                  if (updateFulfillErr) {
+                    console.error(`❌ Error updating fulfillment ${fulfillment.id}:`, updateFulfillErr);
+                  } else {
+                    console.log(`✅ Updated fulfillment ${fulfillment.id}: ${fulfillment.quantity} → ${newFulfillmentQuantity}`);
+                  }
+                  fulfillmentsProcessed++;
+                  if (fulfillmentsProcessed === fulfillments.length) {
+                    proceedWithConsumptions();
+                  }
                 }
               );
             }
-          );
-        } else {
-          // Удаляем запись, если количество стало 0
-          db.run(
-            'DELETE FROM order_consumptions WHERE id = ?',
-            [consumption.id],
-            function(deleteErr) {
-              if (deleteErr) {
-                console.error(`❌ Error deleting consumption ${consumption.id}:`, deleteErr);
-              } else {
-                console.log(`🗑️ Deleted consumption ${consumption.id} (quantity became 0)`);
-              }
-              
-              // Восстанавливаем в конкретную партию (batch_id)
-              db.run(
-                'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
-                [quantityToRestore, consumption.batch_id],
-                function(restoreErr) {
-                  if (restoreErr) {
-                    console.error(`❌ Error restoring to batch ${consumption.batch_id}:`, restoreErr);
-                  } else {
-                    console.log(`✅ Restored ${quantityToRestore} to batch ${consumption.batch_id} for ${productKod}`);
-                  }
-                  consumptionsProcessed++;
-                  checkConsumptionCompletion();
-                }
-              );
-            }
-          );
+          }
+        );
+        
+        remainingToRestoreFromReservation -= toRestore;
+      });
+    });
+    
+    function proceedWithConsumptions() {
+      // Получаем существующие записи в order_consumptions для этого продукта
+      // Сортируем по batch_id DESC для LIFO возвратов (сначала новые партии)
+      db.all('SELECT * FROM order_consumptions WHERE order_id = ? AND product_kod = ? ORDER BY batch_id DESC', [id, productKod], (err, consumptions) => {
+        if (err) {
+          console.error(`❌ Error fetching consumptions for ${productKod}:`, err);
+          callback();
+          return;
         }
         
-        remainingToRestore -= quantityToRestore;
-      });
-      
-      function checkConsumptionCompletion() {
-        if (consumptionsProcessed === consumptions.length) {
-          // Обновляем working_sheets
+        if (consumptions.length === 0) {
+          console.log(`⚠️ No consumptions found for ${productKod}, restoring only in working_sheets`);
+          // Просто восстанавливаем в working_sheets
           db.run(
             'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
             [quantityDiff, productKod],
@@ -4564,9 +4710,109 @@ app.put('/api/orders/:id', (req, res) => {
               callback();
             }
           );
+          return;
         }
-      }
-    });
+        
+        console.log(`📊 Found ${consumptions.length} consumptions for ${productKod}`);
+        console.log(`🔍 Consumptions details:`, JSON.stringify(consumptions, null, 2));
+        
+        // Восстанавливаем количество в products и уменьшаем/удаляем записи в order_consumptions
+        let remainingToRestore = quantityDiff;
+        let consumptionsProcessed = 0;
+        
+        consumptions.forEach((consumption) => {
+          if (remainingToRestore <= 0) {
+            consumptionsProcessed++;
+            checkConsumptionCompletion();
+            return;
+          }
+          
+          // Восстанавливаем то количество, которое было списано из этой партии
+          const quantityToRestore = Math.min(remainingToRestore, consumption.quantity);
+          const newQuantity = consumption.quantity - quantityToRestore;
+          
+          console.log(`🔍 Restoring from consumption ${consumption.id}: batch_id=${consumption.batch_id}, original_quantity=${consumption.quantity}, to_restore=${quantityToRestore}, new_quantity=${newQuantity}`);
+          
+          if (newQuantity > 0) {
+            // Уменьшаем количество в существующей записи
+            db.run(
+              'UPDATE order_consumptions SET quantity = ? WHERE id = ?',
+              [newQuantity, consumption.id],
+              function(updateErr) {
+                if (updateErr) {
+                  console.error(`❌ Error updating consumption ${consumption.id}:`, updateErr);
+                } else {
+                  console.log(`✅ Updated consumption ${consumption.id}: ${consumption.quantity} → ${newQuantity}`);
+                }
+                
+                // Восстанавливаем в конкретную партию (batch_id)
+                db.run(
+                  'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
+                  [quantityToRestore, consumption.batch_id],
+                  function(restoreErr) {
+                    if (restoreErr) {
+                      console.error(`❌ Error restoring to batch ${consumption.batch_id}:`, restoreErr);
+                    } else {
+                      console.log(`✅ Restored ${quantityToRestore} to batch ${consumption.batch_id} for ${productKod}`);
+                    }
+                    consumptionsProcessed++;
+                    checkConsumptionCompletion();
+                  }
+                );
+              }
+            );
+          } else {
+            // Удаляем запись, если количество стало 0
+            db.run(
+              'DELETE FROM order_consumptions WHERE id = ?',
+              [consumption.id],
+              function(deleteErr) {
+                if (deleteErr) {
+                  console.error(`❌ Error deleting consumption ${consumption.id}:`, deleteErr);
+                } else {
+                  console.log(`🗑️ Deleted consumption ${consumption.id} (quantity became 0)`);
+                }
+                
+                // Восстанавливаем в конкретную партию (batch_id)
+                db.run(
+                  'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
+                  [quantityToRestore, consumption.batch_id],
+                  function(restoreErr) {
+                    if (restoreErr) {
+                      console.error(`❌ Error restoring to batch ${consumption.batch_id}:`, restoreErr);
+                    } else {
+                      console.log(`✅ Restored ${quantityToRestore} to batch ${consumption.batch_id} for ${productKod}`);
+                    }
+                    consumptionsProcessed++;
+                    checkConsumptionCompletion();
+                  }
+                );
+              }
+            );
+          }
+          
+          remainingToRestore -= quantityToRestore;
+        });
+        
+        function checkConsumptionCompletion() {
+          if (consumptionsProcessed === consumptions.length) {
+            // Обновляем working_sheets
+            db.run(
+              'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
+              [quantityDiff, productKod],
+              function(updateErr) {
+                if (updateErr) {
+                  console.error(`❌ Error updating working_sheets for ${productKod}:`, updateErr);
+                } else {
+                  console.log(`✅ Updated working_sheets: ${productKod} (quantity restored by ${quantityDiff})`);
+                }
+                callback();
+              }
+            );
+          }
+        }
+      });
+    }
   }
 });
 
@@ -4594,108 +4840,177 @@ app.delete('/api/orders/:id', (req, res) => {
       
       console.log(`🔄 Found ${consumptions.length} consumptions to restore in products`);
       
-      // 1. Восстанавливаем количество в products для каждой партии
-      let consumptionsRestored = 0;
-      const totalConsumptions = consumptions.length;
-      
-      const proceedAfterProductsRestore = () => {
-        // 2. Удаляем записи о списаниях
-        db.run('DELETE FROM order_consumptions WHERE order_id = ?', [id], function(deleteConsumptionsErr) {
-          if (deleteConsumptionsErr) {
-            console.error('❌ Database error deleting order consumptions:', deleteConsumptionsErr);
-            res.status(500).json({ error: deleteConsumptionsErr.message });
-            return;
-          }
+      // Получаем записи о выдачах из резерваций для восстановления ilosc_wydane (включая reservation_id)
+      db.all(`
+        SELECT rof.*, rp.reservation_id
+        FROM reservation_order_fulfillments rof
+        INNER JOIN reservation_products rp ON rof.reservation_product_id = rp.id
+        WHERE rof.order_id = ?
+      `, [id], (err, fulfillments) => {
+        if (err) {
+          console.error('❌ Database error fetching reservation fulfillments:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        
+        console.log(`🔄 Found ${fulfillments.length} reservation fulfillments to restore`);
+        
+        // 0. Восстанавливаем ilosc_wydane в reservation_products
+        let fulfillmentsRestored = 0;
+        const totalFulfillments = fulfillments.length;
+        
+        const proceedAfterFulfillmentsRestore = () => {
+          // 1. Восстанавливаем количество в products для каждой партии
+          let consumptionsRestored = 0;
+          const totalConsumptions = consumptions.length;
           
-          console.log(`🗑️ Order consumptions deleted for order ${id}`);
-          
-          // 3. Удаляем продукты заказа
-          db.run('DELETE FROM order_products WHERE orderId = ?', [id], function(deleteProductsErr) {
-            if (deleteProductsErr) {
-              console.error('❌ Database error deleting order products:', deleteProductsErr);
-              res.status(500).json({ error: deleteProductsErr.message });
-              return;
-            }
-            
-            console.log(`🗑️ Order products deleted for order ${id}`);
-            
-            // 4. Удаляем заказ
-            db.run('DELETE FROM orders WHERE id = ?', [id], function(err) {
-              if (err) {
-                console.error('❌ Database error deleting order:', err);
-                res.status(500).json({ error: err.message });
-                return;
+          const proceedAfterProductsRestore = () => {
+            // 2. Удаляем записи о выдачах из резерваций
+            db.run('DELETE FROM reservation_order_fulfillments WHERE order_id = ?', [id], function(deleteFulfillmentsErr) {
+              if (deleteFulfillmentsErr) {
+                console.error('❌ Database error deleting reservation fulfillments:', deleteFulfillmentsErr);
+                // Продолжаем даже при ошибке, так как CASCADE должен удалить их автоматически
+              } else {
+                console.log(`🗑️ Reservation fulfillments deleted for order ${id}`);
               }
               
-              console.log(`✅ Order ${id} deleted successfully`);
-              
-              // 5. Восстанавливаем количество в working_sheets
-              let restoredCount = 0;
-              let totalProducts = orderProducts.length;
-              
-              if (totalProducts === 0) {
-                console.log('💡 No products to restore in working_sheets');
-                res.json({ 
-                  message: 'Order deleted successfully',
-                  workingSheetsRestored: 0,
-                  productsRestored: consumptionsRestored
-                });
-                return;
-              }
-              
-              orderProducts.forEach((product) => {
-                db.run(
-                  'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-                  [product.ilosc, product.kod],
-                  function(restoreErr) {
-                    restoredCount++;
-                    if (restoreErr) {
-                      console.error(`❌ Error restoring quantity in working_sheets for product ${product.kod}:`, restoreErr);
-                    } else {
-                      console.log(`✅ Restored quantity in working_sheets for product ${product.kod}: +${product.ilosc}`);
+              // 3. Удаляем записи о списаниях
+              db.run('DELETE FROM order_consumptions WHERE order_id = ?', [id], function(deleteConsumptionsErr) {
+                if (deleteConsumptionsErr) {
+                  console.error('❌ Database error deleting order consumptions:', deleteConsumptionsErr);
+                  res.status(500).json({ error: deleteConsumptionsErr.message });
+                  return;
+                }
+                
+                console.log(`🗑️ Order consumptions deleted for order ${id}`);
+                
+                // 4. Удаляем продукты заказа
+                db.run('DELETE FROM order_products WHERE orderId = ?', [id], function(deleteProductsErr) {
+                  if (deleteProductsErr) {
+                    console.error('❌ Database error deleting order products:', deleteProductsErr);
+                    res.status(500).json({ error: deleteProductsErr.message });
+                    return;
+                  }
+                  
+                  console.log(`🗑️ Order products deleted for order ${id}`);
+                  
+                  // 5. Удаляем заказ
+                  db.run('DELETE FROM orders WHERE id = ?', [id], function(err) {
+                    if (err) {
+                      console.error('❌ Database error deleting order:', err);
+                      res.status(500).json({ error: err.message });
+                      return;
                     }
                     
-                    if (restoredCount === totalProducts) {
-                      console.log(`📊 Working sheets restored: ${restoredCount}/${totalProducts} products`);
+                    console.log(`✅ Order ${id} deleted successfully`);
+                    
+                    // 6. Восстанавливаем количество в working_sheets
+                    let restoredCount = 0;
+                    let totalProducts = orderProducts.length;
+                    
+                    if (totalProducts === 0) {
+                      console.log('💡 No products to restore in working_sheets');
                       res.json({ 
                         message: 'Order deleted successfully',
-                        workingSheetsRestored: restoredCount,
-                        productsRestored: consumptionsRestored
+                        workingSheetsRestored: 0,
+                        productsRestored: consumptionsRestored,
+                        reservationFulfillmentsRestored: fulfillmentsRestored
                       });
+                      return;
                     }
-                  }
-                );
+                    
+                    orderProducts.forEach((product) => {
+                      db.run(
+                        'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
+                        [product.ilosc, product.kod],
+                        function(restoreErr) {
+                          restoredCount++;
+                          if (restoreErr) {
+                            console.error(`❌ Error restoring quantity in working_sheets for product ${product.kod}:`, restoreErr);
+                          } else {
+                            console.log(`✅ Restored quantity in working_sheets for product ${product.kod}: +${product.ilosc}`);
+                          }
+                          
+                          if (restoredCount === totalProducts) {
+                            console.log(`📊 Working sheets restored: ${restoredCount}/${totalProducts} products`);
+                            res.json({ 
+                              message: 'Order deleted successfully',
+                              workingSheetsRestored: restoredCount,
+                              productsRestored: consumptionsRestored,
+                              reservationFulfillmentsRestored: fulfillmentsRestored
+                            });
+                          }
+                        }
+                      );
+                    });
+                  });
+                });
               });
             });
+          };
+          
+          // Восстанавливаем каждую партию в products
+          if (totalConsumptions === 0) {
+            console.log('💡 No consumptions to restore in products');
+            proceedAfterProductsRestore();
+          } else {
+            consumptions.forEach((consumption) => {
+              db.run(
+                'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
+                [consumption.quantity, consumption.batch_id],
+                function(restoreErr) {
+                  consumptionsRestored++;
+                  if (restoreErr) {
+                    console.error(`❌ Error restoring quantity in products for batch ${consumption.batch_id}:`, restoreErr);
+                  } else {
+                    console.log(`✅ Restored ${consumption.quantity} units to batch ${consumption.batch_id} (product: ${consumption.product_kod})`);
+                  }
+                  
+                  if (consumptionsRestored === totalConsumptions) {
+                    console.log(`📊 Products restored: ${consumptionsRestored}/${totalConsumptions} batches`);
+                    proceedAfterProductsRestore();
+                  }
+                }
+              );
+            });
+          }
+        };
+        
+        // Восстанавливаем ilosc_wydane для каждой записи fulfillment
+        if (totalFulfillments === 0) {
+          console.log('💡 No reservation fulfillments to restore');
+          proceedAfterFulfillmentsRestore();
+        } else {
+          // Собираем уникальные reservation_id для проверки статуса после восстановления
+          const reservationIdsToCheck = [...new Set(fulfillments.map(f => f.reservation_id))];
+          
+          fulfillments.forEach((fulfillment) => {
+            db.run(
+              'UPDATE reservation_products SET ilosc_wydane = COALESCE(ilosc_wydane, 0) - ? WHERE id = ?',
+              [fulfillment.quantity, fulfillment.reservation_product_id],
+              function(restoreErr) {
+                fulfillmentsRestored++;
+                if (restoreErr) {
+                  console.error(`❌ Error restoring ilosc_wydane for reservation_product ${fulfillment.reservation_product_id}:`, restoreErr);
+                } else {
+                  console.log(`✅ Restored ilosc_wydane for reservation_product ${fulfillment.reservation_product_id}: -${fulfillment.quantity}`);
+                }
+                
+                if (fulfillmentsRestored === totalFulfillments) {
+                  console.log(`📊 Reservation fulfillments restored: ${fulfillmentsRestored}/${totalFulfillments}`);
+                  
+                  // Проверяем и обновляем статус каждой затронутой резервации
+                  reservationIdsToCheck.forEach(reservationId => {
+                    checkAndUpdateReservationStatus(reservationId);
+                  });
+                  
+                  proceedAfterFulfillmentsRestore();
+                }
+              }
+            );
           });
-        });
-      };
-      
-      // Восстанавливаем каждую партию в products
-      if (totalConsumptions === 0) {
-        console.log('💡 No consumptions to restore in products');
-        proceedAfterProductsRestore();
-      } else {
-        consumptions.forEach((consumption) => {
-          db.run(
-            'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
-            [consumption.quantity, consumption.batch_id],
-            function(restoreErr) {
-              consumptionsRestored++;
-              if (restoreErr) {
-                console.error(`❌ Error restoring quantity in products for batch ${consumption.batch_id}:`, restoreErr);
-              } else {
-                console.log(`✅ Restored ${consumption.quantity} units to batch ${consumption.batch_id} (product: ${consumption.product_kod})`);
-              }
-              
-              if (consumptionsRestored === totalConsumptions) {
-                console.log(`📊 Products restored: ${consumptionsRestored}/${totalConsumptions} batches`);
-                proceedAfterProductsRestore();
-              }
-            }
-          );
-        });
-      }
+        }
+      });
     });
   });
 });
@@ -6506,19 +6821,19 @@ app.get('/api/working-sheets/search', (req, res) => {
     reserved_products AS (
       SELECT 
         rp.product_kod as kod,
-        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
+        SUM(rp.ilosc) as ilosc_reserved
       FROM reservation_products rp
       INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status = 'aktywna'
+      WHERE r.status IN ('aktywna', 'zrealizowana')
       GROUP BY rp.product_kod
     ),
     client_reservations AS (
       SELECT 
         rp.product_kod as kod,
-        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_client_reserved
+        SUM(rp.ilosc) as ilosc_client_reserved
       FROM reservation_products rp
       INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status = 'aktywna' AND r.client_id = ?
+      WHERE r.status IN ('aktywna', 'zrealizowana') AND r.client_id = ?
       GROUP BY rp.product_kod
     ),
     samples_products AS (
@@ -6587,10 +6902,10 @@ app.get('/api/working-sheets/search', (req, res) => {
     reserved_products AS (
       SELECT 
         rp.product_kod as kod,
-        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
+        SUM(rp.ilosc) as ilosc_reserved
       FROM reservation_products rp
       INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status = 'aktywna'
+      WHERE r.status IN ('aktywna', 'zrealizowana')
       GROUP BY rp.product_kod
     ),
     samples_products AS (
