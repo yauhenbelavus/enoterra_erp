@@ -2535,10 +2535,34 @@ app.post('/api/orders', (req, res) => {
   // Проверяем доступность товаров перед созданием заказа
   console.log('🔍 Checking product availability...');
   
-  // Создаем массив для проверки доступности
-  const availabilityChecks = products.map(product => {
+  // Группируем товары по коду и суммируем количество для корректной проверки
+  // Это предотвращает проблему, когда один товар добавлен несколько раз в заказ
+  const productGroups = new Map();
+  products.forEach(product => {
+    const { kod, nazwa, ilosc } = product;
+    if (productGroups.has(kod)) {
+      const existing = productGroups.get(kod);
+      existing.totalIlosc += ilosc;
+      existing.items.push(product);
+    } else {
+      productGroups.set(kod, {
+        kod,
+        nazwa,
+        totalIlosc: ilosc,
+        items: [product]
+      });
+    }
+  });
+  
+  console.log(`📊 Grouped products: ${productGroups.size} unique products from ${products.length} order items`);
+  productGroups.forEach((group, kod) => {
+    console.log(`  - ${kod}: ${group.totalIlosc} szt. (${group.items.length} order item(s))`);
+  });
+  
+  // Создаем массив для проверки доступности сгруппированных товаров
+  const availabilityChecks = Array.from(productGroups.values()).map(group => {
     return new Promise((resolve, reject) => {
-      const { kod, nazwa, ilosc } = product;
+      const { kod, nazwa, totalIlosc } = group;
       
         // Проверяем доступное количество с учетом активных резерваций (используя ilosc - ilosc_wydane)
         db.get(`
@@ -2561,7 +2585,7 @@ app.post('/api/orders', (req, res) => {
           }
           
           if (!row) {
-          reject({ kod, nazwa, ilosc, available: 0, error: 'Product not found in working_sheets' });
+          reject({ kod, nazwa, ilosc: totalIlosc, available: 0, error: 'Product not found in working_sheets' });
             return;
           }
           
@@ -2585,36 +2609,45 @@ app.post('/api/orders', (req, res) => {
               
               const availableInReservation = reservationRow ? (reservationRow.available_in_reservation || 0) : 0;
               
-              // Если у клиента есть резервация, разрешаем заказ (даже если превышает доступное на складе)
+              // Если у клиента есть резервация, проверяем её
               if (availableInReservation > 0) {
-                // Проверяем, не превышает ли запрашиваемое количество резервацию
-                if (ilosc > availableInReservation) {
-                  // Разрешаем, но с предупреждением (на фронтенде уже показано)
-                  console.log(`⚠️ Order exceeds client reservation for ${kod}: requested ${ilosc}, available in reservation ${availableInReservation}`);
+                // Проверяем, не превышает ли СУММАРНОЕ запрашиваемое количество резервацию
+                if (totalIlosc > availableInReservation) {
+                  // ОТКЛОНЯЕМ заказ, если суммарное количество превышает резервацию
+                  console.log(`❌ Order exceeds client reservation for ${kod}: requested ${totalIlosc}, available in reservation ${availableInReservation}`);
+                  reject({ 
+                    kod, 
+                    nazwa, 
+                    ilosc: totalIlosc, 
+                    available: availableInReservation, 
+                    error: 'Insufficient quantity',
+                    message: `Przekroczona ilość w rezerwacji dla produktu "${nazwa}" (kod: ${kod}). Zamówiono: ${totalIlosc}, dostępne w rezerwacji: ${availableInReservation}`
+                  });
+                  return;
                 }
                 resolve({ 
                   kod, 
                   nazwa, 
-                  ilosc, 
+                  ilosc: totalIlosc, 
                   available: availableInReservation,
                   fromReservation: true,
                   availableOnWarehouse: availableOnWarehouse
                 });
         } else {
                 // У клиента нет резервации - проверяем доступное на складе
-                if (availableOnWarehouse < ilosc) {
-                  reject({ kod, nazwa, ilosc, available: availableOnWarehouse, error: 'Insufficient quantity' });
+                if (availableOnWarehouse < totalIlosc) {
+                  reject({ kod, nazwa, ilosc: totalIlosc, available: availableOnWarehouse, error: 'Insufficient quantity' });
                 } else {
-                  resolve({ kod, nazwa, ilosc, available: availableOnWarehouse, fromReservation: false });
+                  resolve({ kod, nazwa, ilosc: totalIlosc, available: availableOnWarehouse, fromReservation: false });
                 }
               }
             });
           } else {
             // Клиент не найден - проверяем доступное на складе
-            if (availableOnWarehouse < ilosc) {
-              reject({ kod, nazwa, ilosc, available: availableOnWarehouse, error: 'Insufficient quantity' });
+            if (availableOnWarehouse < totalIlosc) {
+              reject({ kod, nazwa, ilosc: totalIlosc, available: availableOnWarehouse, error: 'Insufficient quantity' });
             } else {
-              resolve({ kod, nazwa, ilosc, available: availableOnWarehouse, fromReservation: false });
+              resolve({ kod, nazwa, ilosc: totalIlosc, available: availableOnWarehouse, fromReservation: false });
             }
         }
       });
@@ -2853,7 +2886,7 @@ app.post('/api/orders', (req, res) => {
         errors = errors[0];
       }
       
-      const { kod, nazwa, ilosc, available, error } = errors;
+      const { kod, nazwa, ilosc, available, error, message: customMessage } = errors;
       
       if (error === 'Insufficient quantity') {
         console.log(`❌ Insufficient quantity for product ${kod} (${nazwa}): requested ${ilosc}, available ${available}`);
@@ -2864,7 +2897,7 @@ app.post('/api/orders', (req, res) => {
             nazwa,
             requested: ilosc,
             available: available,
-            message: `Недостаточно товара "${nazwa}" (код: ${kod}). Запрошено: ${ilosc}, доступно: ${available}`
+            message: customMessage || `Niewystarczająca ilość produktu "${nazwa}" (kod: ${kod}). Zamówiono: ${ilosc}, dostępne: ${available}`
           }
         });
       } else if (error === 'Product not found in working_sheets') {
@@ -2874,7 +2907,7 @@ app.post('/api/orders', (req, res) => {
           details: {
             kod,
             nazwa,
-            message: `Товар "${nazwa}" (код: ${kod}) не найден в системе`
+            message: `Produkt "${nazwa}" (kod: ${kod}) nie został znaleziony w systemie`
           }
         });
       } else {
@@ -2883,7 +2916,7 @@ app.post('/api/orders', (req, res) => {
           error: 'Database error during availability check',
           details: {
             kod,
-            message: `Ошибка базы данных при проверке доступности товара ${kod}`
+            message: `Błąd bazy danych podczas sprawdzania dostępności produktu ${kod}`
           }
         });
       }
