@@ -6978,6 +6978,40 @@ app.get('/api/working-sheets', (req, res) => {
   });
 });
 
+// Simple search working sheets for invoices (includes products with zero stock)
+app.get('/api/working-sheets/search-simple', (req, res) => {
+  const { query } = req.query;
+  console.log(`🔍 GET /api/working-sheets/search-simple - Simple search with query: "${query}"`);
+  
+  if (query === undefined || query === null || query.trim() === '') {
+    return res.status(400).json({ error: 'Query parameter is required' });
+  }
+  
+  const searchQuery = `%${query}%`;
+  
+  db.all(`
+    SELECT DISTINCT kod, nazwa, cena_sprzedazy
+    FROM working_sheets 
+    WHERE (archived = 0 OR archived IS NULL)
+      AND (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
+    ORDER BY 
+      CASE 
+        WHEN kod LIKE ? THEN 0
+        WHEN nazwa LIKE ? THEN 1
+        ELSE 2
+      END,
+      kod
+    LIMIT 50
+  `, [searchQuery, searchQuery, searchQuery, searchQuery, searchQuery], (err, rows) => {
+    if (err) {
+      console.error('❌ Database error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    console.log(`✅ Found ${rows.length} products (simple search)`);
+    res.json(rows || []);
+  });
+});
+
 // Search working sheets
 app.get('/api/working-sheets/search', (req, res) => {
   const { query, client_id } = req.query;
