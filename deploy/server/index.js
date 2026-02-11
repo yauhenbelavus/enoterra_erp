@@ -7278,6 +7278,33 @@ app.delete('/api/working-sheets/:id', (req, res) => {
   });
 });
 
+// Endpoint для получения курса валюты по коду товара
+app.get('/api/working-sheets/kurs/:kod', (req, res) => {
+  const { kod } = req.params;
+  console.log(`💰 GET /api/working-sheets/kurs/${kod} - Fetching exchange rate for product`);
+  
+  // Получаем курс из последней приемки для данного товара
+  db.get(
+    `SELECT pr.aktualny_kurs 
+     FROM products p
+     JOIN product_receipts pr ON p.receipt_id = pr.id
+     WHERE p.kod = ? AND p.receipt_id IS NOT NULL
+     ORDER BY pr.id DESC
+     LIMIT 1`,
+    [kod],
+    (err, result) => {
+      if (err) {
+        console.error('❌ Database error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      
+      const kurs = result && result.aktualny_kurs ? result.aktualny_kurs : 4.25;
+      console.log(`✅ Exchange rate for ${kod}: ${kurs}`);
+      res.json({ kurs });
+    }
+  );
+});
+
 app.put('/api/working-sheets/update', (req, res) => {
   const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, rezerwacje, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy, kurs } = req.body;
   console.log(`📝 PUT /api/working-sheets/update - Updating working sheet:`, { 
