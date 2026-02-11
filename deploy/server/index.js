@@ -5448,6 +5448,7 @@ app.get('/api/orders-with-products', (req, res) => {
         
         // Проверяем, есть ли фактура по этому заказу
         db.get('SELECT numer_faktury FROM invoices WHERE order_id = ? LIMIT 1', [order.id], (errInv, invRow) => {
+          if (errInv) console.error(`❌ Error fetching invoice for order ${order.id}:`, errInv);
           const orderWithProducts = {
             id: order.id,
             klient: order.klient,
@@ -5456,7 +5457,7 @@ app.get('/api/orders-with-products', (req, res) => {
             laczna_ilosc: order.laczna_ilosc,
             typ: order.typ || 'zamowienie',
             numer_zwrotu: order.numer_zwrotu || null,
-            numer_faktury: invRow ? invRow.numer_faktury : null,
+            numer_faktury: (errInv || !invRow) ? null : invRow.numer_faktury,
             products: products || []
           };
           
