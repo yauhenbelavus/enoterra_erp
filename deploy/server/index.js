@@ -466,10 +466,6 @@ db.serialize(() => {
     
     const columnNames = columns.map(col => col.name);
     console.log('📋 Current products columns:', columnNames);
-    
-
-    
-
   });
 });
 
@@ -3679,6 +3675,154 @@ app.get('/api/writeoffs/next-number-only', (req, res) => {
   });
 });
 
+// ===== INVOICES ROUTES =====
+// Список всех фактур (для вкладки Faktury)
+app.get('/api/invoices', (req, res) => {
+  console.log('📋 GET /api/invoices - Fetching all invoices');
+  db.all(
+    'SELECT id, numer_faktury, data_faktury, termin_platnosci, klient_nazwa, suma_netto, suma_brutto FROM invoices ORDER BY data_faktury DESC, id DESC',
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Error fetching invoices:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(rows || []);
+    }
+  );
+});
+
+// Следующий номер фактуры (только числовая часть: 001, 002, …)
+app.get('/api/invoices/next-number-only', (req, res) => {
+  console.log('🔢 GET /api/invoices/next-number-only - Next invoice number');
+  db.get('SELECT COALESCE(MAX(id), 0) AS max_id FROM invoices', (err, row) => {
+    if (err) {
+      console.error('❌ Error getting next invoice number:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    const nextNum = (row?.max_id || 0) + 1;
+    const numer_faktury = nextNum.toString().padStart(3, '0');
+    console.log(`✅ Next invoice number: ${numer_faktury} (max_id was: ${row?.max_id || 0})`);
+    res.json({ numer_faktury });
+  });
+});
+
+// Создание фактуры и позиций
+app.post('/api/invoices', (req, res) => {
+  const {
+    data_faktury,
+    numer_faktury,
+    klient,
+    order_id,
+    numer_zamowienia,
+    termin_platnosci,
+    products,
+    suma_netto,
+    suma_vat,
+    total: suma_brutto,
+    rabat_suma
+  } = req.body;
+
+  if (!data_faktury || !numer_faktury || !klient || !products || !Array.isArray(products) || products.length === 0) {
+    return res.status(400).json({ error: 'Wymagane: data_faktury, numer_faktury, klient i niepusta tablica products' });
+  }
+
+  const totalBrutto = parseFloat(suma_brutto);
+  const totalNetto = parseFloat(suma_netto);
+  const totalVat = parseFloat(suma_vat);
+  const totalRabat = parseFloat(rabat_suma) || 0;
+  if (isNaN(totalBrutto) || isNaN(totalNetto) || isNaN(totalVat)) {
+    return res.status(400).json({ error: 'suma_netto, suma_vat i total muszą być liczbami' });
+  }
+
+  db.get('SELECT id, firma FROM clients WHERE nazwa = ?', [klient], (err, clientRow) => {
+    if (err) {
+      console.error('❌ Error looking up client:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    const client_id = clientRow ? clientRow.id : null;
+    const klient_firma = clientRow ? (clientRow.firma || null) : null;
+
+    db.run(
+      `INSERT INTO invoices (
+        numer_faktury, data_faktury, order_id, numer_zamowienia, termin_platnosci, client_id,
+        klient_nazwa, klient_firma, suma_netto, suma_vat, suma_brutto, rabat_suma
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        numer_faktury,
+        data_faktury,
+        order_id || null,
+        numer_zamowienia || null,
+        termin_platnosci || null,
+        client_id,
+        klient,
+        klient_firma,
+        totalNetto,
+        totalVat,
+        totalBrutto,
+        totalRabat
+      ],
+      function (runErr) {
+        if (runErr) {
+          console.error('❌ Error inserting invoice:', runErr);
+          return res.status(500).json({ error: runErr.message });
+        }
+        const invoiceId = this.lastID;
+
+        if (products.length === 0) {
+          console.log(`✅ Invoice created: id=${invoiceId} ${numer_faktury}`);
+          return res.json({ id: invoiceId, numer_faktury });
+        }
+
+        let pending = products.length;
+        let hasError = false;
+
+        products.forEach((p) => {
+          const ilosc = parseFloat(p.ilosc) || 0;
+          const cena_netto = parseFloat(p.cena_netto) || 0;
+          const rabat = parseFloat(p.rabat) || 0;
+          const vat = parseInt(p.vat, 10) || 23;
+          const wartosc_netto = ilosc * cena_netto * (1 - rabat / 100);
+          const wartosc_vat = wartosc_netto * (vat / 100);
+          const wartosc_brutto = wartosc_netto + wartosc_vat;
+
+          db.run(
+            `INSERT INTO invoice_products (
+              invoice_id, kod, nazwa, ilosc, cena_netto, rabat, vat_stawka,
+              wartosc_netto, wartosc_vat, wartosc_brutto, order_product_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              invoiceId,
+              p.kod || '',
+              p.nazwa || '',
+              ilosc,
+              cena_netto,
+              rabat,
+              vat,
+              Math.round(wartosc_netto * 100) / 100,
+              Math.round(wartosc_vat * 100) / 100,
+              Math.round(wartosc_brutto * 100) / 100,
+              null
+            ],
+            (prodErr) => {
+              if (hasError) return;
+              if (prodErr) {
+                hasError = true;
+                console.error('❌ Error inserting invoice product:', prodErr);
+                return res.status(500).json({ error: prodErr.message });
+              }
+              pending -= 1;
+              if (pending === 0) {
+                console.log(`✅ Invoice created: id=${invoiceId} ${numer_faktury}, ${products.length} positions`);
+                res.json({ id: invoiceId, numer_faktury });
+              }
+            }
+          );
+        });
+      }
+    );
+  });
+});
+
 // Endpoint для создания списаний товаров (добавляем как заказ с типом 'odpisanie')
 app.post('/api/writeoffs', (req, res) => {
   const { data_odpisania, numer_odpisania, products } = req.body;
@@ -5302,26 +5446,28 @@ app.get('/api/orders-with-products', (req, res) => {
           console.log(`✅ Found ${products.length} products for order ${order.id}`);
         }
         
-        // Формируем структуру заказа с продуктами
-        const orderWithProducts = {
-          id: order.id,
-          klient: order.klient,
-          numer_zamowienia: order.numer_zamowienia,
-          data_utworzenia: order.data_utworzenia,
-          laczna_ilosc: order.laczna_ilosc,
-          typ: order.typ || 'zamowienie',
-          numer_zwrotu: order.numer_zwrotu || null,
-          products: products || []
-        };
-        
-        result.push(orderWithProducts);
-        processedOrders++;
-        
-        // Когда все заказы обработаны, отправляем результат
-        if (processedOrders === orders.length) {
-          console.log(`✅ Sending ${result.length} orders with grouped products`);
-          res.json(result);
-        }
+        // Проверяем, есть ли фактура по этому заказу
+        db.get('SELECT numer_faktury FROM invoices WHERE order_id = ? LIMIT 1', [order.id], (errInv, invRow) => {
+          const orderWithProducts = {
+            id: order.id,
+            klient: order.klient,
+            numer_zamowienia: order.numer_zamowienia,
+            data_utworzenia: order.data_utworzenia,
+            laczna_ilosc: order.laczna_ilosc,
+            typ: order.typ || 'zamowienie',
+            numer_zwrotu: order.numer_zwrotu || null,
+            numer_faktury: invRow ? invRow.numer_faktury : null,
+            products: products || []
+          };
+          
+          result.push(orderWithProducts);
+          processedOrders++;
+          
+          if (processedOrders === orders.length) {
+            console.log(`✅ Sending ${result.length} orders with grouped products`);
+            res.json(result);
+          }
+        });
       });
     });
   });
