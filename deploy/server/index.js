@@ -3691,17 +3691,27 @@ app.get('/api/invoices', (req, res) => {
   );
 });
 
-// Следующий номер фактуры (только числовая часть: 001, 002, …)
+// Следующий номер фактуры (только числовая часть: 001, 002, …). Берём максимум по сохранённым номерам + 1.
 app.get('/api/invoices/next-number-only', (req, res) => {
   console.log('🔢 GET /api/invoices/next-number-only - Next invoice number');
-  db.get('SELECT COALESCE(MAX(id), 0) AS max_id FROM invoices', (err, row) => {
+  db.all('SELECT numer_faktury FROM invoices', (err, rows) => {
     if (err) {
       console.error('❌ Error getting next invoice number:', err);
       return res.status(500).json({ error: err.message });
     }
-    const nextNum = (row?.max_id || 0) + 1;
+    let maxNum = 0;
+    (rows || []).forEach((r) => {
+      const str = (r.numer_faktury || '').trim();
+      // Формат "FV 240/2/2026" или "240" — извлекаем числовую часть до первого "/" или целиком
+      const match = str.match(/^FV\s*(\d+)/i) || str.match(/^(\d+)/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (!isNaN(n) && n > maxNum) maxNum = n;
+      }
+    });
+    const nextNum = maxNum + 1;
     const numer_faktury = nextNum.toString().padStart(3, '0');
-    console.log(`✅ Next invoice number: ${numer_faktury} (max_id was: ${row?.max_id || 0})`);
+    console.log(`✅ Next invoice number: ${numer_faktury} (max was: ${maxNum})`);
     res.json({ numer_faktury });
   });
 });
