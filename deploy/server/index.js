@@ -3726,6 +3726,7 @@ app.post('/api/invoices', (req, res) => {
     numer_zamowienia,
     termin_platnosci,
     products,
+    przesuniecie_products,
     suma_netto,
     suma_vat,
     total: suma_brutto,
@@ -3823,7 +3824,7 @@ app.post('/api/invoices', (req, res) => {
               pending -= 1;
               if (pending === 0) {
                 console.log(`✅ Invoice created: id=${invoiceId} ${numer_faktury}, ${products.length} positions`);
-                res.json({ id: invoiceId, numer_faktury });
+                createPrzesuniecieIfNeeded(invoiceId);
               }
             }
           );
@@ -3831,6 +3832,71 @@ app.post('/api/invoices', (req, res) => {
       }
     );
   });
+
+  function createPrzesuniecieIfNeeded(invoiceId) {
+    const items = Array.isArray(przesuniecie_products) ? przesuniecie_products : [];
+    if (items.length === 0) {
+      return res.json({ id: invoiceId, numer_faktury });
+    }
+    db.all(
+      "SELECT numer_zamowienia FROM orders WHERE typ = 'przesuniecie' AND numer_zamowienia LIKE 'PS%'",
+      (err, rows) => {
+        if (err) {
+          console.error('❌ Error fetching PS numbers:', err);
+          return res.json({ id: invoiceId, numer_faktury });
+        }
+        let maxNum = 0;
+        (rows || []).forEach((r) => {
+          const m = (r.numer_zamowienia || '').match(/^PS(\d+)_/i);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (!isNaN(n) && n > maxNum) maxNum = n;
+          }
+        });
+        const nextNum = maxNum + 1;
+        const parts = (data_faktury || '').split('-');
+        const year = parts[0] || new Date().getFullYear();
+        const month = parts[1] || String(new Date().getMonth() + 1).padStart(2, '0');
+        const day = parts[2] || String(new Date().getDate()).padStart(2, '0');
+        const numer_ps = `PS${String(nextNum).padStart(3, '0')}_${day}_${month}_${year}`;
+        const laczna = items.reduce((s, p) => s + Math.round(parseFloat(p.ilosc) || 0), 0);
+        const dataUtworzenia = (data_faktury || '').trim() ? `${data_faktury} 00:00:00` : null;
+        db.run(
+          `INSERT INTO orders (klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, COALESCE(?, datetime('now')), ?, 'przesuniecie')`,
+          [klient, numer_ps, dataUtworzenia, laczna],
+          function (runOrderErr) {
+            if (runOrderErr) {
+              console.error('❌ Error inserting Przesunięcie order:', runOrderErr);
+              return res.json({ id: invoiceId, numer_faktury });
+            }
+            const psOrderId = this.lastID;
+            let pend = items.length;
+            let hasErr = false;
+            items.forEach((p) => {
+              const ilosc = Math.round(parseFloat(p.ilosc) || 0);
+              db.run(
+                `INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
+                [psOrderId, p.kod || '', p.nazwa || '', ilosc, null],
+                (opErr) => {
+                  if (hasErr) return;
+                  if (opErr) {
+                    hasErr = true;
+                    console.error('❌ Error inserting Przesunięcie product:', opErr);
+                    return res.status(500).json({ error: opErr.message });
+                  }
+                  pend -= 1;
+                  if (pend === 0) {
+                    console.log(`✅ Przesunięcie created: ${numer_ps}, orderId=${psOrderId}`);
+                    res.json({ id: invoiceId, numer_faktury });
+                  }
+                }
+              );
+            });
+          }
+        );
+      }
+    );
+  }
 });
 
 // Endpoint для создания списаний товаров (добавляем как заказ с типом 'odpisanie')
