@@ -3686,6 +3686,42 @@ app.get('/api/writeoffs/next-number-only', (req, res) => {
   });
 });
 
+// Endpoint для получения следующего номера przychodu
+app.get('/api/przychod/next-number-only', (req, res) => {
+  console.log('🔢 GET /api/przychod/next-number-only - Generating next przychód number');
+  
+  // Получаем все номера przychodów для поиска максимального номера (префикс PW)
+  db.all('SELECT numer_zamowienia FROM orders WHERE typ = ? AND numer_zamowienia LIKE ?', ['przychod', 'PW%'], (err, allRows) => {
+    if (err) {
+      console.error('❌ Error finding max przychód number:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    console.log(`📋 Found ${allRows.length} przychodów with PW% pattern`);
+    
+    // Извлекаем числовую часть из каждого номера и находим максимум
+    let maxNumber = 0;
+    const numbers = [];
+    allRows.forEach(row => {
+      const match = row.numer_zamowienia.match(/^PW(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        numbers.push(num);
+        if (num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    });
+    
+    console.log(`📊 Extracted numbers: [${numbers.sort((a,b) => a-b).join(', ')}], max: ${maxNumber}`);
+    
+    const nextNumber = maxNumber + 1;
+    const numer_przychodu_only = `PW${nextNumber.toString().padStart(3, '0')}`;
+    console.log(`✅ Generated next przychód number: ${numer_przychodu_only}`);
+    res.json({ numer_przychodu: numer_przychodu_only });
+  });
+});
+
 // ===== INVOICES ROUTES =====
 // Список всех фактур (для вкладки Faktury)
 app.get('/api/invoices', (req, res) => {
@@ -3908,6 +3944,127 @@ app.post('/api/invoices', (req, res) => {
       }
     );
   }
+});
+
+// Endpoint для создания przychodu (прихода товара)
+app.post('/api/przychod', (req, res) => {
+  const { data_przychodu, numer_przychodu, products } = req.body;
+  console.log('📦 POST /api/przychod - Creating new przychód:', { data_przychodu, numer_przychodu, productsCount: products?.length || 0 });
+  
+  if (!data_przychodu || !numer_przychodu || !products || !Array.isArray(products) || products.length === 0) {
+    console.log('❌ Validation failed: data_przychodu, numer_przychodu and products array are required');
+    return res.status(400).json({ error: 'Date, number and products array are required' });
+  }
+
+  // Вычисляем общее количество товаров
+  const laczna_ilosc = products.reduce((total, product) => total + (product.ilosc || 0), 0);
+
+  // Преобразуем дату в формат DATETIME SQLite
+  let dataUtworzenia;
+  if (data_przychodu) {
+    const date = new Date(data_przychodu);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    dataUtworzenia = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  } else {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    dataUtworzenia = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  }
+
+  // Создаем запись в таблице orders с типом 'przychod'
+  db.run(
+    `INSERT INTO orders (klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
+    ['VEIS', numer_przychodu, dataUtworzenia, laczna_ilosc, 'przychod'],
+    function(err) {
+      if (err) {
+        console.error('❌ Database error creating przychód:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      const przychodId = this.lastID;
+      console.log(`✅ Przychód created with ID: ${przychodId}, number: ${numer_przychodu}`);
+
+      // Добавляем продукты przychodu в order_products
+      let productsCreated = 0;
+      let productsFailed = 0;
+      let workingSheetsUpdated = 0;
+
+      products.forEach((product, index) => {
+        const { kod, nazwa, ilosc, powod } = product;
+        
+        // Создаем запись в order_products (powod записываем в поле typ)
+        console.log(`📝 Creating order_products record for przychód: ${kod} (przychodId: ${przychodId})`);
+        db.run(
+          `INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
+          [przychodId, kod || '', nazwa, ilosc, powod || ''],
+          function(err) {
+            if (err) {
+              console.error(`❌ Error creating przychód product ${index + 1}:`, err);
+              productsFailed++;
+              checkCompletion();
+            } else {
+              productsCreated++;
+              console.log(`✅ Przychód product ${index + 1} created for przychód ${przychodId}`);
+              
+              // Увеличиваем количество в working_sheets (ПРИХОД товара)
+              if (kod) {
+                db.run(
+                  'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
+                  [ilosc, kod],
+                  function(updateErr) {
+                    if (updateErr) {
+                      console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
+                    } else {
+                      workingSheetsUpdated++;
+                      console.log(`✅ working_sheets updated for ${kod}: increased by ${ilosc}`);
+                    }
+                    checkCompletion();
+                  }
+                );
+              } else {
+                checkCompletion();
+              }
+            }
+          }
+        );
+      });
+
+      function checkCompletion() {
+        if (productsCreated + productsFailed === products.length) {
+          if (productsFailed > 0) {
+            console.log(`⚠️ Przychód created with ${productsFailed} failed products`);
+            res.status(207).json({ 
+              message: 'Przychód created with some failed products',
+              przychodId,
+              productsCreated,
+              productsFailed,
+              workingSheetsUpdated,
+              numer_przychodu
+            });
+          } else {
+            console.log(`✅ Przychód ${przychodId} completed successfully`);
+            res.json({ 
+              message: 'Przychód created successfully',
+              przychodId,
+              productsCreated,
+              workingSheetsUpdated,
+              numer_przychodu
+            });
+          }
+        }
+      }
+    }
+  );
 });
 
 // Endpoint для создания списаний товаров (добавляем как заказ с типом 'odpisanie')
