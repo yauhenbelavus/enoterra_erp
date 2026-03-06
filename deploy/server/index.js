@@ -4306,11 +4306,13 @@ app.put('/api/orders/:id', (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
     
-    // Для списаний принудительно устанавливаем клиента VEIS
-    if (orderRow.typ === 'odpisanie') {
+    // Для списаний и przychodów принудительно устанавливаем клиента VEIS
+    if (orderRow.typ === 'odpisanie' || orderRow.typ === 'przychod') {
       klient = 'VEIS';
-      console.log(`📝 Write-off detected, forcing client to VEIS`);
+      console.log(`📝 ${orderRow.typ === 'przychod' ? 'Przychód' : 'Write-off'} detected, forcing client to VEIS`);
     }
+    
+    const orderType = orderRow.typ; // Сохраняем тип заказа для дальнейшего использования
     
     // Получаем clientId по имени клиента для обработки резерваций
     const clientName = klient.trim();
@@ -4350,17 +4352,17 @@ app.put('/api/orders/:id', (req, res) => {
             }
             
             console.log(`✅ Order ${id} updated successfully`);
-            
+
             // Умное обновление продуктов заказа
-            smartUpdateOrderProducts(oldOrderProducts, clientId);
+            smartUpdateOrderProducts(oldOrderProducts, clientId, orderType);
           }
         );
       });
     });
   });
-  
-  function smartUpdateOrderProducts(oldOrderProducts, clientId) {
-    console.log(`🧠 Smart update: processing ${products.length} new products against ${oldOrderProducts.length} existing products (clientId: ${clientId})`);
+
+  function smartUpdateOrderProducts(oldOrderProducts, clientId, orderType) {
+    console.log(`🧠 Smart update: processing ${products.length} new products against ${oldOrderProducts.length} existing products (clientId: ${clientId}, orderType: ${orderType})`);
     
     // Создаем карты для быстрого поиска - используем массивы для каждого ключа
     const oldProductsMap = {};
@@ -4490,18 +4492,33 @@ app.put('/api/orders/:id', (req, res) => {
           }
           
           console.log(`✅ Updated product ${key} (ID: ${oldProduct.id})`);
-        
+
           if (quantityDiff > 0) {
             console.log(`📈 Quantity increased by ${quantityDiff}`);
-            // Используем ту же логику, что и в POST - сначала working_sheets, потом резервации, потом FIFO
-            handleQuantityIncrease(kod, quantityDiff, orderProductId, () => {
-              operationCompleted();
-            });
+            // Для przychodu логика обратная - увеличиваем working_sheets
+            if (orderType === 'przychod') {
+              handlePrzychodQuantityIncrease(kod, quantityDiff, () => {
+                operationCompleted();
+              });
+            } else {
+              // Для обычных заказов и rozchodu - используем стандартную логику
+              handleQuantityIncrease(kod, quantityDiff, orderProductId, () => {
+                operationCompleted();
+              });
+            }
           } else if (quantityDiff < 0) {
             console.log(`📉 Quantity decreased by ${Math.abs(quantityDiff)}`);
-            handleQuantityDecrease(kod, Math.abs(quantityDiff), orderProductId, () => {
-              operationCompleted();
-            });
+            // Для przychodu логика обратная - уменьшаем working_sheets
+            if (orderType === 'przychod') {
+              handlePrzychodQuantityDecrease(kod, Math.abs(quantityDiff), () => {
+                operationCompleted();
+              });
+            } else {
+              // Для обычных заказов и rozchodu - используем стандартную логику
+              handleQuantityDecrease(kod, Math.abs(quantityDiff), orderProductId, () => {
+                operationCompleted();
+              });
+            }
           } else {
             console.log(`➡️ Quantity unchanged`);
             operationCompleted();
@@ -4653,16 +4670,53 @@ app.put('/api/orders/:id', (req, res) => {
     // Новая функция для уменьшения количества
     function handleQuantityDecrease(kod, quantity, orderProductId, callback) {
       console.log(`🔄 handleQuantityDecrease: ${kod} -${quantity}`);
-      
+
       // Вызываем существующую функцию processQuantityDecrease
       processQuantityDecrease(kod, quantity, callback);
+    }
+
+    // Специальные функции для przychod (обратная логика)
+    function handlePrzychodQuantityIncrease(kod, quantity, callback) {
+      console.log(`🔄 handlePrzychodQuantityIncrease (przychód): ${kod} +${quantity} (увеличиваем working_sheets)`);
+      
+      // Для przychodu увеличение количества = увеличение на складе
+      db.run(
+        'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
+        [quantity, kod],
+        function(updateErr) {
+          if (updateErr) {
+            console.error(`❌ Error updating working_sheets for ${kod}:`, updateErr);
+          } else {
+            console.log(`✅ Updated working_sheets: ${kod} (quantity increased by ${quantity})`);
+          }
+          callback();
+        }
+      );
+    }
+
+    function handlePrzychodQuantityDecrease(kod, quantity, callback) {
+      console.log(`🔄 handlePrzychodQuantityDecrease (przychód): ${kod} -${quantity} (уменьшаем working_sheets)`);
+      
+      // Для przychodu уменьшение количества = уменьшение на складе
+      db.run(
+        'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+        [quantity, kod],
+        function(updateErr) {
+          if (updateErr) {
+            console.error(`❌ Error updating working_sheets for ${kod}:`, updateErr);
+          } else {
+            console.log(`✅ Updated working_sheets: ${kod} (quantity decreased by ${quantity})`);
+          }
+          callback();
+        }
+      );
     }
     
     function insertNewProduct(newProduct, key) {
       const { kod, nazwa, ilosc, typ, kod_kreskowy } = newProduct;
-      
+
       console.log(`➕ Inserting new product ${key}: ${ilosc} units`);
-      
+
       // Создаем новую запись в order_products
       db.run(
         'INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ, kod_kreskowy) VALUES (?, ?, ?, ?, ?, ?)',
@@ -4674,11 +4728,18 @@ app.put('/api/orders/:id', (req, res) => {
           } else {
             const orderProductId = this.lastID;
             console.log(`✅ Inserted new product ${key} (ID: ${orderProductId})`);
-            
-            // Используем новую функцию handleQuantityIncrease (как в POST)
-            handleQuantityIncrease(kod, Number(ilosc), orderProductId, () => {
-              operationCompleted();
-            });
+
+            // Для przychodu используем специальную функцию
+            if (orderType === 'przychod') {
+              handlePrzychodQuantityIncrease(kod, Number(ilosc), () => {
+                operationCompleted();
+              });
+            } else {
+              // Используем новую функцию handleQuantityIncrease (как в POST)
+              handleQuantityIncrease(kod, Number(ilosc), orderProductId, () => {
+                operationCompleted();
+              });
+            }
           }
         }
       );
@@ -4717,11 +4778,18 @@ app.put('/api/orders/:id', (req, res) => {
                   operationCompleted();
                 } else {
                   console.log(`✅ Deleted old product ${key} (ID: ${oldProduct.id})`);
-                  
+
                   // Восстанавливаем количество в working_sheets
-                  processQuantityDecrease(kod, Number(ilosc), () => {
-                    operationCompleted();
-                  });
+                  // Для przychodu используем специальную функцию
+                  if (orderType === 'przychod') {
+                    handlePrzychodQuantityDecrease(kod, Number(ilosc), () => {
+                      operationCompleted();
+                    });
+                  } else {
+                    processQuantityDecrease(kod, Number(ilosc), () => {
+                      operationCompleted();
+                    });
+                  }
                 }
               }
             );
@@ -4738,11 +4806,18 @@ app.put('/api/orders/:id', (req, res) => {
               operationCompleted();
             } else {
               console.log(`✅ Deleted unused product ${key} (ID: ${oldProduct.id})`);
-              
+
               // Восстанавливаем количество в working_sheets
-              processQuantityDecrease(kod, Number(ilosc), () => {
-                operationCompleted();
-              });
+              // Для przychodu используем специальную функцию
+              if (orderType === 'przychod') {
+                handlePrzychodQuantityDecrease(kod, Number(ilosc), () => {
+                  operationCompleted();
+                });
+              } else {
+                processQuantityDecrease(kod, Number(ilosc), () => {
+                  operationCompleted();
+                });
+              }
             }
       }
     );
