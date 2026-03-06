@@ -257,6 +257,17 @@ db.serialize(() => {
     }
   });
 
+  // Миграция: замена префикса OP/RCH на RW в номерах rozchodu (odpisanie)
+  db.run(`UPDATE orders SET numer_zamowienia = 'RW' || SUBSTR(numer_zamowienia, 3) WHERE typ = 'odpisanie' AND (numer_zamowienia LIKE 'OP%' OR numer_zamowienia LIKE 'RCH%')`, function(err) {
+    if (err) {
+      console.error('❌ Error migrating to RW:', err);
+    } else if (this.changes > 0) {
+      console.log(`✅ Migrated ${this.changes} records to RW prefix`);
+    } else {
+      console.log('✅ No records to migrate (migration already applied or no records)');
+    }
+  });
+
   // Таблица рабочих листов
   db.run(`CREATE TABLE IF NOT EXISTS working_sheets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3643,20 +3654,20 @@ function restoreProductQuantitiesFromOrder(orderId, products, callback) {
 app.get('/api/writeoffs/next-number-only', (req, res) => {
   console.log('🔢 GET /api/writeoffs/next-number-only - Generating next write-off number');
   
-  // Получаем все номера списаний для поиска максимального номера
-  db.all('SELECT numer_zamowienia FROM orders WHERE typ = ? AND numer_zamowienia LIKE ?', ['odpisanie', 'OP%'], (err, allRows) => {
+  // Получаем все номера списаний для поиска максимального номера (префикс RW)
+  db.all('SELECT numer_zamowienia FROM orders WHERE typ = ? AND numer_zamowienia LIKE ?', ['odpisanie', 'RW%'], (err, allRows) => {
     if (err) {
       console.error('❌ Error finding max write-off number:', err);
       return res.status(500).json({ error: err.message });
     }
     
-    console.log(`📋 Found ${allRows.length} write-offs with OP% pattern`);
+    console.log(`📋 Found ${allRows.length} write-offs with RW% pattern`);
     
     // Извлекаем числовую часть из каждого номера и находим максимум
     let maxNumber = 0;
     const numbers = [];
     allRows.forEach(row => {
-      const match = row.numer_zamowienia.match(/^OP(\d+)/);
+      const match = row.numer_zamowienia.match(/^RW(\d+)/);
       if (match) {
         const num = parseInt(match[1], 10);
         numbers.push(num);
@@ -3669,7 +3680,7 @@ app.get('/api/writeoffs/next-number-only', (req, res) => {
     console.log(`📊 Extracted numbers: [${numbers.sort((a,b) => a-b).join(', ')}], max: ${maxNumber}`);
     
     const nextNumber = maxNumber + 1;
-    const numer_odpisania_only = `OP${nextNumber.toString().padStart(3, '0')}`;
+    const numer_odpisania_only = `RW${nextNumber.toString().padStart(3, '0')}`;
     console.log(`✅ Generated next write-off number: ${numer_odpisania_only}`);
     res.json({ numer_odpisania: numer_odpisania_only });
   });
