@@ -7480,8 +7480,8 @@ app.get('/api/working-sheets/search-simple', (req, res) => {
 
 // Search working sheets
 app.get('/api/working-sheets/search', (req, res) => {
-  const { query, client_id } = req.query;
-  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}`);
+  const { query, client_id, include_zero_stock } = req.query;
+  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}${include_zero_stock ? ', include_zero_stock: true' : ''}`);
   
   if (query === undefined || query === null) {
     console.log('❌ Validation failed: query parameter is required');
@@ -7490,6 +7490,9 @@ app.get('/api/working-sheets/search', (req, res) => {
   
   // Если query пустой, используем '%' для поиска всех
   const searchQuery = query.trim() === '' ? '%' : `%${query}%`;
+  
+  // Определяем условие фильтрации по остаткам
+  const stockFilter = include_zero_stock === 'true' ? '' : 'WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0';
   
   // Строим SQL запрос в зависимости от наличия client_id
   const sqlQuery = client_id ? `
@@ -7550,7 +7553,7 @@ app.get('/api/working-sheets/search', (req, res) => {
     LEFT JOIN reserved_products rp ON ws.kod = rp.kod
     LEFT JOIN client_reservations cr ON ws.kod = cr.kod
     LEFT JOIN samples_products sp ON ws.kod = sp.kod
-    WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0
+    ${stockFilter}
     
     UNION ALL
     
@@ -7620,7 +7623,7 @@ app.get('/api/working-sheets/search', (req, res) => {
     FROM ws_products ws
     LEFT JOIN reserved_products rp ON ws.kod = rp.kod
     LEFT JOIN samples_products sp ON ws.kod = sp.kod
-    WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0
+    ${stockFilter}
     
     UNION ALL
     
