@@ -3763,6 +3763,47 @@ app.get('/api/invoices/next-number-only', (req, res) => {
   });
 });
 
+// Получение деталей конкретной фактуры с продуктами
+app.get('/api/invoices/:id', (req, res) => {
+  const { id } = req.params;
+  console.log(`📋 GET /api/invoices/${id} - Fetching invoice details`);
+  
+  // Получаем данные фактуры
+  db.get(
+    'SELECT * FROM invoices WHERE id = ?',
+    [id],
+    (err, invoice) => {
+      if (err) {
+        console.error(`❌ Error fetching invoice ${id}:`, err);
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (!invoice) {
+        console.log(`❌ Invoice ${id} not found`);
+        return res.status(404).json({ error: 'Invoice not found' });
+      }
+      
+      // Получаем продукты фактуры
+      db.all(
+        'SELECT * FROM invoice_products WHERE invoice_id = ? ORDER BY id',
+        [id],
+        (err, products) => {
+          if (err) {
+            console.error(`❌ Error fetching products for invoice ${id}:`, err);
+            return res.status(500).json({ error: err.message });
+          }
+          
+          console.log(`✅ Invoice ${id} fetched with ${products?.length || 0} products`);
+          res.json({
+            ...invoice,
+            products: products || []
+          });
+        }
+      );
+    }
+  );
+});
+
 // Создание фактуры и позиций
 app.post('/api/invoices', (req, res) => {
   const {
