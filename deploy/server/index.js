@@ -3987,6 +3987,129 @@ app.post('/api/invoices', (req, res) => {
   }
 });
 
+// Endpoint для обновления фактуры
+app.put('/api/invoices/:id', (req, res) => {
+  const { id } = req.params;
+  const {
+    data_faktury,
+    numer_faktury,
+    klient,
+    termin_platnosci,
+    products,
+    suma_netto,
+    suma_vat,
+    suma_brutto,
+    rabat_suma
+  } = req.body;
+
+  console.log(`📝 PUT /api/invoices/${id} - Updating invoice`);
+
+  if (!data_faktury || !numer_faktury || !klient || !products || !Array.isArray(products) || products.length === 0) {
+    return res.status(400).json({ error: 'Wymagane: data_faktury, numer_faktury, klient i niepusta tablica products' });
+  }
+
+  const totalBrutto = parseFloat(suma_brutto);
+  const totalNetto = parseFloat(suma_netto);
+  const totalVat = parseFloat(suma_vat);
+  const totalRabat = parseFloat(rabat_suma) || 0;
+  
+  if (isNaN(totalBrutto) || isNaN(totalNetto) || isNaN(totalVat)) {
+    return res.status(400).json({ error: 'suma_netto, suma_vat i suma_brutto muszą być liczbami' });
+  }
+
+  // Обновляем данные фактуры
+  db.get('SELECT id, firma FROM clients WHERE nazwa = ?', [klient], (err, clientRow) => {
+    if (err) {
+      console.error('❌ Error looking up client:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    const client_id = clientRow ? clientRow.id : null;
+    const klient_firma = clientRow ? (clientRow.firma || null) : null;
+
+    db.run(
+      `UPDATE invoices 
+       SET numer_faktury = ?, data_faktury = ?, termin_platnosci = ?, client_id = ?,
+           klient_nazwa = ?, klient_firma = ?, suma_netto = ?, suma_vat = ?, suma_brutto = ?, rabat_suma = ?
+       WHERE id = ?`,
+      [
+        numer_faktury,
+        data_faktury,
+        termin_platnosci || null,
+        client_id,
+        klient,
+        klient_firma,
+        totalNetto,
+        totalVat,
+        totalBrutto,
+        totalRabat,
+        id
+      ],
+      function (updateErr) {
+        if (updateErr) {
+          console.error('❌ Error updating invoice:', updateErr);
+          return res.status(500).json({ error: updateErr.message });
+        }
+
+        // Удаляем старые продукты
+        db.run('DELETE FROM invoice_products WHERE invoice_id = ?', [id], (delErr) => {
+          if (delErr) {
+            console.error('❌ Error deleting old products:', delErr);
+            return res.status(500).json({ error: delErr.message });
+          }
+
+          // Вставляем новые продукты
+          let pending = products.length;
+          let hasError = false;
+
+          products.forEach((p) => {
+            const ilosc = parseFloat(p.ilosc) || 0;
+            const cena_netto = parseFloat(p.cena_netto) || 0;
+            const rabat = parseFloat(p.rabat) || 0;
+            const vat = parseInt(p.vat, 10) || 23;
+            const wartosc_netto = ilosc * cena_netto * (1 - rabat / 100);
+            const wartosc_vat = wartosc_netto * (vat / 100);
+            const wartosc_brutto = wartosc_netto + wartosc_vat;
+
+            db.run(
+              `INSERT INTO invoice_products (
+                invoice_id, kod, nazwa, ilosc, cena_netto, rabat, vat_stawka,
+                wartosc_netto, wartosc_vat, wartosc_brutto, order_product_id
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                id,
+                p.kod || '',
+                p.nazwa || '',
+                ilosc,
+                cena_netto,
+                rabat,
+                vat,
+                Math.round(wartosc_netto * 100) / 100,
+                Math.round(wartosc_vat * 100) / 100,
+                Math.round(wartosc_brutto * 100) / 100,
+                null
+              ],
+              (prodErr) => {
+                if (hasError) return;
+                if (prodErr) {
+                  hasError = true;
+                  console.error('❌ Error inserting invoice product:', prodErr);
+                  return res.status(500).json({ error: prodErr.message });
+                }
+                pending -= 1;
+                if (pending === 0) {
+                  console.log(`✅ Invoice updated: id=${id} ${numer_faktury}, ${products.length} positions`);
+                  res.json({ id: parseInt(id), numer_faktury });
+                }
+              }
+            );
+          });
+        });
+      }
+    );
+  });
+});
+
 // Endpoint для создания przychodu (прихода товара)
 app.post('/api/przychod', (req, res) => {
   const { data_przychodu, numer_przychodu, products } = req.body;
