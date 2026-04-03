@@ -2376,17 +2376,7 @@ async function generateInventoryReportPDF(items, res) {
   }
 }
 
-app.get('/api/inventory/report/pdf', async (req, res) => {
-  console.log('📊 GET /api/inventory/report/pdf - Generating inventory report');
-  
-  try {
-    // Получаем данные из working_sheets с фильтрами: ilosc > 0 и typ != 'aksesoria'
-    db.all(
-      `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
-       FROM working_sheets 
-       WHERE (archived = 0 OR archived IS NULL) 
-         AND ilosc > 0 
-         AND (typ IS NULL OR typ != 'aksesoria')
+const inventoryReportOrderClause = `
        ORDER BY sprzedawca, 
          CASE typ
            WHEN 'czerwone' THEN 1
@@ -2400,7 +2390,20 @@ app.get('/api/inventory/report/pdf', async (req, res) => {
            ELSE 9
          END,
          ilosc DESC,
-         nazwa`,
+         nazwa`;
+
+app.get('/api/inventory/report/pdf', async (req, res) => {
+  console.log('📊 GET /api/inventory/report/pdf - Generating inventory report');
+  
+  try {
+    // Получаем данные из working_sheets с фильтрами: ilosc > 0 и typ != 'aksesoria'
+    db.all(
+      `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
+       FROM working_sheets 
+       WHERE (archived = 0 OR archived IS NULL) 
+         AND ilosc > 0 
+         AND (typ IS NULL OR typ != 'aksesoria')
+       ${inventoryReportOrderClause}`,
       [],
       async (err, rows) => {
         if (err) {
@@ -2421,6 +2424,65 @@ app.get('/api/inventory/report/pdf', async (req, res) => {
     );
   } catch (error) {
     console.error('Error in inventory report generation:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+// Raport tylko dla zaznaczonych na stronie stanów (te same kolumny i filtry co GET)
+app.post('/api/inventory/report/pdf', async (req, res) => {
+  console.log('📊 POST /api/inventory/report/pdf - Generating inventory report (selected ids)');
+  try {
+    const rawIds = req.body?.ids;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return res.status(400).json({ error: 'ids (non-empty array) is required' });
+    }
+    const ids = [...new Set(
+      rawIds
+        .map((id) => parseInt(String(id), 10))
+        .filter((n) => Number.isInteger(n) && n > 0)
+    )];
+    if (ids.length === 0) {
+      return res.status(400).json({ error: 'No valid numeric ids' });
+    }
+    if (ids.length > 5000) {
+      return res.status(400).json({ error: 'Too many ids' });
+    }
+    const placeholders = ids.map(() => '?').join(',');
+    db.all(
+      `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
+       FROM working_sheets 
+       WHERE (archived = 0 OR archived IS NULL) 
+         AND ilosc > 0 
+         AND (typ IS NULL OR typ != 'aksesoria')
+         AND id IN (${placeholders})
+       ${inventoryReportOrderClause}`,
+      ids,
+      async (err, rows) => {
+        if (err) {
+          console.error('❌ Database error:', err);
+          return res.status(500).json({ error: err.message });
+        }
+        console.log(`✅ Found ${rows.length} items for selected report`);
+        if (!rows || rows.length === 0) {
+          return res.status(404).json({
+            error:
+              'Żadna z zaznaczonych pozycji nie spełnia warunków raportu (ilość > 0, typ inny niż aksesoria, niezarchiwizowane).',
+          });
+        }
+        try {
+          await generateInventoryReportPDF(rows || [], res);
+        } catch (pdfError) {
+          console.error('❌ Error generating PDF:', pdfError);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to generate PDF' });
+          }
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error in inventory report generation (POST):', error);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });
     }
@@ -3727,7 +3789,7 @@ app.get('/api/przychod/next-number-only', (req, res) => {
 app.get('/api/invoices', (req, res) => {
   console.log('📋 GET /api/invoices - Fetching all invoices');
   db.all(
-    'SELECT id, numer_faktury, data_faktury, termin_platnosci, klient_nazwa, suma_netto, suma_brutto FROM invoices ORDER BY data_faktury DESC, id DESC',
+    'SELECT id, numer_faktury, data_faktury, termin_platnosci, klient_nazwa, suma_netto, suma_vat, suma_brutto, rabat_suma FROM invoices ORDER BY data_faktury DESC, id DESC',
     (err, rows) => {
       if (err) {
         console.error('❌ Error fetching invoices:', err);
