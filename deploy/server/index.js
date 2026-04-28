@@ -517,20 +517,17 @@ app.post('/api/reservations', (req, res) => {
       const { product_kod, product_nazwa, ilosc } = product;
       
       // Проверяем доступное количество с учетом активных резерваций
+      // Подзапросы: total_available суммирует ВСЕ строки по kod (основные + семплы)
       db.get(`
         SELECT 
-          ws.ilosc as total_available,
-          COALESCE(SUM(CASE 
-            WHEN r.status = 'aktywna' 
-            THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0)
-            ELSE 0 
-          END), 0) as reserved
-        FROM working_sheets ws
-        LEFT JOIN reservation_products rp ON ws.kod = rp.product_kod
-        LEFT JOIN reservations r ON rp.reservation_id = r.id
-        WHERE ws.kod = ?
-        GROUP BY ws.kod, ws.ilosc
-      `, [product_kod], (err, row) => {
+          (SELECT COALESCE(SUM(ilosc), 0) FROM working_sheets WHERE kod = ?) as total_available,
+          COALESCE((
+            SELECT SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0))
+            FROM reservation_products rp
+            INNER JOIN reservations r ON rp.reservation_id = r.id
+            WHERE rp.product_kod = ? AND r.status = 'aktywna'
+          ), 0) as reserved
+      `, [product_kod, product_kod], (err, row) => {
         if (err) {
           reject({ kod: product_kod, error: err.message });
         } else if (!row) {
@@ -7706,8 +7703,8 @@ app.get('/api/working-sheets/search-simple', (req, res) => {
 
 // Search working sheets
 app.get('/api/working-sheets/search', (req, res) => {
-  const { query, client_id, include_zero_stock } = req.query;
-  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}${include_zero_stock ? ', include_zero_stock: true' : ''}`);
+  const { query, client_id, include_zero_stock, for_reservation } = req.query;
+  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}${include_zero_stock ? ', include_zero_stock: true' : ''}${for_reservation ? ', for_reservation: true' : ''}`);
   
   if (query === undefined || query === null) {
     console.log('❌ Validation failed: query parameter is required');
@@ -7716,7 +7713,87 @@ app.get('/api/working-sheets/search', (req, res) => {
   
   // Если query пустой, используем '%' для поиска всех
   const searchQuery = query.trim() === '' ? '%' : `%${query}%`;
-  
+  const startsWithQuery = query.trim() === '' ? '%' : `${query}%`;
+
+  // Режим для резервации: одна строка на товар с суммарным остатком (основной + семплы)
+  if (for_reservation === 'true') {
+    const reservationQuery = client_id ? `
+      WITH ws_products AS (
+        SELECT w.kod, MAX(w.nazwa) as nazwa, SUM(w.ilosc) as ilosc_main
+        FROM working_sheets w
+        WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+        GROUP BY w.kod
+      ),
+      reserved_products AS (
+        SELECT rp.product_kod as kod,
+          SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
+        FROM reservation_products rp
+        INNER JOIN reservations r ON rp.reservation_id = r.id
+        WHERE r.status = 'aktywna'
+        GROUP BY rp.product_kod
+      ),
+      client_reservations AS (
+        SELECT rp.product_kod as kod,
+          SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_client_reserved
+        FROM reservation_products rp
+        INNER JOIN reservations r ON rp.reservation_id = r.id
+        WHERE r.status = 'aktywna' AND r.client_id = ?
+        GROUP BY rp.product_kod
+      )
+      SELECT ws.kod, ws.nazwa,
+        COALESCE(ws.ilosc_main, 0) as ilosc,
+        COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
+        COALESCE(cr.ilosc_client_reserved, 0) as ilosc_client_reserved,
+        NULL as status,
+        CASE WHEN ws.kod LIKE ? THEN 0 WHEN ws.nazwa LIKE ? THEN 1 ELSE 2 END as match_priority
+      FROM ws_products ws
+      LEFT JOIN reserved_products rp ON ws.kod = rp.kod
+      LEFT JOIN client_reservations cr ON ws.kod = cr.kod
+      WHERE COALESCE(ws.ilosc_main, 0) > 0
+      ORDER BY match_priority, ws.kod, ws.nazwa
+      LIMIT ${query.trim() === '' ? 500 : 50}
+    ` : `
+      WITH ws_products AS (
+        SELECT w.kod, MAX(w.nazwa) as nazwa, SUM(w.ilosc) as ilosc_main
+        FROM working_sheets w
+        WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+        GROUP BY w.kod
+      ),
+      reserved_products AS (
+        SELECT rp.product_kod as kod,
+          SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
+        FROM reservation_products rp
+        INNER JOIN reservations r ON rp.reservation_id = r.id
+        WHERE r.status = 'aktywna'
+        GROUP BY rp.product_kod
+      )
+      SELECT ws.kod, ws.nazwa,
+        COALESCE(ws.ilosc_main, 0) as ilosc,
+        COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
+        NULL as status,
+        CASE WHEN ws.kod LIKE ? THEN 0 WHEN ws.nazwa LIKE ? THEN 1 ELSE 2 END as match_priority
+      FROM ws_products ws
+      LEFT JOIN reserved_products rp ON ws.kod = rp.kod
+      WHERE COALESCE(ws.ilosc_main, 0) > 0
+      ORDER BY match_priority, ws.kod, ws.nazwa
+      LIMIT ${query.trim() === '' ? 500 : 50}
+    `;
+
+    const reservationParams = client_id
+      ? [searchQuery, searchQuery, searchQuery, client_id, startsWithQuery, searchQuery]
+      : [searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery];
+
+    db.all(reservationQuery, reservationParams, (err, rows) => {
+      if (err) {
+        console.error('❌ Database error (for_reservation):', err);
+        return res.status(500).json({ error: err.message });
+      }
+      console.log(`✅ Found ${rows.length} products (for_reservation) matching "${query}"`);
+      res.json(rows || []);
+    });
+    return;
+  }
+
   // Определяем условие фильтрации по остаткам
   const stockFilter = include_zero_stock === 'true' ? '' : 'WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0';
   
@@ -7873,9 +7950,6 @@ app.get('/api/working-sheets/search', (req, res) => {
     LIMIT ${query.trim() === '' ? 500 : 50}
   `;
 
-  // searchQuery уже определен выше: '%' если query пустой, иначе `%${query}%`
-  const startsWithQuery = query.trim() === '' ? '%' : `${query}%`;
-  
   const params = client_id 
     ? [searchQuery, searchQuery, searchQuery, client_id, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery, searchQuery]
     : [searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery];
