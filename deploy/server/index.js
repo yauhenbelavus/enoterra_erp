@@ -7864,8 +7864,8 @@ app.get('/api/working-sheets/search', (req, res) => {
       sp.kod,
       sp.nazwa || ' (samples)' as nazwa,
       sp.ilosc_samples as ilosc,
-      0 as ilosc_reserved,
-      0 as ilosc_client_reserved,
+      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
+      COALESCE(cr.ilosc_client_reserved, 0) as ilosc_client_reserved,
       'samples' as status,
       CASE 
         WHEN sp.kod LIKE ? THEN 0
@@ -7873,6 +7873,8 @@ app.get('/api/working-sheets/search', (req, res) => {
         ELSE 2
       END as match_priority
     FROM samples_products sp
+    LEFT JOIN reserved_products rp ON sp.kod = rp.kod
+    LEFT JOIN client_reservations cr ON sp.kod = cr.kod
     WHERE EXISTS (
       SELECT 1 FROM ws_codes wc WHERE wc.kod = sp.kod
     ) OR sp.kod LIKE ? OR sp.nazwa LIKE ?
@@ -7934,7 +7936,7 @@ app.get('/api/working-sheets/search', (req, res) => {
       sp.kod,
       sp.nazwa || ' (samples)' as nazwa,
       sp.ilosc_samples as ilosc,
-      0 as ilosc_reserved,
+      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
       'samples' as status,
       CASE 
         WHEN sp.kod LIKE ? THEN 0
@@ -7942,6 +7944,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         ELSE 2
       END as match_priority
     FROM samples_products sp
+    LEFT JOIN reserved_products rp ON sp.kod = rp.kod
     WHERE EXISTS (
       SELECT 1 FROM ws_codes wc WHERE wc.kod = sp.kod
     ) OR sp.kod LIKE ? OR sp.nazwa LIKE ?
@@ -7952,7 +7955,7 @@ app.get('/api/working-sheets/search', (req, res) => {
 
   const params = client_id 
     ? [searchQuery, searchQuery, searchQuery, client_id, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery, searchQuery]
-    : [searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery];
+    : [searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery, searchQuery];
   
   db.all(sqlQuery, params,
     (err, rows) => {
