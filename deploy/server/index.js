@@ -7794,197 +7794,140 @@ app.get('/api/working-sheets/search', (req, res) => {
     return;
   }
 
-  // Определяем условие фильтрации по остаткам
-  const stockFilter = include_zero_stock === 'true' ? '' : 'WHERE COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) > 0';
-  
-  // Строим SQL запрос в зависимости от наличия client_id
-  const sqlQuery = client_id ? `
-    WITH ws_products AS (
-      SELECT 
-        w.kod,
-        MAX(w.nazwa) as nazwa,
-        SUM(w.ilosc) as ilosc_main
-      FROM working_sheets w
-      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
-      GROUP BY w.kod
-    ),
-    reserved_products AS (
-      SELECT 
-        rp.product_kod as kod,
-        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
-      FROM reservation_products rp
-      INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status = 'aktywna'
-      GROUP BY rp.product_kod
-    ),
-    client_reservations AS (
-      SELECT 
-        rp.product_kod as kod,
-        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_client_reserved
-      FROM reservation_products rp
-      INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status = 'aktywna' AND r.client_id = ?
-      GROUP BY rp.product_kod
-    ),
-    samples_products AS (
-      SELECT 
-        kod, 
-        MAX(nazwa) as nazwa, 
-        SUM(ilosc) as ilosc_samples
-      FROM products
-      WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
-        AND status = 'samples'
-      GROUP BY kod
-      HAVING SUM(ilosc) > 0
-    ),
-    ws_codes AS (
-      SELECT DISTINCT kod FROM ws_products
-    )
-    SELECT 
-      ws.kod,
-      ws.nazwa,
-      COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) as ilosc,
-      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
-      COALESCE(cr.ilosc_client_reserved, 0) as ilosc_client_reserved,
-      NULL as status,
-      CASE 
-        WHEN ws.kod LIKE ? THEN 0
-        WHEN ws.nazwa LIKE ? THEN 1
-        ELSE 2
-      END as match_priority
-    FROM ws_products ws
-    LEFT JOIN reserved_products rp ON ws.kod = rp.kod
-    LEFT JOIN client_reservations cr ON ws.kod = cr.kod
-    LEFT JOIN samples_products sp ON ws.kod = sp.kod
-    ${stockFilter}
-    
-    UNION ALL
-    
-    SELECT 
-      sp.kod,
-      sp.nazwa || ' (samples)' as nazwa,
-      sp.ilosc_samples as ilosc,
-      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
-      COALESCE(cr.ilosc_client_reserved, 0) as ilosc_client_reserved,
-      'samples' as status,
-      CASE 
-        WHEN sp.kod LIKE ? THEN 0
-        WHEN sp.nazwa LIKE ? THEN 1
-        ELSE 2
-      END as match_priority
-    FROM samples_products sp
-    LEFT JOIN reserved_products rp ON sp.kod = rp.kod
-    LEFT JOIN client_reservations cr ON sp.kod = cr.kod
-    WHERE EXISTS (
-      SELECT 1 FROM ws_codes wc WHERE wc.kod = sp.kod
-    ) OR sp.kod LIKE ? OR sp.nazwa LIKE ?
-    
-    ORDER BY match_priority, kod, status, nazwa
-    LIMIT ${query.trim() === '' ? 500 : 50}
-  ` : `
-    WITH ws_products AS (
-      SELECT 
-        w.kod,
-        MAX(w.nazwa) as nazwa,
-        SUM(w.ilosc) as ilosc_main
-      FROM working_sheets w
-      WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
-      GROUP BY w.kod
-    ),
-    reserved_products AS (
-      SELECT 
-        rp.product_kod as kod,
-        SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved
-      FROM reservation_products rp
-      INNER JOIN reservations r ON rp.reservation_id = r.id
-      WHERE r.status = 'aktywna'
-      GROUP BY rp.product_kod
-    ),
-    samples_products AS (
-      SELECT 
-        kod, 
-        MAX(nazwa) as nazwa, 
-        SUM(ilosc) as ilosc_samples
-      FROM products
-      WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
-        AND status = 'samples'
-      GROUP BY kod
-      HAVING SUM(ilosc) > 0
-    ),
-    ws_codes AS (
-      SELECT DISTINCT kod FROM ws_products
-    )
-    SELECT 
-      ws.kod,
-      ws.nazwa,
-      COALESCE(ws.ilosc_main, 0) - COALESCE(sp.ilosc_samples, 0) as ilosc,
-      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
-      NULL as status,
-      CASE 
-        WHEN ws.kod LIKE ? THEN 0
-        WHEN ws.nazwa LIKE ? THEN 1
-        ELSE 2
-      END as match_priority
-    FROM ws_products ws
-    LEFT JOIN reserved_products rp ON ws.kod = rp.kod
-    LEFT JOIN samples_products sp ON ws.kod = sp.kod
-    ${stockFilter}
-    
-    UNION ALL
-    
-    SELECT 
-      sp.kod,
-      sp.nazwa || ' (samples)' as nazwa,
-      sp.ilosc_samples as ilosc,
-      COALESCE(rp.ilosc_reserved, 0) as ilosc_reserved,
-      'samples' as status,
-      CASE 
-        WHEN sp.kod LIKE ? THEN 0
-        WHEN sp.nazwa LIKE ? THEN 1
-        ELSE 2
-      END as match_priority
-    FROM samples_products sp
-    LEFT JOIN reserved_products rp ON sp.kod = rp.kod
-    WHERE EXISTS (
-      SELECT 1 FROM ws_codes wc WHERE wc.kod = sp.kod
-    ) OR sp.kod LIKE ? OR sp.nazwa LIKE ?
-    
-    ORDER BY match_priority, kod, status, nazwa
-    LIMIT ${query.trim() === '' ? 500 : 50}
-  `;
+  // Упрощённая логика поиска: запускаем 3 простых запроса параллельно и объединяем в JS.
+  // 1) working_sheets — основной товар (суммарно по kod)
+  // 2) products (status='samples') — семплы
+  // 3) reservation_products + reservations — все активные резервации (общие и по клиенту)
+  const includeZero = include_zero_stock === 'true';
+  const limitRows = query.trim() === '' ? 500 : 50;
 
-  const params = client_id 
-    ? [searchQuery, searchQuery, searchQuery, client_id, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery, searchQuery]
-    : [searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, startsWithQuery, searchQuery, startsWithQuery, searchQuery, searchQuery];
-  
-  db.all(sqlQuery, params,
-    (err, rows) => {
-      if (err) {
-        console.error('❌ Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      console.log(`✅ Found ${rows.length} products matching "${query}"`);
-      
-      // Проверка на дубликаты по kod и status
-      const seen = new Set();
-      const uniqueRows = rows.filter((row) => {
-        const key = `${row.kod}-${row.status || 'main'}`;
-        if (seen.has(key)) {
-          console.log(`⚠️ Duplicate found and removed: ${key}`);
-          return false;
-        }
-        seen.add(key);
-        return true;
+  const wsPromise = new Promise((resolve, reject) => {
+    db.all(
+      `SELECT w.kod, MAX(w.nazwa) as nazwa, SUM(w.ilosc) as ilosc_main
+       FROM working_sheets w
+       WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
+       GROUP BY w.kod`,
+      [searchQuery, searchQuery, searchQuery],
+      (err, rows) => err ? reject(err) : resolve(rows || [])
+    );
+  });
+
+  const samplesPromise = new Promise((resolve, reject) => {
+    db.all(
+      `SELECT kod, MAX(nazwa) as nazwa, SUM(ilosc) as ilosc_samples
+       FROM products
+       WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
+         AND status = 'samples'
+       GROUP BY kod
+       HAVING SUM(ilosc) > 0`,
+      [searchQuery, searchQuery, searchQuery],
+      (err, rows) => err ? reject(err) : resolve(rows || [])
+    );
+  });
+
+  const reservationsPromise = new Promise((resolve, reject) => {
+    db.all(
+      `SELECT rp.product_kod as kod,
+              SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved,
+              SUM(CASE WHEN r.client_id = ? THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0) ELSE 0 END) as ilosc_client_reserved
+       FROM reservation_products rp
+       INNER JOIN reservations r ON rp.reservation_id = r.id
+       WHERE r.status = 'aktywna'
+       GROUP BY rp.product_kod`,
+      [client_id || 0],
+      (err, rows) => err ? reject(err) : resolve(rows || [])
+    );
+  });
+
+  Promise.all([wsPromise, samplesPromise, reservationsPromise])
+    .then(([wsRows, samplesRows, reservationsRows]) => {
+      // Маппы для быстрого поиска
+      const samplesByKod = new Map();
+      samplesRows.forEach(r => samplesByKod.set(r.kod, r.ilosc_samples || 0));
+
+      const reservationsByKod = new Map();
+      reservationsRows.forEach(r => reservationsByKod.set(r.kod, {
+        ilosc_reserved: r.ilosc_reserved || 0,
+        ilosc_client_reserved: r.ilosc_client_reserved || 0
+      }));
+
+      // Все коды товаров, которые есть в working_sheets
+      const wsCodes = new Set(wsRows.map(r => r.kod));
+
+      // Сортировка: точное/префиксное совпадение по kod в начале, далее по nazwa
+      const matchPriority = (kod, nazwa) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return 2;
+        if ((kod || '').toLowerCase().startsWith(q)) return 0;
+        if ((nazwa || '').toLowerCase().includes(q)) return 1;
+        return 2;
+      };
+
+      const result = [];
+
+      // Основные строки — working_sheets
+      wsRows.forEach(ws => {
+        const samplesQty = samplesByKod.get(ws.kod) || 0;
+        const mainOnly = (ws.ilosc_main || 0) - samplesQty;
+        if (!includeZero && mainOnly <= 0) return;
+
+        const reserved = reservationsByKod.get(ws.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0 };
+        const row = {
+          kod: ws.kod,
+          nazwa: ws.nazwa,
+          ilosc: mainOnly,
+          ilosc_reserved: reserved.ilosc_reserved,
+          status: null,
+          _sort_priority: matchPriority(ws.kod, ws.nazwa)
+        };
+        if (client_id) row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+        result.push(row);
       });
-      
-      if (uniqueRows.length !== rows.length) {
-        console.log(`⚠️ Removed ${rows.length - uniqueRows.length} duplicate(s)`);
-      }
-      
-      res.json(uniqueRows || []);
-    }
-  );
+
+      // Строки семплов
+      samplesRows.forEach(sp => {
+        const sampleQty = sp.ilosc_samples || 0;
+        if (sampleQty <= 0) return;
+
+        const q = query.trim().toLowerCase();
+        const matchesSearch = !q
+          || (sp.kod || '').toLowerCase().includes(q)
+          || (sp.nazwa || '').toLowerCase().includes(q);
+        // Показываем семплы, если есть основная строка по kod ИЛИ если они подходят под поиск
+        if (!wsCodes.has(sp.kod) && !matchesSearch) return;
+
+        const reserved = reservationsByKod.get(sp.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0 };
+        const row = {
+          kod: sp.kod,
+          nazwa: `${sp.nazwa} (samples)`,
+          ilosc: sampleQty,
+          ilosc_reserved: reserved.ilosc_reserved,
+          status: 'samples',
+          _sort_priority: matchPriority(sp.kod, sp.nazwa)
+        };
+        if (client_id) row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+        result.push(row);
+      });
+
+      // Сортировка
+      result.sort((a, b) => {
+        if (a._sort_priority !== b._sort_priority) return a._sort_priority - b._sort_priority;
+        if (a.kod !== b.kod) return a.kod.localeCompare(b.kod);
+        // в рамках одного kod: основной (status=null) до семплов
+        if ((a.status || '') !== (b.status || '')) return (a.status || '').localeCompare(b.status || '');
+        return (a.nazwa || '').localeCompare(b.nazwa || '');
+      });
+
+      // Удаляем служебное поле и применяем лимит
+      const finalRows = result.slice(0, limitRows).map(({ _sort_priority, ...rest }) => rest);
+
+      console.log(`✅ Found ${finalRows.length} products matching "${query}"`);
+      res.json(finalRows);
+    })
+    .catch(err => {
+      console.error('❌ Database error:', err);
+      res.status(500).json({ error: err.message });
+    });
 });
 
 app.post('/api/working-sheets', (req, res) => {
