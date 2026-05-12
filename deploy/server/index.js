@@ -7293,10 +7293,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                 }
                 
                 // Определяем, что изменилось в working_sheets
+                const maxCenaForWsCheck = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                 const wsChanges = {
                   ilosc: oldProduct.ilosc !== newProduct.ilosc, // Количество в приемке изменилось
                   nazwa: (oldProduct.nazwa || '') !== (newProduct.nazwa || ''),
                   kod_kreskowy: (oldProduct.kod_kreskowy || '') !== (newProduct.kod_kreskowy || ''),
+                  cena: Math.abs((workingSheetRecord.cena || 0) - maxCenaForWsCheck) > 0.01, // Изменилась цена в приемке
                   typ: (oldProduct.typ || '') !== (newProduct.typ || ''),
                   dataWaznosci: (oldProduct.dataWaznosci || '') !== (newProduct.dataWaznosci || ''),
                   objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || ''),
