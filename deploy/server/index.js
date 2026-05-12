@@ -3597,7 +3597,7 @@ function restoreProductQuantitiesFromOrder(orderId, products, callback) {
   console.log(`🔄 Restoring product quantities from order ${orderId}`);
   
   // Получаем информацию о потреблении для этого заказа
-  db.all('SELECT * FROM order_consumptions WHERE order_id = ?', (err, consumptions) => {
+  db.all('SELECT * FROM order_consumptions WHERE order_id = ?', [orderId], (err, consumptions) => {
     if (err) {
       console.error(`❌ Error fetching consumptions for order ${orderId}:`, err);
       callback();
@@ -4515,7 +4515,20 @@ app.put('/api/orders/:id', (req, res) => {
     console.log('❌ Validation failed: klient and numer_zamowienia are required');
     return res.status(400).json({ error: 'Client name and order number are required' });
   }
-  
+
+  // Запрещаем редактирование заявки, если на её основе уже создана фактура
+  db.get('SELECT id, numer_faktury FROM invoices WHERE order_id = ?', [id], (err, invoice) => {
+    if (err) {
+      console.error('❌ Error checking invoice for order:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    if (invoice) {
+      console.log(`🚫 Cannot edit order ${id}: invoice ${invoice.numer_faktury} exists`);
+      return res.status(409).json({
+        error: `Nie można edytować zamówienia, ponieważ na jego podstawie została wystawiona faktura ${invoice.numer_faktury}.`
+      });
+    }
+
   // Сначала проверяем тип заказа (для списаний клиент всегда VEIS)
   db.get('SELECT typ FROM orders WHERE id = ?', [id], (err, orderRow) => {
     if (err) {
@@ -5684,12 +5697,34 @@ app.put('/api/orders/:id', (req, res) => {
       });
     }
   }
+  }); // db.get invoice check
 });
 
 app.delete('/api/orders/:id', (req, res) => {
   const { id } = req.params;
   console.log(`📋 DELETE /api/orders/${id} - Deleting order`);
-  
+
+  // Запрещаем удаление заявки, если на её основе уже создана фактура
+  db.get('SELECT id, numer_faktury FROM invoices WHERE order_id = ?', [id], (err, invoice) => {
+    if (err) {
+      console.error('❌ Error checking invoice for order:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    if (invoice) {
+      console.log(`🚫 Cannot delete order ${id}: invoice ${invoice.numer_faktury} exists`);
+      return res.status(409).json({
+        error: `Nie można usunąć zamówienia, ponieważ na jego podstawie została wystawiona faktura ${invoice.numer_faktury}. Najpierw usuń fakturę.`
+      });
+    }
+
+  db.get('SELECT typ FROM orders WHERE id = ?', [id], (err, orderRow) => {
+    if (err) {
+      console.error('❌ Database error fetching order type:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    const orderType = orderRow ? orderRow.typ : null;
+    console.log(`🔍 Order ${id} type: ${orderType}`);
+
   // Сначала получаем продукты заказа для восстановления количества
   db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, orderProducts) => {
     if (err) {
@@ -5775,6 +5810,17 @@ app.delete('/api/orders/:id', (req, res) => {
                     console.log(`✅ Order ${id} deleted successfully`);
                     
                     // 6. Восстанавливаем количество в working_sheets
+                    // Для przesunięcie склад не трогаем — товар был списан ещё при исходном заказе
+                    if (orderType === 'przesuniecie') {
+                      console.log(`💡 Przesunięcie order ${id}: skipping working_sheets restoration`);
+                      return res.json({
+                        message: 'Order deleted successfully',
+                        workingSheetsRestored: 0,
+                        productsRestored: consumptionsRestored,
+                        reservationFulfillmentsRestored: fulfillmentsRestored
+                      });
+                    }
+
                     let restoredCount = 0;
                     let totalProducts = orderProducts.length;
                     
@@ -5882,7 +5928,9 @@ app.delete('/api/orders/:id', (req, res) => {
         }
       });
     });
-  });
+  }); // db.all order_products
+  }); // db.get order type
+  }); // db.get invoice check
 });
 
 // Order Consumptions API
