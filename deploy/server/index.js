@@ -466,6 +466,69 @@ db.serialize(() => {
     if (err) console.error('❌ Error creating index idx_fulfillments_order_id:', err);
   });
 
+  // Таблица инвойсов (фактур)
+  db.run(`CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numer_faktury TEXT NOT NULL,
+    data_faktury TEXT,
+    order_id INTEGER,
+    numer_zamowienia TEXT,
+    termin_platnosci TEXT,
+    client_id INTEGER,
+    klient_nazwa TEXT,
+    klient_firma TEXT,
+    suma_netto REAL,
+    suma_vat REAL,
+    suma_brutto REAL,
+    rabat_suma REAL DEFAULT 0,
+    przesuniecie_order_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE SET NULL,
+    FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE SET NULL
+  )`, (err) => {
+    if (err) {
+      console.error('❌ Error creating invoices table:', err);
+    } else {
+      console.log('✅ Invoices table ready');
+    }
+  });
+
+  // Таблица позиций инвойса
+  db.run(`CREATE TABLE IF NOT EXISTS invoice_products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id INTEGER NOT NULL,
+    kod TEXT,
+    nazwa TEXT,
+    ilosc REAL,
+    cena_netto REAL,
+    rabat REAL DEFAULT 0,
+    vat_stawka INTEGER DEFAULT 23,
+    wartosc_netto REAL,
+    wartosc_vat REAL,
+    wartosc_brutto REAL,
+    order_product_id INTEGER,
+    FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE CASCADE
+  )`, (err) => {
+    if (err) {
+      console.error('❌ Error creating invoice_products table:', err);
+    } else {
+      console.log('✅ Invoice products table ready');
+    }
+  });
+
+  // Миграция: добавляем przesuniecie_order_id в invoices
+  db.run(`ALTER TABLE invoices ADD COLUMN przesuniecie_order_id INTEGER`, (alterErr) => {
+    if (alterErr) {
+      if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+        console.log('✅ Column przesuniecie_order_id already exists in invoices');
+      } else {
+        console.error('❌ Error adding przesuniecie_order_id column:', alterErr);
+      }
+    } else {
+      console.log('✅ Column przesuniecie_order_id added to invoices');
+    }
+  });
+
   console.log('🎉 All database tables initialized successfully');
   
   // Миграция: добавляем недостающие поля в таблицу products
@@ -4017,6 +4080,11 @@ app.post('/api/invoices', (req, res) => {
               return res.json({ id: invoiceId, numer_faktury });
             }
             const psOrderId = this.lastID;
+            // Сохраняем ссылку на przesunięcie в фактуре
+            db.run('UPDATE invoices SET przesuniecie_order_id = ? WHERE id = ?', [psOrderId, invoiceId], (updErr) => {
+              if (updErr) console.error('❌ Error linking przesunięcie to invoice:', updErr);
+              else console.log(`✅ Invoice ${invoiceId} linked to przesunięcie order ${psOrderId}`);
+            });
             let pend = items.length;
             let hasErr = false;
             items.forEach((p) => {
@@ -4166,6 +4234,47 @@ app.put('/api/invoices/:id', (req, res) => {
         });
       }
     );
+  });
+});
+
+// Endpoint для удаления фактуры
+app.delete('/api/invoices/:id', (req, res) => {
+  const { id } = req.params;
+  console.log(`🗑️ DELETE /api/invoices/${id} - Deleting invoice`);
+
+  db.get('SELECT * FROM invoices WHERE id = ?', [id], (err, invoice) => {
+    if (err) {
+      console.error('❌ Error fetching invoice:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    if (!invoice) {
+      return res.status(404).json({ error: 'Faktura nie znaleziona' });
+    }
+
+    const psOrderId = invoice.przesuniecie_order_id;
+
+    // Удаляем фактуру (invoice_products удалятся каскадом через FK ON DELETE CASCADE)
+    db.run('DELETE FROM invoices WHERE id = ?', [id], function(delErr) {
+      if (delErr) {
+        console.error('❌ Error deleting invoice:', delErr);
+        return res.status(500).json({ error: delErr.message });
+      }
+      console.log(`✅ Invoice ${id} (${invoice.numer_faktury}) deleted`);
+
+      if (!psOrderId) {
+        return res.json({ message: 'Faktura usunięta', numer_faktury: invoice.numer_faktury });
+      }
+
+      // Удаляем связанный przesunięcie-заказ
+      db.run('DELETE FROM order_products WHERE orderId = ?', [psOrderId], (opErr) => {
+        if (opErr) console.error('❌ Error deleting PS order_products:', opErr);
+        db.run('DELETE FROM orders WHERE id = ?', [psOrderId], (oErr) => {
+          if (oErr) console.error('❌ Error deleting PS order:', oErr);
+          else console.log(`✅ Przesunięcie order ${psOrderId} deleted`);
+          res.json({ message: 'Faktura i przesunięcie usunięte', numer_faktury: invoice.numer_faktury });
+        });
+      });
+    });
   });
 });
 
