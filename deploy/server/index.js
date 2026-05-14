@@ -3868,18 +3868,30 @@ app.get('/api/invoices/next-number-only', (req, res) => {
       console.error('❌ Error getting next invoice number:', err);
       return res.status(500).json({ error: err.message });
     }
+
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1; // 1-12
+    const currentYear = now.getFullYear();
+
+    // Ищем максимальный порядковый номер среди фактур текущего месяца и года
+    // Формат: FS/1/09/2026
     let maxNum = 0;
     (rows || []).forEach((r) => {
       const str = (r.numer_faktury || '').trim();
-      // Формат "FV 240/2/2026" или "240" — извлекаем числовую часть до первого "/" или целиком
-      const match = str.match(/^FV\s*(\d+)/i) || str.match(/^(\d+)/);
+      const match = str.match(/^FS\/(\d+)\/(\d{2})\/(\d{4})$/i);
       if (match) {
-        const n = parseInt(match[1], 10);
-        if (!isNaN(n) && n > maxNum) maxNum = n;
+        const seq = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10);
+        const year = parseInt(match[3], 10);
+        if (year === currentYear && month === currentMonth && seq > maxNum) {
+          maxNum = seq;
+        }
       }
     });
+
     const nextNum = maxNum + 1;
-    const numer_faktury = nextNum.toString().padStart(3, '0');
+    const mm = currentMonth.toString().padStart(2, '0');
+    const numer_faktury = `FS/${nextNum}/${mm}/${currentYear}`;
     console.log(`✅ Next invoice number: ${numer_faktury} (max was: ${maxNum})`);
     res.json({ numer_faktury });
   });
@@ -8012,6 +8024,8 @@ app.get('/api/working-sheets/search', (req, res) => {
 
       // Все коды товаров, которые есть в working_sheets
       const wsCodes = new Set(wsRows.map(r => r.kod));
+      // Карта: kod → ilosc_main (для проверки остатка при отображении семплов)
+      const wsMainByKod = new Map(wsRows.map(r => [r.kod, r.ilosc_main || 0]));
 
       // Сортировка: точное/префиксное совпадение по kod в начале, далее по nazwa
       const matchPriority = (kod, nazwa) => {
@@ -8048,6 +8062,14 @@ app.get('/api/working-sheets/search', (req, res) => {
         const sampleQty = sp.ilosc_samples || 0;
         if (sampleQty <= 0) return;
 
+        // Не показываем семплы если в working_sheets остаток <= 0
+        const wsMain = wsMainByKod.get(sp.kod) || 0;
+        if (wsMain <= 0) return;
+
+        // Показываем не больше, чем есть в working_sheets
+        const effectiveSampleQty = Math.min(sampleQty, wsMain);
+        if (effectiveSampleQty <= 0) return;
+
         const q = query.trim().toLowerCase();
         const matchesSearch = !q
           || (sp.kod || '').toLowerCase().includes(q)
@@ -8059,7 +8081,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         const row = {
           kod: sp.kod,
           nazwa: `${sp.nazwa} (samples)`,
-          ilosc: sampleQty,
+          ilosc: effectiveSampleQty,
           ilosc_reserved: reserved.ilosc_reserved,
           status: 'samples',
           _sort_priority: matchPriority(sp.kod, sp.nazwa)
