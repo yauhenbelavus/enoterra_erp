@@ -1078,7 +1078,7 @@ app.get('/api/products/search', (req, res) => {
 app.get('/api/products/samples-count', (req, res) => {
   console.log('📦 GET /api/products/samples-count - Fetching samples count');
   db.all(
-    `SELECT kod, SUM(ilosc) as total_ilosc 
+    `SELECT kod, SUM(ilosc_aktualna) as total_ilosc 
      FROM products 
      WHERE status = 'samples' 
      GROUP BY kod`,
@@ -7973,12 +7973,12 @@ app.get('/api/working-sheets/search', (req, res) => {
 
   const samplesPromise = new Promise((resolve, reject) => {
     db.all(
-      `SELECT kod, MAX(nazwa) as nazwa, SUM(ilosc) as ilosc_samples
+      `SELECT kod, MAX(nazwa) as nazwa, SUM(ilosc_aktualna) as ilosc_samples
        FROM products
        WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
          AND status = 'samples'
        GROUP BY kod
-       HAVING SUM(ilosc) > 0`,
+       HAVING SUM(ilosc_aktualna) > 0`,
       [searchQuery, searchQuery, searchQuery],
       (err, rows) => err ? reject(err) : resolve(rows || [])
     );
@@ -9395,6 +9395,16 @@ const restoreToProducts = (productKod, quantity) => {
     );
   });
 };
+
+// Serve static files from parent directory (frontend)
+app.use(express.static(path.join(__dirname, '..')));
+
+// ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, '../index.html');
+  console.log('Serving SPA fallback:', indexPath);
+  res.sendFile(indexPath);
+});
 
 // Serve static files from parent directory (frontend)
 app.use(express.static(path.join(__dirname, '..')));
