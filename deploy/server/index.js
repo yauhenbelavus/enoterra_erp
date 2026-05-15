@@ -3862,18 +3862,33 @@ app.get('/api/invoices', (req, res) => {
 
 // Следующий номер фактуры (только числовая часть: 001, 002, …). Берём максимум по сохранённым номерам + 1.
 app.get('/api/invoices/next-number-only', (req, res) => {
-  console.log('🔢 GET /api/invoices/next-number-only - Next invoice number');
+  console.log('🔢 GET /api/invoices/next-number-only - Next invoice number', { date: req.query.date });
+
+  // Определяем месяц/год по переданной дате фактуры (?date=YYYY-MM-DD),
+  // либо по текущей дате сервера, если параметр не передан.
+  let targetMonth;
+  let targetYear;
+  const dateParam = (req.query.date || '').toString().trim();
+  if (dateParam) {
+    const parsed = new Date(dateParam);
+    if (!isNaN(parsed.getTime())) {
+      targetMonth = parsed.getMonth() + 1;
+      targetYear = parsed.getFullYear();
+    }
+  }
+  if (!targetMonth || !targetYear) {
+    const now = new Date();
+    targetMonth = now.getMonth() + 1;
+    targetYear = now.getFullYear();
+  }
+
   db.all('SELECT numer_faktury FROM invoices', (err, rows) => {
     if (err) {
       console.error('❌ Error getting next invoice number:', err);
       return res.status(500).json({ error: err.message });
     }
 
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1; // 1-12
-    const currentYear = now.getFullYear();
-
-    // Ищем максимальный порядковый номер среди фактур текущего месяца и года
+    // Ищем максимальный порядковый номер среди фактур указанного месяца и года
     // Формат: FS/1/09/2026
     let maxNum = 0;
     (rows || []).forEach((r) => {
@@ -3883,16 +3898,16 @@ app.get('/api/invoices/next-number-only', (req, res) => {
         const seq = parseInt(match[1], 10);
         const month = parseInt(match[2], 10);
         const year = parseInt(match[3], 10);
-        if (year === currentYear && month === currentMonth && seq > maxNum) {
+        if (year === targetYear && month === targetMonth && seq > maxNum) {
           maxNum = seq;
         }
       }
     });
 
     const nextNum = maxNum + 1;
-    const mm = currentMonth.toString().padStart(2, '0');
-    const numer_faktury = `FS/${nextNum}/${mm}/${currentYear}`;
-    console.log(`✅ Next invoice number: ${numer_faktury} (max was: ${maxNum})`);
+    const mm = targetMonth.toString().padStart(2, '0');
+    const numer_faktury = `FS/${nextNum}/${mm}/${targetYear}`;
+    console.log(`✅ Next invoice number: ${numer_faktury} (max was: ${maxNum}, month: ${mm}/${targetYear})`);
     res.json({ numer_faktury });
   });
 });
