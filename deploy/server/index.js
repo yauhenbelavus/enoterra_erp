@@ -5112,7 +5112,7 @@ app.put('/api/orders/:id', (req, res) => {
               });
             } else {
               // Используем новую функцию handleQuantityIncrease (как в POST)
-              handleQuantityIncrease(kod, Number(ilosc), orderProductId, () => {
+              handleQuantityIncrease(kod, Number(ilosc), orderProductId, nazwa, () => {
                 operationCompleted();
               });
             }
@@ -5123,11 +5123,17 @@ app.put('/api/orders/:id', (req, res) => {
     
     function deleteUnusedProduct(oldProduct, key) {
       const { kod, ilosc } = oldProduct;
+      const oldIsSample = (oldProduct.nazwa || '').includes('(samples)');
       
-      console.log(`🗑️ Deleting unused product ${key}: ${ilosc} units`);
+      console.log(`🗑️ Deleting unused product ${key}: ${ilosc} units (isSample: ${oldIsSample})`);
       
       // Проверяем, есть ли новый продукт с тем же кодом (замена типа)
-      const newProductWithSameCode = products.find(p => p.kod === kod && p.typ !== oldProduct.typ);
+      // ВАЖНО: sample и обычный товар с одним kod — разные позиции, замена возможна
+      // только в рамках одной категории (main↔main или samples↔samples)
+      const newProductWithSameCode = products.find(p => {
+        const newIsSample = (p.nazwa || '').includes('(samples)');
+        return p.kod === kod && p.typ !== oldProduct.typ && newIsSample === oldIsSample;
+      });
       
       if (newProductWithSameCode) {
         // Это замена типа - обновляем order_consumptions вместо удаления
