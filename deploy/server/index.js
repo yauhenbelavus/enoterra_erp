@@ -2851,9 +2851,11 @@ app.post('/api/orders', (req, res) => {
                   
                   // Функция для продолжения после обновления резерваций
                   const proceedWithFIFO = () => {
+                        // Определяем статус: семпл или обычный — по суффиксу в названии
+                        const itemStatus = (nazwa || '').includes('(samples)') ? 'samples' : null;
                         // Теперь списываем по FIFO из products с отслеживанием
                     // Списываем всё количество заказа (фактическая отгрузка)
-                        consumeFromProducts(kod, ilosc)
+                        consumeFromProducts(kod, ilosc, itemStatus)
                           .then(({ consumed, remaining, consumptions }) => {
                             console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
                             // Записываем списания партий в order_consumptions
@@ -4545,7 +4547,8 @@ app.post('/api/writeoffs', (req, res) => {
                   
                   // 4. FIFO списание через consumeFromProducts (как при создании заказа)
                   if (kod) {
-                    consumeFromProducts(kod, ilosc)
+                    const itemStatus = (nazwa || '').includes('(samples)') ? 'samples' : null;
+                    consumeFromProducts(kod, ilosc, itemStatus)
                       .then(({ consumed, remaining, consumptions }) => {
                         console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
                         
@@ -4739,7 +4742,8 @@ app.put('/api/orders/:id', (req, res) => {
     const newProductsMap = {};
     
     oldOrderProducts.forEach(product => {
-      const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
+      const isSample = (product.nazwa || '').includes('(samples)');
+      const key = `${product.kod}_${product.typ || 'sprzedaz'}_${isSample ? 'samples' : 'main'}`;
       if (!oldProductsMap[key]) {
         oldProductsMap[key] = [];
       }
@@ -4747,7 +4751,8 @@ app.put('/api/orders/:id', (req, res) => {
     });
     
     products.forEach(product => {
-      const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
+      const isSample = (product.nazwa || '').includes('(samples)');
+      const key = `${product.kod}_${product.typ || 'sprzedaz'}_${isSample ? 'samples' : 'main'}`;
       if (!newProductsMap[key]) {
         newProductsMap[key] = [];
       }
@@ -4872,7 +4877,7 @@ app.put('/api/orders/:id', (req, res) => {
               });
             } else {
               // Для обычных заказов и rozchodu - используем стандартную логику
-              handleQuantityIncrease(kod, quantityDiff, orderProductId, () => {
+              handleQuantityIncrease(kod, quantityDiff, orderProductId, nazwa, () => {
                 operationCompleted();
               });
             }
@@ -4885,7 +4890,7 @@ app.put('/api/orders/:id', (req, res) => {
               });
             } else {
               // Для обычных заказов и rozchodu - используем стандартную логику
-              handleQuantityDecrease(kod, Math.abs(quantityDiff), orderProductId, () => {
+              handleQuantityDecrease(kod, Math.abs(quantityDiff), orderProductId, nazwa, () => {
                 operationCompleted();
               });
             }
@@ -4898,8 +4903,8 @@ app.put('/api/orders/:id', (req, res) => {
     }
     
     // Новая функция для увеличения количества (как в POST)
-    function handleQuantityIncrease(kod, quantity, orderProductId, callback) {
-      console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId})`);
+    function handleQuantityIncrease(kod, quantity, orderProductId, nazwa, callback) {
+      console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId}, nazwa: ${nazwa})`);
       
       // 1. Сначала обновляем working_sheets
       db.run(
@@ -5006,7 +5011,8 @@ app.put('/api/orders/:id', (req, res) => {
           
           function proceedWithFIFO() {
             // 3. FIFO списание из партий
-            consumeFromProducts(kod, quantity)
+            const itemStatus = (nazwa || '').includes('(samples)') ? 'samples' : null;
+            consumeFromProducts(kod, quantity, itemStatus)
               .then(({ consumed, remaining, consumptions }) => {
                 console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
                 if (consumptions && consumptions.length > 0) {
@@ -5038,8 +5044,8 @@ app.put('/api/orders/:id', (req, res) => {
     }
     
     // Новая функция для уменьшения количества
-    function handleQuantityDecrease(kod, quantity, orderProductId, callback) {
-      console.log(`🔄 handleQuantityDecrease: ${kod} -${quantity}`);
+    function handleQuantityDecrease(kod, quantity, orderProductId, nazwa, callback) {
+      console.log(`🔄 handleQuantityDecrease: ${kod} -${quantity} (nazwa: ${nazwa})`);
 
       // Вызываем существующую функцию processQuantityDecrease
       processQuantityDecrease(kod, quantity, callback);
@@ -5221,10 +5227,12 @@ app.put('/api/orders/:id', (req, res) => {
     
     console.log(`🔄 Processing quantity changes for ${products.length} products`);
     
-    // Создаем map старых продуктов для быстрого поиска (по коду + типу)
+    // Создаем map старых продуктов для быстрого поиска (по коду + типу + samples/main)
+    // Включаем флаг samples в ключ, чтобы обычный и sample товары не сливались
     const oldProductsMap = {};
     oldOrderProducts.forEach(product => {
-      const key = `${product.kod}_${product.typ || 'sprzedaz'}`;
+      const isSample = (product.nazwa || '').includes('(samples)');
+      const key = `${product.kod}_${product.typ || 'sprzedaz'}_${isSample ? 'samples' : 'main'}`;
       oldProductsMap[key] = product;
     });
     
@@ -5237,7 +5245,8 @@ app.put('/api/orders/:id', (req, res) => {
           
           products.forEach((product, index) => {
             const { kod, nazwa, ilosc, typ, kod_kreskowy } = product;
-            const key = `${kod}_${typ || 'sprzedaz'}`;
+            const isSample = (nazwa || '').includes('(samples)');
+            const key = `${kod}_${typ || 'sprzedaz'}_${isSample ? 'samples' : 'main'}`;
             const oldProduct = oldProductsMap[key];
             const oldQuantity = oldProduct ? Number(oldProduct.ilosc) : 0;
             const newQuantity = Number(ilosc);
@@ -5298,7 +5307,7 @@ app.put('/api/orders/:id', (req, res) => {
                     processQuantityIncrease(kod, quantityDiff, () => {
                       productsProcessed++;
                       checkCompletion();
-                    });
+                    }, null, nazwa);
                   } else if (quantityDiff < 0) {
                     // Новое количество меньше - восстанавливаем разницу
                     processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
@@ -5318,7 +5327,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityIncrease(kod, newQuantity, () => {
                   productsProcessed++;
                   checkCompletion();
-                });
+                }, null, nazwa);
               }
             } else if (quantityDiff !== 0) {
               if (quantityDiff > 0) {
@@ -5327,7 +5336,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityIncrease(kod, quantityDiff, () => {
                   productsProcessed++;
                   checkCompletion();
-                });
+                }, null, nazwa);
               } else {
                 // Количество уменьшилось - восстанавливаем разницу
                 const restoreQuantity = Math.abs(quantityDiff);
@@ -5382,7 +5391,7 @@ app.put('/api/orders/:id', (req, res) => {
   }
   
   // Функция для обработки увеличения количества продукта
-  function processQuantityIncrease(productKod, quantityDiff, callback, orderProductId = null) {
+  function processQuantityIncrease(productKod, quantityDiff, callback, orderProductId = null, nazwa = null) {
     console.log(`🔄 Processing quantity increase for ${productKod}: +${quantityDiff} (clientId: ${clientId}, orderProductId: ${orderProductId})`);
     console.log(`🔍 processQuantityIncrease called with: productKod=${productKod}, quantityDiff=${quantityDiff}`);
     console.log(`🔍 processQuantityIncrease: starting FIFO consumption...`);
@@ -5544,9 +5553,10 @@ app.put('/api/orders/:id', (req, res) => {
       // Сначала обрабатываем резервации клиента
       checkClientReservation((quantityFromReservation) => {
         // Товар доступен, списываем разницу по FIFO
-        console.log(`🎯 FIFO consumption for ${productKod}: ${quantityDiff} szt. (${quantityFromReservation} from reservation)`);
+        const itemStatus = (nazwa || '').includes('(samples)') ? 'samples' : null;
+        console.log(`🎯 FIFO consumption for ${productKod}: ${quantityDiff} szt. (${quantityFromReservation} from reservation, status: ${itemStatus || 'main'})`);
         console.log(`🔍 processQuantityIncrease: calling consumeFromProducts...`);
-        consumeFromProducts(productKod, quantityDiff)
+        consumeFromProducts(productKod, quantityDiff, itemStatus)
           .then(({ consumed, remaining, consumptions }) => {
             console.log(`🎯 FIFO consumption for ${productKod}: ${consumed} szt. consumed`);
             // Записываем списания партий в order_consumptions
@@ -9363,10 +9373,16 @@ app.listen(PORT, () => {
 });
 
 // ===== NEW CONSUME FROM PRODUCTS (FIFO) =====
-function consumeFromProducts(productKod, quantity) {
+// status: 'samples' — списываем только из партий семплов
+//         null/'main' — списываем только из обычных партий (status IS NULL)
+function consumeFromProducts(productKod, quantity, status = null) {
   return new Promise((resolve, reject) => {
+    const isSamples = status === 'samples';
+    const sql = isSamples
+      ? `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND status = 'samples' ORDER BY created_at ASC, id ASC`
+      : `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND (status IS NULL OR status != 'samples') ORDER BY created_at ASC, id ASC`;
     db.all(
-      'SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 ORDER BY created_at ASC, id ASC',
+      sql,
       [productKod],
       (err, batches) => {
         if (err) return reject(err);
