@@ -2849,68 +2849,52 @@ app.post('/api/orders', (req, res) => {
                   productsCreated++;
                   console.log(`✅ Product ${index + 1} created for order ${orderId} with ID: ${orderProductId}`);
                   
-                  // Функция для продолжения после обновления резерваций.
-                  // Списываем партии через FIFO и синхронизируем working_sheets с фактически списанным объёмом.
-                  // Если строка с суффиксом "(samples)" — берём только из партий-семплов, иначе только из обычных.
-                  const fromSamples = isSamplesLine(product);
+                  // Функция для продолжения после обновления резерваций
                   const proceedWithFIFO = () => {
-                    consumeFromProducts(kod, ilosc, { fromSamples })
-                      .then(({ consumed, remaining, consumptions }) => {
-                        console.log(`🎯 FIFO consumption for ${kod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${ilosc})`);
-                        if (remaining > 0) {
-                          console.error(`❌ INCONSISTENT INVENTORY: requested ${ilosc} of ${kod}, only ${consumed} available in partias (missing: ${remaining}). working_sheets/products are out of sync.`);
-                        }
-
-                        const finalizeWithWorkingSheets = () => {
-                          // Списываем working_sheets ровно на фактически потреблённое из партий
-                          if (consumed <= 0) {
-                            console.warn(`⚠️ No consumption from partias for ${kod}, skipping working_sheets update`);
-                            checkCompletion();
-                            return;
-                          }
-                          db.run(
-                            'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                            [consumed, kod],
-                            function(updateErr) {
-                              if (updateErr) {
-                                console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
-                              } else {
-                                console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${consumed})`);
-                                workingSheetsUpdated++;
-                              }
+                        // Теперь списываем по FIFO из products с отслеживанием
+                    // Списываем всё количество заказа (фактическая отгрузка)
+                        consumeFromProducts(kod, ilosc)
+                          .then(({ consumed, remaining, consumptions }) => {
+                            console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
+                            // Записываем списания партий в order_consumptions
+                            if (consumptions && consumptions.length > 0) {
+                              const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
+                              const values = consumptions.flatMap(c => [orderId, kod, c.batchId, c.qty, c.cena || 0]);
+                              db.run(
+                                `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
+                                values,
+                                (consErr) => {
+                                  if (consErr) {
+                                    console.error('❌ Error saving order_consumptions:', consErr);
+                                  } else {
+                                    console.log(`✅ Saved ${consumptions.length} consumption rows for order ${orderId}`);
+                                  }
+                      checkCompletion();
+                                }
+                              );
+                            } else {
                               checkCompletion();
                             }
-                          );
-                        };
-
-                        // Записываем списания партий в order_consumptions
-                        if (consumptions && consumptions.length > 0) {
-                          const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
-                          const values = consumptions.flatMap(c => [orderId, kod, c.batchId, c.qty, c.cena || 0]);
-                          db.run(
-                            `INSERT INTO order_consumptions (order_id, product_kod, batch_id, quantity, batch_price) VALUES ${placeholders}`,
-                            values,
-                            (consErr) => {
-                              if (consErr) {
-                                console.error('❌ Error saving order_consumptions:', consErr);
-                              } else {
-                                console.log(`✅ Saved ${consumptions.length} consumption rows for order ${orderId}`);
-                              }
-                              finalizeWithWorkingSheets();
-                            }
-                          );
-                        } else {
-                          finalizeWithWorkingSheets();
-                        }
-                      })
-                      .catch((fifoError) => {
-                        console.error(`❌ FIFO consumption error for ${kod}:`, fifoError);
-                        checkCompletion();
-                      });
+                          })
+                          .catch((fifoError) => {
+                            console.error(`❌ FIFO consumption error for ${kod}:`, fifoError);
+                            checkCompletion();
+                          });
                   };
-
-                  // Сразу переходим к резервациям/FIFO (working_sheets обновится внутри proceedWithFIFO по факту consumed)
-                  // Если товар берется из резервации, увеличиваем ilosc_wydane
+                  
+                  // Обновляем количество в working_sheets (всегда списываем ВСЁ количество заказа)
+                  db.run(
+                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                    [ilosc, kod],
+                    function(updateErr) {
+                      if (updateErr) {
+                        console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
+                        checkCompletion();
+                      } else {
+                        console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${ilosc})`);
+                        workingSheetsUpdated++;
+                        
+                        // Если товар берется из резервации, увеличиваем ilosc_wydane
                         if (quantityFromReservation > 0 && clientId) {
                           // Находим резервации клиента для этого товара и обновляем их
                           db.all(`
@@ -2979,6 +2963,9 @@ app.post('/api/orders', (req, res) => {
                         } else {
                           proceedWithFIFO();
                         }
+                      }
+                    }
+                  );
                 }
               }
             );
@@ -3669,164 +3656,119 @@ app.post('/api/returns', (req, res) => {
 });
 
 // Функция для восстановления количества товара из заказа в соответствующие партии
-// Восстанавливает строго в исходные batch_id (из order_consumptions), а не в новейшую партию.
-// kod определяется по приоритету: product.kod → order_products.kod (по nazwa) → working_sheets.kod (по nazwa).
 function restoreProductQuantitiesFromOrder(orderId, products, callback) {
   console.log(`🔄 Restoring product quantities from order ${orderId}`);
-
+  
+  // Получаем информацию о потреблении для этого заказа
   db.all('SELECT * FROM order_consumptions WHERE order_id = ?', [orderId], (err, consumptions) => {
     if (err) {
       console.error(`❌ Error fetching consumptions for order ${orderId}:`, err);
-      return callback();
-    }
-
-    if (!consumptions || consumptions.length === 0) {
-      console.log(`ℹ️ No consumptions found for order ${orderId}`);
-      return callback();
-    }
-
-    console.log(`📊 Found ${consumptions.length} consumptions for order ${orderId}`);
-
-    // Поднимаем mapping nazwa → kod из позиций оригинального заказа
-    db.all('SELECT kod, nazwa FROM order_products WHERE orderId = ?', [orderId], (opErr, opRows) => {
-      if (opErr) {
-        console.error(`❌ Error fetching order_products for order ${orderId}:`, opErr);
-        return callback();
-      }
-
-      const nazwaToKod = {};
-      (opRows || []).forEach(row => {
-        if (row.kod && row.nazwa) nazwaToKod[row.nazwa] = row.kod;
-      });
-
-      // Группируем потребления по product_kod
-      const consumptionsByKod = {};
-      consumptions.forEach(c => {
-        if (!consumptionsByKod[c.product_kod]) consumptionsByKod[c.product_kod] = [];
-        consumptionsByKod[c.product_kod].push(c);
-      });
-
-      let productsProcessed = 0;
-      const onProductDone = () => {
-        productsProcessed++;
-        if (productsProcessed === products.length) {
-          console.log(`✅ All product quantities restored for order ${orderId}`);
-          callback();
-        }
-      };
-
-      products.forEach(product => {
-        // Определяем kod
-        let productKod = product.kod;
-        if (!productKod && product.nazwa) productKod = nazwaToKod[product.nazwa];
-
-        // Fallback: если kod не нашли — пробуем найти в working_sheets по nazwa
-        const resolveKod = (cb) => {
-          if (productKod) return cb(productKod);
-          db.get('SELECT kod FROM working_sheets WHERE nazwa = ?', [product.nazwa], (e, row) => {
-            if (e || !row) {
-              console.error(`❌ Cannot resolve kod for product "${product.nazwa}"`);
-              return cb(null);
-            }
-            cb(row.kod);
-          });
-        };
-
-        resolveKod((kod) => {
-          if (!kod) return onProductDone();
-
-          const productConsumptions = (consumptionsByKod[kod] || [])
-            .slice()
-            .sort((a, b) => a.batch_id - b.batch_id);
-
-          // Если нет записей о списании — обновляем только working_sheets
-          if (productConsumptions.length === 0) {
-            console.log(`⚠️ No consumptions for ${kod}, restoring only working_sheets`);
-            db.run(
-              'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-              [product.ilosc, kod],
-              (e) => {
-                if (e) console.error(`❌ Error updating working_sheets for ${kod}:`, e);
-                else console.log(`✅ Updated working_sheets for ${kod}: +${product.ilosc}`);
-                onProductDone();
-              }
-            );
+      callback();
             return;
           }
-
-          // Возвращаем количество строго в исходные партии (по batch_id из consumptions)
-          let remaining = product.ilosc;
-          let cIdx = 0;
-
-          const next = () => {
-            if (remaining <= 0 || cIdx >= productConsumptions.length) {
-              // Синхронизируем working_sheets на фактически восстановленный объём
-              const actuallyRestored = product.ilosc - remaining;
-              if (actuallyRestored <= 0) {
-                if (remaining > 0) {
-                  console.warn(`⚠️ Nothing restored for ${kod}: no remaining consumption capacity (requested ${product.ilosc})`);
-                }
-                return onProductDone();
-              }
+          
+    if (!consumptions || consumptions.length === 0) {
+      console.log(`ℹ️ No consumptions found for order ${orderId}`);
+      callback();
+      return;
+    }
+    
+    console.log(`📊 Found ${consumptions.length} consumptions for order ${orderId}`);
+    
+    // Группируем потребления по продукту
+    const consumptionsByProduct = {};
+    consumptions.forEach(consumption => {
+      if (!consumptionsByProduct[consumption.product_kod]) {
+        consumptionsByProduct[consumption.product_kod] = [];
+      }
+      consumptionsByProduct[consumption.product_kod].push(consumption);
+    });
+    
+    // Для каждого продукта в возврате восстанавливаем количество
+    let productsProcessed = 0;
+    products.forEach(product => {
+      // Ищем потребления по названию продукта (так как в возврате у нас только nazwa)
+      const productConsumptions = consumptionsByProduct[product.nazwa] || [];
+      
+      if (productConsumptions.length === 0) {
+        console.log(`⚠️ No consumptions found for product ${product.nazwa} in order ${orderId}`);
+        productsProcessed++;
+        checkCompletion();
+        return;
+      }
+      
+      // Сортируем потребления по batch_id (FIFO - сначала старые)
+      productConsumptions.sort((a, b) => a.batch_id - b.batch_id);
+      
+      let remainingQuantity = product.ilosc;
+      let consumptionsProcessed = 0;
+      
+      productConsumptions.forEach(consumption => {
+        if (remainingQuantity <= 0) {
+          consumptionsProcessed++;
+          checkProductCompletion();
+          return;
+        }
+        
+        const quantityToRestore = Math.min(remainingQuantity, consumption.quantity);
+        
+        // Восстанавливаем количество в products (FIFO)
+        restoreToProducts(product.kod, quantityToRestore)
+          .then(({ restored }) => {
+            console.log(`✅ Restored ${restored} units in products for ${product.kod}`);
+            consumptionsProcessed++;
+            checkProductCompletion();
+          })
+          .catch((err) => {
+            console.error(`❌ Error restoring quantity in products for ${product.kod}:`, err);
+            consumptionsProcessed++;
+            checkProductCompletion();
+          });
+        
+        remainingQuantity -= quantityToRestore;
+      });
+      
+      // Обновляем общее количество в working_sheets
+      // Сначала находим kod продукта по названию
+      db.get('SELECT kod FROM working_sheets WHERE nazwa = ?', [product.nazwa], (err, row) => {
+        if (err) {
+          console.error(`❌ Error finding kod for product ${product.nazwa}:`, err);
+          return;
+        }
+        
+        if (!row) {
+          console.error(`❌ Product ${product.nazwa} not found in working_sheets`);
+          return;
+        }
+        
+        // Теперь обновляем количество по найденному kod
               db.run(
                 'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
-                [actuallyRestored, kod],
-                (e) => {
-                  if (e) console.error(`❌ Error updating working_sheets for ${kod}:`, e);
-                  else console.log(`✅ Updated working_sheets for ${kod}: +${actuallyRestored}`);
-                  if (remaining > 0) {
-                    console.warn(`⚠️ Could not restore full ${product.ilosc} for ${kod}: only ${actuallyRestored} restored`);
-                  }
-                  onProductDone();
-                }
-              );
-              return;
+          [product.ilosc, row.kod],
+          function(err) {
+            if (err) {
+              console.error(`❌ Error updating working_sheets for product ${product.nazwa}:`, err);
+                  } else {
+              console.log(`✅ Updated working_sheets: ${product.nazwa} (kod: ${row.kod}, quantity increased by ${product.ilosc})`);
             }
-
-            const c = productConsumptions[cIdx++];
-            const take = Math.min(remaining, c.quantity);
-
-            // Восстанавливаем в исходную партию
-            db.run(
-              'UPDATE products SET ilosc_aktualna = ilosc_aktualna + ? WHERE id = ?',
-              [take, c.batch_id],
-              (e) => {
-                if (e) {
-                  console.error(`❌ Error restoring to batch ${c.batch_id}:`, e);
-                  remaining -= take; // даже при ошибке двигаемся, чтобы не зациклиться
-                  return next();
-                }
-                console.log(`✅ Restored ${take} units to batch ${c.batch_id} for ${kod}`);
-
-                // Уменьшаем (или удаляем) запись consumption
-                const newQ = c.quantity - take;
-                if (newQ > 0) {
-                  db.run(
-                    'UPDATE order_consumptions SET quantity = ? WHERE id = ?',
-                    [newQ, c.id],
-                    () => {
-                      remaining -= take;
-                      next();
-                    }
-                  );
-                } else {
-                  db.run(
-                    'DELETE FROM order_consumptions WHERE id = ?',
-                    [c.id],
-                    () => {
-                      remaining -= take;
-                      next();
-                    }
-                  );
-                }
-              }
-            );
-          };
-
-          next();
-        });
+          }
+        );
       });
-    });
+      
+      function checkProductCompletion() {
+        if (consumptionsProcessed === productConsumptions.length) {
+          productsProcessed++;
+          checkCompletion();
+            }
+          }
+        });
+        
+    function checkCompletion() {
+      if (productsProcessed === products.length) {
+        console.log(`✅ All product quantities restored for order ${orderId}`);
+        callback();
+      }
+    }
   });
 }
 
@@ -3920,33 +3862,31 @@ app.get('/api/invoices', (req, res) => {
 
 // Следующий номер фактуры (только числовая часть: 001, 002, …). Берём максимум по сохранённым номерам + 1.
 app.get('/api/invoices/next-number-only', (req, res) => {
-  console.log('🔢 GET /api/invoices/next-number-only - Next invoice number', { date: req.query.date });
-
-  // Определяем месяц/год по переданной дате фактуры (?date=YYYY-MM-DD),
-  // либо по текущей дате сервера, если параметр не передан.
-  let targetMonth;
-  let targetYear;
-  const dateParam = (req.query.date || '').toString().trim();
-  if (dateParam) {
-    const parsed = new Date(dateParam);
-    if (!isNaN(parsed.getTime())) {
-      targetMonth = parsed.getMonth() + 1;
-      targetYear = parsed.getFullYear();
-    }
-  }
-  if (!targetMonth || !targetYear) {
-    const now = new Date();
-    targetMonth = now.getMonth() + 1;
-    targetYear = now.getFullYear();
-  }
-
+  console.log('🔢 GET /api/invoices/next-number-only - Next invoice number', req.query);
   db.all('SELECT numer_faktury FROM invoices', (err, rows) => {
     if (err) {
       console.error('❌ Error getting next invoice number:', err);
       return res.status(500).json({ error: err.message });
     }
 
-    // Ищем максимальный порядковый номер среди фактур указанного месяца и года
+    // Определяем месяц/год: используем data_faktury из query, иначе текущую дату
+    let targetMonth;
+    let targetYear;
+    const dataFakturyParam = req.query.data_faktury;
+    if (dataFakturyParam) {
+      const d = new Date(dataFakturyParam);
+      if (!isNaN(d.getTime())) {
+        targetMonth = d.getMonth() + 1;
+        targetYear = d.getFullYear();
+      }
+    }
+    if (!targetMonth || !targetYear) {
+      const now = new Date();
+      targetMonth = now.getMonth() + 1;
+      targetYear = now.getFullYear();
+    }
+
+    // Ищем максимальный порядковый номер среди фактур целевого месяца и года
     // Формат: FS/1/09/2026
     let maxNum = 0;
     (rows || []).forEach((r) => {
@@ -3965,7 +3905,7 @@ app.get('/api/invoices/next-number-only', (req, res) => {
     const nextNum = maxNum + 1;
     const mm = targetMonth.toString().padStart(2, '0');
     const numer_faktury = `FS/${nextNum}/${mm}/${targetYear}`;
-    console.log(`✅ Next invoice number: ${numer_faktury} (max was: ${maxNum}, month: ${mm}/${targetYear})`);
+    console.log(`✅ Next invoice number: ${numer_faktury} (month: ${mm}, year: ${targetYear}, max was: ${maxNum})`);
     res.json({ numer_faktury });
   });
 });
@@ -4604,16 +4544,11 @@ app.post('/api/writeoffs', (req, res) => {
                   console.log(`✅ Write-off product ${index + 1} created for write-off ${writeoffId}`);
                   
                   // 4. FIFO списание через consumeFromProducts (как при создании заказа)
-                  // Различаем семплы и обычные позиции по суффиксу в nazwa
-                  const fromSamples = isSamplesLine(product);
                   if (kod) {
-                    consumeFromProducts(kod, ilosc, { fromSamples })
+                    consumeFromProducts(kod, ilosc)
                       .then(({ consumed, remaining, consumptions }) => {
-                        console.log(`🎯 FIFO consumption for ${kod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${ilosc})`);
-                        if (remaining > 0) {
-                          console.error(`❌ INCONSISTENT INVENTORY (write-off): requested ${ilosc} of ${kod}, only ${consumed} available in partias (missing: ${remaining}). working_sheets/products are out of sync.`);
-                        }
-
+                        console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
+                        
                         // 5. Записываем списания партий в order_consumptions
                         if (consumptions && consumptions.length > 0) {
                           const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
@@ -4627,39 +4562,35 @@ app.post('/api/writeoffs', (req, res) => {
                               } else {
                                 console.log(`✅ Saved ${consumptions.length} consumption rows for write-off ${writeoffId}`);
                               }
-                              // 6. Обновляем working_sheets на фактически списанный объём
-                              updateWorkingSheets(consumed);
+                              
+                              // 6. Обновляем working_sheets (как при создании заказа)
+                              updateWorkingSheets();
                             }
                           );
                         } else {
-                          // Нет фактических списаний из партий — working_sheets не трогаем
-                          updateWorkingSheets(consumed);
+                          // Обновляем working_sheets даже если нет записей в order_consumptions
+                          updateWorkingSheets();
                         }
                       })
                       .catch(fifoErr => {
                         console.error(`❌ Error in FIFO consumption for ${kod}:`, fifoErr);
-                        // При ошибке FIFO ничего не списываем из WS — продолжаем
-                        checkCompletion();
+                        // Всё равно обновляем working_sheets
+                        updateWorkingSheets();
                       });
                   } else {
                     checkCompletion();
                   }
                   
-                  function updateWorkingSheets(consumedQty) {
-                    if (!consumedQty || consumedQty <= 0) {
-                      console.warn(`⚠️ No consumption from partias for ${kod}, skipping working_sheets update`);
-                      checkCompletion();
-                      return;
-                    }
+                  function updateWorkingSheets() {
                     db.run(
                       'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                      [consumedQty, kod],
+                      [ilosc, kod],
                       function(updateErr) {
                         if (updateErr) {
                           console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
                         } else {
                           workingSheetsUpdated++;
-                          console.log(`✅ working_sheets updated for ${kod}: reduced by ${consumedQty}`);
+                          console.log(`✅ working_sheets updated for ${kod}: reduced by ${ilosc}`);
                         }
                         checkCompletion();
                       }
@@ -4943,7 +4874,7 @@ app.put('/api/orders/:id', (req, res) => {
               // Для обычных заказов и rozchodu - используем стандартную логику
               handleQuantityIncrease(kod, quantityDiff, orderProductId, () => {
                 operationCompleted();
-              }, nazwa);
+              });
             }
           } else if (quantityDiff < 0) {
             console.log(`📉 Quantity decreased by ${Math.abs(quantityDiff)}`);
@@ -4966,17 +4897,23 @@ app.put('/api/orders/:id', (req, res) => {
       );
     }
     
-    // Новая функция для увеличения количества (как в POST).
-    // working_sheets обновляется ПОСЛЕ FIFO на фактически списанный объём.
-    // nazwaOrOptions может быть строкой nazwa (для определения "samples") или объектом { nazwa, fromSamples }.
-    function handleQuantityIncrease(kod, quantity, orderProductId, callback, nazwaOrOptions) {
-      const fromSamples = typeof nazwaOrOptions === 'object' && nazwaOrOptions !== null
-        ? (nazwaOrOptions.fromSamples === true || isSamplesLine(nazwaOrOptions.nazwa))
-        : isSamplesLine(nazwaOrOptions);
-      console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId}, fromSamples: ${fromSamples})`);
-
-      // 2. Проверяем, есть ли у клиента резервация
-      (function continueAfterWorkingSheets() {
+    // Новая функция для увеличения количества (как в POST)
+    function handleQuantityIncrease(kod, quantity, orderProductId, callback) {
+      console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId})`);
+      
+      // 1. Сначала обновляем working_sheets
+      db.run(
+        'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+        [quantity, kod],
+        function(updateErr) {
+          if (updateErr) {
+            console.error(`❌ Error updating working_sheets for ${kod}:`, updateErr);
+            callback();
+            return;
+          }
+          console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${quantity})`);
+          
+          // 2. Проверяем, есть ли у клиента резервация
           if (clientId) {
             db.get(`
               SELECT SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as available_in_reservation
@@ -5068,31 +5005,10 @@ app.put('/api/orders/:id', (req, res) => {
           }
           
           function proceedWithFIFO() {
-            // 3. FIFO списание из партий + синхронизация working_sheets по фактически потреблённому
-            consumeFromProducts(kod, quantity, { fromSamples })
+            // 3. FIFO списание из партий
+            consumeFromProducts(kod, quantity)
               .then(({ consumed, remaining, consumptions }) => {
-                console.log(`🎯 FIFO consumption for ${kod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${quantity})`);
-                if (remaining > 0) {
-                  console.error(`❌ INCONSISTENT INVENTORY (quantity increase): requested ${quantity} of ${kod}, only ${consumed} available in partias (missing: ${remaining}).`);
-                }
-
-                const finalizeWithWorkingSheets = () => {
-                  if (consumed <= 0) {
-                    console.warn(`⚠️ No consumption from partias for ${kod}, skipping working_sheets update`);
-                    callback();
-                    return;
-                  }
-                  db.run(
-                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                    [consumed, kod],
-                    (wsErr) => {
-                      if (wsErr) console.error(`❌ Error updating working_sheets for ${kod}:`, wsErr);
-                      else console.log(`✅ Updated working_sheets: ${kod} (quantity reduced by ${consumed})`);
-                      callback();
-                    }
-                  );
-                };
-
+                console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed`);
                 if (consumptions && consumptions.length > 0) {
                   const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
                   const values = consumptions.flatMap(c => [id, kod, c.batchId, c.qty, c.cena || 0]);
@@ -5105,11 +5021,11 @@ app.put('/api/orders/:id', (req, res) => {
                       } else {
                         console.log(`✅ Saved ${consumptions.length} consumption rows`);
                       }
-                      finalizeWithWorkingSheets();
+                      callback();
                     }
                   );
                 } else {
-                  finalizeWithWorkingSheets();
+                  callback();
                 }
               })
               .catch((fifoError) => {
@@ -5117,7 +5033,8 @@ app.put('/api/orders/:id', (req, res) => {
                 callback();
               });
           }
-      })();
+        }
+      );
     }
     
     // Новая функция для уменьшения количества
@@ -5191,7 +5108,7 @@ app.put('/api/orders/:id', (req, res) => {
               // Используем новую функцию handleQuantityIncrease (как в POST)
               handleQuantityIncrease(kod, Number(ilosc), orderProductId, () => {
                 operationCompleted();
-              }, nazwa);
+              });
             }
           }
         }
@@ -5381,7 +5298,7 @@ app.put('/api/orders/:id', (req, res) => {
                     processQuantityIncrease(kod, quantityDiff, () => {
                       productsProcessed++;
                       checkCompletion();
-                    }, null, nazwa);
+                    });
                   } else if (quantityDiff < 0) {
                     // Новое количество меньше - восстанавливаем разницу
                     processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
@@ -5401,7 +5318,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityIncrease(kod, newQuantity, () => {
                   productsProcessed++;
                   checkCompletion();
-                }, null, nazwa);
+                });
               }
             } else if (quantityDiff !== 0) {
               if (quantityDiff > 0) {
@@ -5410,7 +5327,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityIncrease(kod, quantityDiff, () => {
                   productsProcessed++;
                   checkCompletion();
-                }, null, nazwa);
+                });
               } else {
                 // Количество уменьшилось - восстанавливаем разницу
                 const restoreQuantity = Math.abs(quantityDiff);
@@ -5465,10 +5382,7 @@ app.put('/api/orders/:id', (req, res) => {
   }
   
   // Функция для обработки увеличения количества продукта
-  function processQuantityIncrease(productKod, quantityDiff, callback, orderProductId = null, nazwaOrOptions) {
-    const fromSamples = typeof nazwaOrOptions === 'object' && nazwaOrOptions !== null
-      ? (nazwaOrOptions.fromSamples === true || isSamplesLine(nazwaOrOptions.nazwa))
-      : isSamplesLine(nazwaOrOptions);
+  function processQuantityIncrease(productKod, quantityDiff, callback, orderProductId = null) {
     console.log(`🔄 Processing quantity increase for ${productKod}: +${quantityDiff} (clientId: ${clientId}, orderProductId: ${orderProductId})`);
     console.log(`🔍 processQuantityIncrease called with: productKod=${productKod}, quantityDiff=${quantityDiff}`);
     console.log(`🔍 processQuantityIncrease: starting FIFO consumption...`);
@@ -5632,33 +5546,9 @@ app.put('/api/orders/:id', (req, res) => {
         // Товар доступен, списываем разницу по FIFO
         console.log(`🎯 FIFO consumption for ${productKod}: ${quantityDiff} szt. (${quantityFromReservation} from reservation)`);
         console.log(`🔍 processQuantityIncrease: calling consumeFromProducts...`);
-        consumeFromProducts(productKod, quantityDiff, { fromSamples })
+        consumeFromProducts(productKod, quantityDiff)
           .then(({ consumed, remaining, consumptions }) => {
-            console.log(`🎯 FIFO consumption for ${productKod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${quantityDiff})`);
-            if (remaining > 0) {
-              console.error(`❌ INCONSISTENT INVENTORY (processQuantityIncrease): requested ${quantityDiff} of ${productKod}, only ${consumed} available in partias (missing: ${remaining}).`);
-            }
-
-            const finalizeWithWorkingSheets = () => {
-              if (consumed <= 0) {
-                console.warn(`⚠️ No consumption from partias for ${productKod}, skipping working_sheets update`);
-                callback();
-                return;
-              }
-              db.run(
-                'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                [consumed, productKod],
-                function(updateErr) {
-                  if (updateErr) {
-                    console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
-                  } else {
-                    console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${consumed})`);
-                  }
-                  callback();
-                }
-              );
-            };
-
+            console.log(`🎯 FIFO consumption for ${productKod}: ${consumed} szt. consumed`);
             // Записываем списания партий в order_consumptions
             if (consumptions && consumptions.length > 0) {
               const placeholders = consumptions.map(() => '(?, ?, ?, ?, ?)').join(', ');
@@ -5672,11 +5562,35 @@ app.put('/api/orders/:id', (req, res) => {
                   } else {
                     console.log(`✅ Saved ${consumptions.length} consumption rows for order ${id}`);
                   }
-                  finalizeWithWorkingSheets();
+                  // Обновляем working_sheets после FIFO списания
+                  db.run(
+                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                    [quantityDiff, productKod],
+                    function(updateErr) {
+                      if (updateErr) {
+                        console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+                      } else {
+                        console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+                      }
+                      callback();
+                    }
+                  );
                 }
               );
             } else {
-              finalizeWithWorkingSheets();
+              // Обновляем working_sheets даже если нет записей в order_consumptions
+              db.run(
+                'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+                [quantityDiff, productKod],
+                function(updateErr) {
+                  if (updateErr) {
+                    console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
+                  } else {
+                    console.log(`✅ Updated working_sheets after FIFO: ${productKod} (quantity reduced by ${quantityDiff})`);
+                  }
+                  callback();
+                }
+              );
             }
           })
           .catch((fifoError) => {
@@ -9448,33 +9362,11 @@ app.listen(PORT, () => {
   console.log(`✅ All routes registered, including POST /api/reservations`);
 });
 
-// Утилита: определяет, является ли строка заказа/возврата позицией семплов.
-// Семплы помечаются на бэке суффиксом " (samples)" в nazwa при поиске товаров.
-function isSamplesLine(input) {
-  if (!input) return false;
-  // Поддерживаем оба варианта: явный флаг status и распознавание по nazwa
-  if (typeof input === 'object') {
-    if (input.status === 'samples') return true;
-    if (input.is_samples === true) return true;
-    if (typeof input.nazwa === 'string') return /\(samples\)\s*$/i.test(input.nazwa);
-    return false;
-  }
-  if (typeof input === 'string') return /\(samples\)\s*$/i.test(input);
-  return false;
-}
-
 // ===== NEW CONSUME FROM PRODUCTS (FIFO) =====
-// options.fromSamples:
-//   false (default) — списываем только из обычных партий (status IS NULL или != 'samples')
-//   true            — списываем только из партий-семплов (status = 'samples')
-function consumeFromProducts(productKod, quantity, options = {}) {
-  const fromSamples = options.fromSamples === true;
-  const statusFilter = fromSamples
-    ? "status = 'samples'"
-    : "(status IS NULL OR status != 'samples')";
+function consumeFromProducts(productKod, quantity) {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND ${statusFilter} ORDER BY created_at ASC, id ASC`,
+      'SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 ORDER BY created_at ASC, id ASC',
       [productKod],
       (err, batches) => {
         if (err) return reject(err);
