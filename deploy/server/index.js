@@ -2851,10 +2851,12 @@ app.post('/api/orders', (req, res) => {
                   
                   // Функция для продолжения после обновления резерваций.
                   // Списываем партии через FIFO и синхронизируем working_sheets с фактически списанным объёмом.
+                  // Если строка с суффиксом "(samples)" — берём только из партий-семплов, иначе только из обычных.
+                  const fromSamples = isSamplesLine(product);
                   const proceedWithFIFO = () => {
-                    consumeFromProducts(kod, ilosc)
+                    consumeFromProducts(kod, ilosc, { fromSamples })
                       .then(({ consumed, remaining, consumptions }) => {
-                        console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed (requested: ${ilosc})`);
+                        console.log(`🎯 FIFO consumption for ${kod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${ilosc})`);
                         if (remaining > 0) {
                           console.error(`❌ INCONSISTENT INVENTORY: requested ${ilosc} of ${kod}, only ${consumed} available in partias (missing: ${remaining}). working_sheets/products are out of sync.`);
                         }
@@ -4602,10 +4604,12 @@ app.post('/api/writeoffs', (req, res) => {
                   console.log(`✅ Write-off product ${index + 1} created for write-off ${writeoffId}`);
                   
                   // 4. FIFO списание через consumeFromProducts (как при создании заказа)
+                  // Различаем семплы и обычные позиции по суффиксу в nazwa
+                  const fromSamples = isSamplesLine(product);
                   if (kod) {
-                    consumeFromProducts(kod, ilosc)
+                    consumeFromProducts(kod, ilosc, { fromSamples })
                       .then(({ consumed, remaining, consumptions }) => {
-                        console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed (requested: ${ilosc})`);
+                        console.log(`🎯 FIFO consumption for ${kod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${ilosc})`);
                         if (remaining > 0) {
                           console.error(`❌ INCONSISTENT INVENTORY (write-off): requested ${ilosc} of ${kod}, only ${consumed} available in partias (missing: ${remaining}). working_sheets/products are out of sync.`);
                         }
@@ -4939,7 +4943,7 @@ app.put('/api/orders/:id', (req, res) => {
               // Для обычных заказов и rozchodu - используем стандартную логику
               handleQuantityIncrease(kod, quantityDiff, orderProductId, () => {
                 operationCompleted();
-              });
+              }, nazwa);
             }
           } else if (quantityDiff < 0) {
             console.log(`📉 Quantity decreased by ${Math.abs(quantityDiff)}`);
@@ -4964,8 +4968,12 @@ app.put('/api/orders/:id', (req, res) => {
     
     // Новая функция для увеличения количества (как в POST).
     // working_sheets обновляется ПОСЛЕ FIFO на фактически списанный объём.
-    function handleQuantityIncrease(kod, quantity, orderProductId, callback) {
-      console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId})`);
+    // nazwaOrOptions может быть строкой nazwa (для определения "samples") или объектом { nazwa, fromSamples }.
+    function handleQuantityIncrease(kod, quantity, orderProductId, callback, nazwaOrOptions) {
+      const fromSamples = typeof nazwaOrOptions === 'object' && nazwaOrOptions !== null
+        ? (nazwaOrOptions.fromSamples === true || isSamplesLine(nazwaOrOptions.nazwa))
+        : isSamplesLine(nazwaOrOptions);
+      console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId}, fromSamples: ${fromSamples})`);
 
       // 2. Проверяем, есть ли у клиента резервация
       (function continueAfterWorkingSheets() {
@@ -5061,9 +5069,9 @@ app.put('/api/orders/:id', (req, res) => {
           
           function proceedWithFIFO() {
             // 3. FIFO списание из партий + синхронизация working_sheets по фактически потреблённому
-            consumeFromProducts(kod, quantity)
+            consumeFromProducts(kod, quantity, { fromSamples })
               .then(({ consumed, remaining, consumptions }) => {
-                console.log(`🎯 FIFO consumption for ${kod}: ${consumed} szt. consumed (requested: ${quantity})`);
+                console.log(`🎯 FIFO consumption for ${kod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${quantity})`);
                 if (remaining > 0) {
                   console.error(`❌ INCONSISTENT INVENTORY (quantity increase): requested ${quantity} of ${kod}, only ${consumed} available in partias (missing: ${remaining}).`);
                 }
@@ -5183,7 +5191,7 @@ app.put('/api/orders/:id', (req, res) => {
               // Используем новую функцию handleQuantityIncrease (как в POST)
               handleQuantityIncrease(kod, Number(ilosc), orderProductId, () => {
                 operationCompleted();
-              });
+              }, nazwa);
             }
           }
         }
@@ -5373,7 +5381,7 @@ app.put('/api/orders/:id', (req, res) => {
                     processQuantityIncrease(kod, quantityDiff, () => {
                       productsProcessed++;
                       checkCompletion();
-                    });
+                    }, null, nazwa);
                   } else if (quantityDiff < 0) {
                     // Новое количество меньше - восстанавливаем разницу
                     processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
@@ -5393,7 +5401,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityIncrease(kod, newQuantity, () => {
                   productsProcessed++;
                   checkCompletion();
-                });
+                }, null, nazwa);
               }
             } else if (quantityDiff !== 0) {
               if (quantityDiff > 0) {
@@ -5402,7 +5410,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityIncrease(kod, quantityDiff, () => {
                   productsProcessed++;
                   checkCompletion();
-                });
+                }, null, nazwa);
               } else {
                 // Количество уменьшилось - восстанавливаем разницу
                 const restoreQuantity = Math.abs(quantityDiff);
@@ -5457,7 +5465,10 @@ app.put('/api/orders/:id', (req, res) => {
   }
   
   // Функция для обработки увеличения количества продукта
-  function processQuantityIncrease(productKod, quantityDiff, callback, orderProductId = null) {
+  function processQuantityIncrease(productKod, quantityDiff, callback, orderProductId = null, nazwaOrOptions) {
+    const fromSamples = typeof nazwaOrOptions === 'object' && nazwaOrOptions !== null
+      ? (nazwaOrOptions.fromSamples === true || isSamplesLine(nazwaOrOptions.nazwa))
+      : isSamplesLine(nazwaOrOptions);
     console.log(`🔄 Processing quantity increase for ${productKod}: +${quantityDiff} (clientId: ${clientId}, orderProductId: ${orderProductId})`);
     console.log(`🔍 processQuantityIncrease called with: productKod=${productKod}, quantityDiff=${quantityDiff}`);
     console.log(`🔍 processQuantityIncrease: starting FIFO consumption...`);
@@ -5621,9 +5632,9 @@ app.put('/api/orders/:id', (req, res) => {
         // Товар доступен, списываем разницу по FIFO
         console.log(`🎯 FIFO consumption for ${productKod}: ${quantityDiff} szt. (${quantityFromReservation} from reservation)`);
         console.log(`🔍 processQuantityIncrease: calling consumeFromProducts...`);
-        consumeFromProducts(productKod, quantityDiff)
+        consumeFromProducts(productKod, quantityDiff, { fromSamples })
           .then(({ consumed, remaining, consumptions }) => {
-            console.log(`🎯 FIFO consumption for ${productKod}: ${consumed} szt. consumed (requested: ${quantityDiff})`);
+            console.log(`🎯 FIFO consumption for ${productKod} [${fromSamples ? 'samples' : 'main'}]: ${consumed} szt. consumed (requested: ${quantityDiff})`);
             if (remaining > 0) {
               console.error(`❌ INCONSISTENT INVENTORY (processQuantityIncrease): requested ${quantityDiff} of ${productKod}, only ${consumed} available in partias (missing: ${remaining}).`);
             }
@@ -9437,11 +9448,33 @@ app.listen(PORT, () => {
   console.log(`✅ All routes registered, including POST /api/reservations`);
 });
 
+// Утилита: определяет, является ли строка заказа/возврата позицией семплов.
+// Семплы помечаются на бэке суффиксом " (samples)" в nazwa при поиске товаров.
+function isSamplesLine(input) {
+  if (!input) return false;
+  // Поддерживаем оба варианта: явный флаг status и распознавание по nazwa
+  if (typeof input === 'object') {
+    if (input.status === 'samples') return true;
+    if (input.is_samples === true) return true;
+    if (typeof input.nazwa === 'string') return /\(samples\)\s*$/i.test(input.nazwa);
+    return false;
+  }
+  if (typeof input === 'string') return /\(samples\)\s*$/i.test(input);
+  return false;
+}
+
 // ===== NEW CONSUME FROM PRODUCTS (FIFO) =====
-function consumeFromProducts(productKod, quantity) {
+// options.fromSamples:
+//   false (default) — списываем только из обычных партий (status IS NULL или != 'samples')
+//   true            — списываем только из партий-семплов (status = 'samples')
+function consumeFromProducts(productKod, quantity, options = {}) {
+  const fromSamples = options.fromSamples === true;
+  const statusFilter = fromSamples
+    ? "status = 'samples'"
+    : "(status IS NULL OR status != 'samples')";
   return new Promise((resolve, reject) => {
     db.all(
-      'SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 ORDER BY created_at ASC, id ASC',
+      `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND ${statusFilter} ORDER BY created_at ASC, id ASC`,
       [productKod],
       (err, batches) => {
         if (err) return reject(err);
