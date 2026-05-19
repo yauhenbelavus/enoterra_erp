@@ -5047,8 +5047,8 @@ app.put('/api/orders/:id', (req, res) => {
     function handleQuantityDecrease(kod, quantity, orderProductId, nazwa, callback) {
       console.log(`🔄 handleQuantityDecrease: ${kod} -${quantity} (nazwa: ${nazwa})`);
 
-      // Вызываем существующую функцию processQuantityDecrease
-      processQuantityDecrease(kod, quantity, callback);
+      // Вызываем существующую функцию processQuantityDecrease, прокидывая nazwa
+      processQuantityDecrease(kod, quantity, callback, nazwa);
     }
 
     // Специальные функции для przychod (обратная логика)
@@ -5170,7 +5170,7 @@ app.put('/api/orders/:id', (req, res) => {
                   } else {
                     processQuantityDecrease(kod, Number(ilosc), () => {
                       operationCompleted();
-                    });
+                    }, oldProduct.nazwa);
                   }
                 }
               }
@@ -5198,7 +5198,7 @@ app.put('/api/orders/:id', (req, res) => {
               } else {
                 processQuantityDecrease(kod, Number(ilosc), () => {
                   operationCompleted();
-                });
+                }, oldProduct.nazwa);
               }
             }
       }
@@ -5302,7 +5302,7 @@ app.put('/api/orders/:id', (req, res) => {
                   processQuantityDecrease(kod, oldTypeQuantity, () => {
                     productsProcessed++;
                     checkCompletion();
-                  });
+                  }, sameCodeProduct.nazwa);
                 } else {
                   // Замена типа с новым количеством
                   const quantityDiff = newTypeQuantity - oldTypeQuantity;
@@ -5319,7 +5319,7 @@ app.put('/api/orders/:id', (req, res) => {
                     processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
                       productsProcessed++;
                       checkCompletion();
-                    });
+                    }, nazwa);
                   } else {
                     // Количество одинаковое - только замена типа
                     console.log(`🔄 Type changed, quantity unchanged`);
@@ -5350,7 +5350,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityDecrease(kod, restoreQuantity, () => {
                   productsProcessed++;
                   checkCompletion();
-                });
+                }, nazwa);
               }
             } else {
               // Количество не изменилось - проверяем синхронизацию с working_sheets
@@ -5618,8 +5618,9 @@ app.put('/api/orders/:id', (req, res) => {
   }
   
   // Функция для обработки уменьшения количества продукта
-  function processQuantityDecrease(productKod, quantityDiff, callback) {
-    console.log(`🔄 Processing quantity decrease for ${productKod}: -${quantityDiff}`);
+  function processQuantityDecrease(productKod, quantityDiff, callback, nazwa = null) {
+    const isSamples = (nazwa || '').includes('(samples)');
+    console.log(`🔄 Processing quantity decrease for ${productKod}: -${quantityDiff} (nazwa: ${nazwa}, samples: ${isSamples})`);
     console.log(`🔍 processQuantityDecrease: starting restoration process...`);
     
     // Сначала восстанавливаем ilosc_wydane в резервациях, если они были использованы
@@ -5720,8 +5721,18 @@ app.put('/api/orders/:id', (req, res) => {
     
     function proceedWithConsumptions() {
       // Получаем существующие записи в order_consumptions для этого продукта
+      // Фильтруем по статусу партии (samples/main), чтобы восстанавливать только из нужных
       // Сортируем по batch_id DESC для LIFO возвратов (сначала новые партии)
-      db.all('SELECT * FROM order_consumptions WHERE order_id = ? AND product_kod = ? ORDER BY batch_id DESC', [id, productKod], (err, consumptions) => {
+      const consumptionsSql = isSamples
+        ? `SELECT oc.* FROM order_consumptions oc
+           INNER JOIN products p ON p.id = oc.batch_id
+           WHERE oc.order_id = ? AND oc.product_kod = ? AND p.status = 'samples'
+           ORDER BY oc.batch_id DESC`
+        : `SELECT oc.* FROM order_consumptions oc
+           INNER JOIN products p ON p.id = oc.batch_id
+           WHERE oc.order_id = ? AND oc.product_kod = ? AND (p.status IS NULL OR p.status != 'samples')
+           ORDER BY oc.batch_id DESC`;
+      db.all(consumptionsSql, [id, productKod], (err, consumptions) => {
         if (err) {
           console.error(`❌ Error fetching consumptions for ${productKod}:`, err);
           callback();
