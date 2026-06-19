@@ -9467,6 +9467,52 @@ const restoreToProducts = (productKod, quantity) => {
 // Serve static files from parent directory (frontend)
 app.use(express.static(path.join(__dirname, '..')));
 
+// === KOMIS API ===
+// Получение сводки по товарам типа "komis" для каждого клиента
+app.get('/api/komis/summary', (req, res) => {
+  console.log('📦 GET /api/komis/summary - Fetching komis summary by client');
+  
+  const query = `
+    SELECT 
+      o.klient,
+      op.kod,
+      op.nazwa,
+      SUM(op.ilosc) as total_ilosc
+    FROM orders o
+    JOIN order_products op ON o.id = op.orderId
+    WHERE o.typ = 'komis'
+    GROUP BY o.klient, op.kod
+    ORDER BY o.klient, op.kod
+  `;
+  
+  db.all(query, [], (err, rows) => {
+    if (err) {
+      console.error('❌ Error fetching komis summary:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    // Группируем по клиенту
+    const groupedByClient = {};
+    (rows || []).forEach(row => {
+      if (!groupedByClient[row.klient]) {
+        groupedByClient[row.klient] = {
+          klient: row.klient,
+          products: []
+        };
+      }
+      groupedByClient[row.klient].products.push({
+        kod: row.kod,
+        nazwa: row.nazwa,
+        ilosc: row.total_ilosc
+      });
+    });
+    
+    const result = Object.values(groupedByClient);
+    console.log(`✅ Found ${result.length} clients with komis products`);
+    res.json(result);
+  });
+});
+
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
 app.get('*', (req, res) => {
   const indexPath = path.join(__dirname, '../index.html');
