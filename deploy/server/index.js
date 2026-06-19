@@ -9497,7 +9497,8 @@ app.get('/api/komis/summary', (req, res) => {
       if (!groupedByClient[row.klient]) {
         groupedByClient[row.klient] = {
           klient: row.klient,
-          products: []
+          products: [],
+          total_ilosc: 0
         };
       }
       groupedByClient[row.klient].products.push({
@@ -9505,6 +9506,7 @@ app.get('/api/komis/summary', (req, res) => {
         nazwa: row.nazwa,
         ilosc: row.total_ilosc
       });
+      groupedByClient[row.klient].total_ilosc += row.total_ilosc;
     });
     
     const result = Object.values(groupedByClient);
