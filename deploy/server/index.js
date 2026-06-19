@@ -9480,7 +9480,7 @@ app.get('/api/komis/summary', (req, res) => {
       SUM(op.ilosc) as total_ilosc
     FROM orders o
     JOIN order_products op ON o.id = op.orderId
-    WHERE o.typ = 'komis'
+    WHERE op.typ = 'komis'
     GROUP BY o.klient, op.kod
     ORDER BY o.klient, op.kod
   `;
