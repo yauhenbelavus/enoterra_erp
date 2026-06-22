@@ -9508,11 +9508,29 @@ const restoreToProducts = (productKod, quantity) => {
 app.use(express.static(path.join(__dirname, '..')));
 
 // === KOMIS API ===
-// Получение сводки по товарам типа "komis" для каждого клиента
+
+// Таблица komis для хранения ручных корректировок
+db.run(`CREATE TABLE IF NOT EXISTS komis (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  klient TEXT NOT NULL,
+  kod TEXT NOT NULL,
+  nazwa TEXT NOT NULL,
+  ilosc INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(klient, kod)
+)`, (err) => {
+  if (err) {
+    console.error('❌ Error creating komis table:', err);
+  } else {
+    console.log('✅ Komis table ready');
+  }
+});
+
+// GET /api/komis/summary — сводка с мержем из order_products и таблицы komis
 app.get('/api/komis/summary', (req, res) => {
   console.log('📦 GET /api/komis/summary - Fetching komis summary by client');
-  
-  const query = `
+
+  const orderQuery = `
     SELECT 
       o.klient,
       op.kod,
@@ -9524,34 +9542,93 @@ app.get('/api/komis/summary', (req, res) => {
     GROUP BY o.klient, op.kod
     ORDER BY o.klient, op.kod
   `;
-  
-  db.all(query, [], (err, rows) => {
+
+  db.all(orderQuery, [], (err, orderRows) => {
     if (err) {
-      console.error('❌ Error fetching komis summary:', err);
+      console.error('❌ Error fetching komis from orders:', err);
       return res.status(500).json({ error: err.message });
     }
-    
-    // Группируем по клиенту
-    const groupedByClient = {};
-    (rows || []).forEach(row => {
-      if (!groupedByClient[row.klient]) {
-        groupedByClient[row.klient] = {
-          klient: row.klient,
-          products: [],
-          total_ilosc: 0
-        };
+
+    // Загружаем ручные корректировки
+    db.all('SELECT * FROM komis', [], (err2, komisRows) => {
+      if (err2) {
+        console.error('❌ Error fetching komis table:', err2);
+        return res.status(500).json({ error: err2.message });
       }
-      groupedByClient[row.klient].products.push({
-        kod: row.kod,
-        nazwa: row.nazwa,
-        ilosc: row.total_ilosc
+
+      // Строим map корректировок: ключ = "klient||kod"
+      const komisMap = {};
+      (komisRows || []).forEach(row => {
+        komisMap[`${row.klient}||${row.kod}`] = row;
       });
-      groupedByClient[row.klient].total_ilosc += row.total_ilosc;
+
+      // Группируем по клиенту, применяя корректировки
+      const groupedByClient = {};
+      (orderRows || []).forEach(row => {
+        const key = `${row.klient}||${row.kod}`;
+        const override = komisMap[key];
+        const ilosc = override ? override.ilosc : row.total_ilosc;
+
+        if (!groupedByClient[row.klient]) {
+          groupedByClient[row.klient] = { klient: row.klient, products: [], total_ilosc: 0 };
+        }
+        groupedByClient[row.klient].products.push({
+          kod: row.kod,
+          nazwa: row.nazwa,
+          ilosc: ilosc,
+          ilosc_calculated: row.total_ilosc,
+          is_overridden: !!override
+        });
+        groupedByClient[row.klient].total_ilosc += ilosc;
+      });
+
+      const result = Object.values(groupedByClient);
+      console.log(`✅ Found ${result.length} clients with komis products`);
+      res.json(result);
     });
-    
-    const result = Object.values(groupedByClient);
-    console.log(`✅ Found ${result.length} clients with komis products`);
-    res.json(result);
+  });
+});
+
+// PUT /api/komis — сохранить ручную корректировку количества
+app.put('/api/komis', (req, res) => {
+  const { klient, kod, nazwa, ilosc } = req.body;
+  console.log(`✏️ PUT /api/komis - Updating komis: klient=${klient}, kod=${kod}, ilosc=${ilosc}`);
+
+  if (!klient || !kod || ilosc === undefined) {
+    return res.status(400).json({ error: 'klient, kod i ilosc są wymagane' });
+  }
+
+  db.run(
+    `INSERT INTO komis (klient, kod, nazwa, ilosc, updated_at)
+     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(klient, kod) DO UPDATE SET
+       ilosc = excluded.ilosc,
+       nazwa = excluded.nazwa,
+       updated_at = CURRENT_TIMESTAMP`,
+    [klient, kod, nazwa || '', ilosc],
+    function(err) {
+      if (err) {
+        console.error('❌ Error updating komis:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      console.log(`✅ Komis updated: klient=${klient}, kod=${kod}, ilosc=${ilosc}`);
+      res.json({ success: true });
+    }
+  );
+});
+
+// DELETE /api/komis — сбросить корректировку (вернуть к расчётному значению)
+app.delete('/api/komis', (req, res) => {
+  const { klient, kod } = req.body;
+  console.log(`🗑️ DELETE /api/komis - Resetting override: klient=${klient}, kod=${kod}`);
+
+  db.run('DELETE FROM komis WHERE klient = ? AND kod = ?', [klient, kod], function(err) {
+    if (err) {
+      console.error('❌ Error deleting komis override:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    console.log(`✅ Komis override reset: klient=${klient}, kod=${kod}`);
+    res.json({ success: true });
   });
 });
 
