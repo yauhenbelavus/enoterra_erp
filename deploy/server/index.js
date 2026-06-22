@@ -6673,45 +6673,85 @@ app.post('/api/product-receipts', upload.fields([
                       console.log(`  - podatekValueUpd: ${podatekValueUpd} (forced to 0: ${isBezalkoholoweOrFermentOrAksesoriaUpd})`);
                       console.log(`  - kosztWlasnyValueUpd: ${kosztWlasnyValueUpd}`);
                       
-                    db.run(
-                      `UPDATE working_sheets SET 
-                        ilosc = ilosc + ?, 
-                          nazwa = ?,
-                          kod_kreskowy = ?,
-                          typ = ?,
-                          sprzedawca = ?,
-                          cena = ?,
-                          data_waznosci = ?,
-                          objetosc = ?,
-                          koszt_dostawy_per_unit = ?,
-                          podatek_akcyzowy = ?,
-                          koszt_wlasny = ?
-                      WHERE kod = ?`,
-                        [
-                          summedQuantity, 
-                          mainProduct.nazwa,
-                          mainProduct.kod_kreskowy || null,
-                          mainProduct.typ || null,
-                          sprzedawca || null,
-                          cenaValue,
-                          mainProduct.dataWaznosci || null,
-                          mainProduct.objetosc || null,
-                          kosztDostawyPerUnitForProduct || 0,
-                          podatekValueUpd || 0,
-                          kosztWlasnyValueUpd || 0,
-                          productCode
-                        ],
-                      function(err) {
+                    // Проверяем текущий остаток: если = 0, сбрасываем created_at (новая партия после нулевого остатка)
+                    db.get('SELECT ilosc FROM working_sheets WHERE kod = ?', [productCode], function(checkErr, wsRow) {
+                      const currentIlosc = wsRow ? wsRow.ilosc : 1;
+                      const isZeroStock = currentIlosc === 0;
+                      if (isZeroStock) {
+                        console.log(`🔄 Zero stock detected for ${productCode} — resetting created_at to receipt date ${dataPrzyjecia}`);
+                      }
+
+                      const updateQuery = isZeroStock
+                        ? `UPDATE working_sheets SET 
+                            ilosc = ilosc + ?, 
+                            nazwa = ?,
+                            kod_kreskowy = ?,
+                            typ = ?,
+                            sprzedawca = ?,
+                            cena = ?,
+                            data_waznosci = ?,
+                            objetosc = ?,
+                            koszt_dostawy_per_unit = ?,
+                            podatek_akcyzowy = ?,
+                            koszt_wlasny = ?,
+                            created_at = ?
+                          WHERE kod = ?`
+                        : `UPDATE working_sheets SET 
+                            ilosc = ilosc + ?, 
+                            nazwa = ?,
+                            kod_kreskowy = ?,
+                            typ = ?,
+                            sprzedawca = ?,
+                            cena = ?,
+                            data_waznosci = ?,
+                            objetosc = ?,
+                            koszt_dostawy_per_unit = ?,
+                            podatek_akcyzowy = ?,
+                            koszt_wlasny = ?
+                          WHERE kod = ?`;
+
+                      const updateParams = isZeroStock
+                        ? [
+                            summedQuantity,
+                            mainProduct.nazwa,
+                            mainProduct.kod_kreskowy || null,
+                            mainProduct.typ || null,
+                            sprzedawca || null,
+                            cenaValue,
+                            mainProduct.dataWaznosci || null,
+                            mainProduct.objetosc || null,
+                            kosztDostawyPerUnitForProduct || 0,
+                            podatekValueUpd || 0,
+                            kosztWlasnyValueUpd || 0,
+                            dataPrzyjecia,
+                            productCode
+                          ]
+                        : [
+                            summedQuantity,
+                            mainProduct.nazwa,
+                            mainProduct.kod_kreskowy || null,
+                            mainProduct.typ || null,
+                            sprzedawca || null,
+                            cenaValue,
+                            mainProduct.dataWaznosci || null,
+                            mainProduct.objetosc || null,
+                            kosztDostawyPerUnitForProduct || 0,
+                            podatekValueUpd || 0,
+                            kosztWlasnyValueUpd || 0,
+                            productCode
+                          ];
+
+                      db.run(updateQuery, updateParams, function(err) {
                         if (err) {
                           console.error('❌ Error updating working_sheets:', err);
                           reject(err);
                         } else {
-                        console.log(`✅ Updated working_sheets: ${productCode}`);
+                          console.log(`✅ Updated working_sheets: ${productCode}${isZeroStock ? ' (created_at reset)' : ''}`);
                           workingSheetsUpdated++;
                           resolve();
                         }
-                      }
-                    );
+                      });
+                    });
                     }); // Закрываем функцию сохранения снимка
                   } else {
                   // Если товара нет - создаем новую запись в working_sheets
