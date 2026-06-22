@@ -2848,6 +2848,11 @@ app.post('/api/orders', (req, res) => {
                   const orderProductId = this.lastID;
                   productsCreated++;
                   console.log(`✅ Product ${index + 1} created for order ${orderId} with ID: ${orderProductId}`);
+
+                  // Синхронизация с таблицей komis
+                  if ((typ || 'sprzedaz') === 'komis') {
+                    syncKomisProduct(clientName, kod, nazwa, ilosc);
+                  }
                   
                   // Функция для продолжения после обновления резерваций
                   const proceedWithFIFO = () => {
@@ -4868,6 +4873,11 @@ app.put('/api/orders/:id', (req, res) => {
           
           console.log(`✅ Updated product ${key} (ID: ${oldProduct.id})`);
 
+          // Синхронизация с таблицей komis
+          if ((oldProduct.typ || 'sprzedaz') === 'komis' && quantityDiff !== 0) {
+            syncKomisProduct(klient, kod, nazwa, quantityDiff);
+          }
+
           if (quantityDiff > 0) {
             console.log(`📈 Quantity increased by ${quantityDiff}`);
             // Для przychodu логика обратная - увеличиваем working_sheets
@@ -5105,6 +5115,11 @@ app.put('/api/orders/:id', (req, res) => {
             const orderProductId = this.lastID;
             console.log(`✅ Inserted new product ${key} (ID: ${orderProductId})`);
 
+            // Синхронизация с таблицей komis
+            if ((typ || 'sprzedaz') === 'komis') {
+              syncKomisProduct(klient, kod, nazwa, Number(ilosc));
+            }
+
             // Для przychodu используем специальную функцию
             if (orderType === 'przychod') {
               handlePrzychodQuantityIncrease(kod, Number(ilosc), () => {
@@ -5161,6 +5176,11 @@ app.put('/api/orders/:id', (req, res) => {
                 } else {
                   console.log(`✅ Deleted old product ${key} (ID: ${oldProduct.id})`);
 
+                  // Синхронизация с таблицей komis (при замене типа)
+                  if ((oldProduct.typ || 'sprzedaz') === 'komis') {
+                    syncKomisProduct(klient, kod, oldProduct.nazwa, -Number(ilosc));
+                  }
+
                   // Восстанавливаем количество в working_sheets
                   // Для przychodu используем специальную функцию
                   if (orderType === 'przychod') {
@@ -5188,6 +5208,11 @@ app.put('/api/orders/:id', (req, res) => {
               operationCompleted();
             } else {
               console.log(`✅ Deleted unused product ${key} (ID: ${oldProduct.id})`);
+
+              // Синхронизация с таблицей komis
+              if ((oldProduct.typ || 'sprzedaz') === 'komis') {
+                syncKomisProduct(klient, kod, oldProduct.nazwa, -Number(ilosc));
+              }
 
               // Восстанавливаем количество в working_sheets
               // Для przychodu используем специальную функцию
@@ -9509,7 +9534,7 @@ app.use(express.static(path.join(__dirname, '..')));
 
 // === KOMIS API ===
 
-// Таблица komis для хранения ручных корректировок
+// Таблица komis — основное хранилище отгрузок типа komis
 db.run(`CREATE TABLE IF NOT EXISTS komis (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   klient TEXT NOT NULL,
@@ -9523,69 +9548,84 @@ db.run(`CREATE TABLE IF NOT EXISTS komis (
     console.error('❌ Error creating komis table:', err);
   } else {
     console.log('✅ Komis table ready');
+    // Инициализация: заполнить строки которых ещё нет из существующих заказов
+    db.run(`
+      INSERT OR IGNORE INTO komis (klient, kod, nazwa, ilosc, updated_at)
+      SELECT o.klient, op.kod, op.nazwa, SUM(op.ilosc), CURRENT_TIMESTAMP
+      FROM orders o
+      JOIN order_products op ON o.id = op.orderId
+      WHERE op.typ = 'komis'
+      GROUP BY o.klient, op.kod
+    `, (initErr) => {
+      if (initErr) console.error('❌ Error initializing komis table:', initErr);
+      else console.log('✅ Komis table initialized from order_products');
+    });
   }
 });
 
-// GET /api/komis/summary — сводка с мержем из order_products и таблицы komis
+// Вспомогательная функция синхронизации komis (fire-and-forget)
+function syncKomisProduct(klient, kod, nazwa, deltaIlosc) {
+  if (!klient || !kod) return;
+  if (deltaIlosc > 0) {
+    db.run(
+      `INSERT INTO komis (klient, kod, nazwa, ilosc, updated_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(klient, kod) DO UPDATE SET
+         ilosc = ilosc + excluded.ilosc,
+         nazwa = excluded.nazwa,
+         updated_at = CURRENT_TIMESTAMP`,
+      [klient, kod, nazwa || '', deltaIlosc],
+      (e) => { if (e) console.error('❌ syncKomisProduct(+):', e.message); }
+    );
+  } else if (deltaIlosc < 0) {
+    db.run(
+      `UPDATE komis SET
+         ilosc = MAX(0, ilosc + ?),
+         updated_at = CURRENT_TIMESTAMP
+       WHERE klient = ? AND kod = ?`,
+      [deltaIlosc, klient, kod],
+      (e) => { if (e) console.error('❌ syncKomisProduct(-):', e.message); }
+    );
+  }
+}
+
+// GET /api/komis/summary — сводка из таблицы komis
 app.get('/api/komis/summary', (req, res) => {
   console.log('📦 GET /api/komis/summary - Fetching komis summary by client');
 
-  const orderQuery = `
-    SELECT 
-      o.klient,
-      op.kod,
-      op.nazwa,
-      SUM(op.ilosc) as total_ilosc
-    FROM orders o
-    JOIN order_products op ON o.id = op.orderId
-    WHERE op.typ = 'komis'
-    GROUP BY o.klient, op.kod
-    ORDER BY o.klient, op.kod
-  `;
-
-  db.all(orderQuery, [], (err, orderRows) => {
+  db.all('SELECT klient, kod, nazwa, ilosc FROM komis ORDER BY klient, kod', [], (err, rows) => {
     if (err) {
-      console.error('❌ Error fetching komis from orders:', err);
+      console.error('❌ Error fetching komis summary:', err);
       return res.status(500).json({ error: err.message });
     }
 
-    // Загружаем ручные корректировки
-    db.all('SELECT * FROM komis', [], (err2, komisRows) => {
-      if (err2) {
-        console.error('❌ Error fetching komis table:', err2);
-        return res.status(500).json({ error: err2.message });
+    const groupedByClient = {};
+    (rows || []).forEach(row => {
+      if (!groupedByClient[row.klient]) {
+        groupedByClient[row.klient] = { klient: row.klient, products: [], total_ilosc: 0 };
       }
-
-      // Строим map корректировок: ключ = "klient||kod"
-      const komisMap = {};
-      (komisRows || []).forEach(row => {
-        komisMap[`${row.klient}||${row.kod}`] = row;
-      });
-
-      // Группируем по клиенту, применяя корректировки
-      const groupedByClient = {};
-      (orderRows || []).forEach(row => {
-        const key = `${row.klient}||${row.kod}`;
-        const override = komisMap[key];
-        const ilosc = override ? override.ilosc : row.total_ilosc;
-
-        if (!groupedByClient[row.klient]) {
-          groupedByClient[row.klient] = { klient: row.klient, products: [], total_ilosc: 0 };
-        }
-        groupedByClient[row.klient].products.push({
-          kod: row.kod,
-          nazwa: row.nazwa,
-          ilosc: ilosc,
-          ilosc_calculated: row.total_ilosc,
-          is_overridden: !!override
-        });
-        groupedByClient[row.klient].total_ilosc += ilosc;
-      });
-
-      const result = Object.values(groupedByClient);
-      console.log(`✅ Found ${result.length} clients with komis products`);
-      res.json(result);
+      groupedByClient[row.klient].products.push({ kod: row.kod, nazwa: row.nazwa, ilosc: row.ilosc });
+      groupedByClient[row.klient].total_ilosc += row.ilosc;
     });
+
+    const result = Object.values(groupedByClient);
+    console.log(`✅ Found ${result.length} clients with komis products`);
+    res.json(result);
+  });
+});
+
+// GET /api/komis/client/:klient — данные по одному клиенту из таблицы komis
+app.get('/api/komis/client/:klient', (req, res) => {
+  const klient = decodeURIComponent(req.params.klient);
+  console.log(`📦 GET /api/komis/client/${klient}`);
+
+  db.all('SELECT kod, nazwa, ilosc FROM komis WHERE klient = ? ORDER BY kod', [klient], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const products = (rows || []).map(row => ({ kod: row.kod, nazwa: row.nazwa, ilosc: row.ilosc }));
+    const total_ilosc = products.reduce((sum, p) => sum + p.ilosc, 0);
+
+    res.json({ klient, products, total_ilosc });
   });
 });
 
