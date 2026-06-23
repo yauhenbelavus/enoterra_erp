@@ -3969,6 +3969,7 @@ app.post('/api/invoices', (req, res) => {
     termin_platnosci,
     products,
     przesuniecie_products,
+    komis_deductions,
     suma_netto,
     suma_vat,
     total: suma_brutto,
@@ -4066,7 +4067,7 @@ app.post('/api/invoices', (req, res) => {
               pending -= 1;
               if (pending === 0) {
                 console.log(`✅ Invoice created: id=${invoiceId} ${numer_faktury}, ${products.length} positions`);
-                createPrzesuniecieIfNeeded(invoiceId);
+                applyKomisDeductionsThenFinish(invoiceId);
               }
             }
           );
@@ -4074,6 +4075,65 @@ app.post('/api/invoices', (req, res) => {
       }
     );
   });
+
+  function applyKomisDeductionsThenFinish(invoiceId) {
+    const deductions = Array.isArray(komis_deductions) ? komis_deductions : [];
+    if (deductions.length === 0) {
+      return createPrzesuniecieIfNeeded(invoiceId);
+    }
+
+    let pending = deductions.length;
+    deductions.forEach((d) => {
+      const qty = Math.round(parseFloat(d.ilosc) || 0);
+      if (qty <= 0 || !d.kod) {
+        pending -= 1;
+        if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+        return;
+      }
+
+      db.get('SELECT ilosc FROM komis WHERE klient = ? AND kod = ?', [klient, d.kod], (getErr, row) => {
+        if (getErr) {
+          console.error(`❌ Error reading komis for ${d.kod}:`, getErr);
+          pending -= 1;
+          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+          return;
+        }
+        if (!row) {
+          pending -= 1;
+          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+          return;
+        }
+
+        const currentIlosc = row.ilosc || 0;
+        const finishDeduction = (dedErr, action) => {
+          if (dedErr) {
+            console.error(`❌ Error ${action} komis for ${d.kod}:`, dedErr);
+          } else {
+            console.log(`✅ Komis ${action}: klient=${klient}, kod=${d.kod}, ilosc=${qty}`);
+          }
+          pending -= 1;
+          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+        };
+
+        if (qty >= currentIlosc) {
+          db.run(
+            'DELETE FROM komis WHERE klient = ? AND kod = ?',
+            [klient, d.kod],
+            (delErr) => finishDeduction(delErr, 'deleted')
+          );
+        } else {
+          db.run(
+            `UPDATE komis SET
+               ilosc = ilosc - ?,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE klient = ? AND kod = ?`,
+            [qty, klient, d.kod],
+            (updErr) => finishDeduction(updErr, 'deducted')
+          );
+        }
+      });
+    });
+  }
 
   function createPrzesuniecieIfNeeded(invoiceId) {
     const items = Array.isArray(przesuniecie_products) ? przesuniecie_products : [];
