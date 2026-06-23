@@ -9614,15 +9614,26 @@ app.get('/api/komis/summary', (req, res) => {
   });
 });
 
-// GET /api/komis/client/:klient — данные по одному клиенту из таблицы komis
+// GET /api/komis/client/:klient — данные по одному клиенту из таблицы komis (+ цена)
 app.get('/api/komis/client/:klient', (req, res) => {
   const klient = decodeURIComponent(req.params.klient);
   console.log(`📦 GET /api/komis/client/${klient}`);
 
-  db.all('SELECT kod, nazwa, ilosc FROM komis WHERE klient = ? ORDER BY kod', [klient], (err, rows) => {
+  db.all(`
+    SELECT k.kod, k.nazwa, k.ilosc, ws.cena_sprzedazy
+    FROM komis k
+    LEFT JOIN working_sheets ws ON k.kod = ws.kod
+    WHERE k.klient = ?
+    ORDER BY k.kod
+  `, [klient], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
 
-    const products = (rows || []).map(row => ({ kod: row.kod, nazwa: row.nazwa, ilosc: row.ilosc }));
+    const products = (rows || []).map(row => ({
+      kod: row.kod,
+      nazwa: row.nazwa,
+      ilosc: row.ilosc,
+      cena_sprzedazy: row.cena_sprzedazy || null
+    }));
     const total_ilosc = products.reduce((sum, p) => sum + p.ilosc, 0);
 
     res.json({ klient, products, total_ilosc });
