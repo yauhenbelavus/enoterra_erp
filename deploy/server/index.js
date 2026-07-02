@@ -6372,6 +6372,40 @@ app.get('/api/clients/search', (req, res) => {
   );
 });
 
+// Sprzedaż klientom: pozycje faktur z danymi o winie
+app.get('/api/clients/sales-by-invoices', (req, res) => {
+  console.log('📊 GET /api/clients/sales-by-invoices - Fetching client sales from invoices');
+  db.all(
+    `SELECT
+      i.klient_nazwa,
+      i.data_faktury,
+      ip.kod,
+      ip.nazwa,
+      COALESCE(ip.ilosc, 0) AS ilosc,
+      COALESCE(ip.wartosc_netto, 0) AS wartosc_netto,
+      COALESCE(ip.wartosc_brutto, 0) AS wartosc_brutto
+    FROM invoices i
+    INNER JOIN invoice_products ip ON ip.invoice_id = i.id
+    WHERE i.klient_nazwa IS NOT NULL AND TRIM(i.klient_nazwa) != ''
+    ORDER BY i.data_faktury DESC, i.id DESC, ip.id ASC`,
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Error fetching client sales by invoices:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json((rows || []).map(row => ({
+        klient_nazwa: row.klient_nazwa,
+        data_faktury: row.data_faktury,
+        kod: row.kod || '',
+        nazwa: row.nazwa || '',
+        ilosc: row.ilosc,
+        wartosc_netto: row.wartosc_netto,
+        wartosc_brutto: row.wartosc_brutto,
+      })));
+    }
+  );
+});
+
 app.get('/api/clients/:id', (req, res) => {
   const { id } = req.params;
   console.log(`👥 GET /api/clients/${id} - Fetching client by ID`);
