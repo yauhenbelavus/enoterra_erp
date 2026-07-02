@@ -6372,11 +6372,26 @@ app.get('/api/clients/search', (req, res) => {
   );
 });
 
-// Sprzedaż klientom: pozycje faktur z danymi o winie
+// Sprzedaż klientom: sumy z nagłówków faktur + pozycje win
 app.get('/api/clients/sales-by-invoices', (req, res) => {
   console.log('📊 GET /api/clients/sales-by-invoices - Fetching client sales from invoices');
-  db.all(
-    `SELECT
+
+  const invoiceSql = `
+    SELECT
+      i.id,
+      i.klient_nazwa,
+      i.data_faktury,
+      i.suma_netto,
+      i.suma_brutto,
+      COALESCE(SUM(ip.ilosc), 0) AS butelki
+    FROM invoices i
+    LEFT JOIN invoice_products ip ON ip.invoice_id = i.id
+    WHERE i.klient_nazwa IS NOT NULL AND TRIM(i.klient_nazwa) != ''
+    GROUP BY i.id
+    ORDER BY i.data_faktury DESC, i.id DESC`;
+
+  const productSql = `
+    SELECT
       i.klient_nazwa,
       i.data_faktury,
       ip.kod,
@@ -6387,23 +6402,41 @@ app.get('/api/clients/sales-by-invoices', (req, res) => {
     FROM invoices i
     INNER JOIN invoice_products ip ON ip.invoice_id = i.id
     WHERE i.klient_nazwa IS NOT NULL AND TRIM(i.klient_nazwa) != ''
-    ORDER BY i.data_faktury DESC, i.id DESC, ip.id ASC`,
-    (err, rows) => {
-      if (err) {
-        console.error('❌ Error fetching client sales by invoices:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      res.json((rows || []).map(row => ({
-        klient_nazwa: row.klient_nazwa,
-        data_faktury: row.data_faktury,
-        kod: row.kod || '',
-        nazwa: row.nazwa || '',
-        ilosc: row.ilosc,
-        wartosc_netto: row.wartosc_netto,
-        wartosc_brutto: row.wartosc_brutto,
-      })));
+    ORDER BY i.data_faktury DESC, i.id DESC, ip.id ASC`;
+
+  db.all(invoiceSql, (invoiceErr, invoiceRows) => {
+    if (invoiceErr) {
+      console.error('❌ Error fetching client invoice sales:', invoiceErr);
+      return res.status(500).json({ error: invoiceErr.message });
     }
-  );
+
+    db.all(productSql, (productErr, productRows) => {
+      if (productErr) {
+        console.error('❌ Error fetching client product sales:', productErr);
+        return res.status(500).json({ error: productErr.message });
+      }
+
+      res.json({
+        invoices: (invoiceRows || []).map(row => ({
+          id: row.id,
+          klient_nazwa: row.klient_nazwa,
+          data_faktury: row.data_faktury,
+          suma_netto: row.suma_netto,
+          suma_brutto: row.suma_brutto,
+          butelki: row.butelki,
+        })),
+        products: (productRows || []).map(row => ({
+          klient_nazwa: row.klient_nazwa,
+          data_faktury: row.data_faktury,
+          kod: row.kod || '',
+          nazwa: row.nazwa || '',
+          ilosc: row.ilosc,
+          wartosc_netto: row.wartosc_netto,
+          wartosc_brutto: row.wartosc_brutto,
+        })),
+      });
+    });
+  });
 });
 
 app.get('/api/clients/:id', (req, res) => {
