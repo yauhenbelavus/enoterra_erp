@@ -12,14 +12,15 @@ async function extractTextFromPdfBuffer(buffer) {
   }
 }
 
-// ─── OpenAI parser ───────────────────────────────────────────────────────────
+// ─── Gemini parser ───────────────────────────────────────────────────────────
 
-async function parseWithOpenAI(text) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY nie jest ustawiony na serwerze');
+async function parseWithGemini(text) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY nie jest ustawiony na serwerze');
 
-  const OpenAI = require('openai');
-  const client = new OpenAI({ apiKey });
+  const { GoogleGenerativeAI } = require('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
   const prompt = `Extract data from this purchase invoice text.
 
@@ -42,14 +43,8 @@ Rules:
 Invoice text:
 ${text.slice(0, 6000)}`;
 
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    max_tokens: 2000,
-    temperature: 0,
-  });
-
-  const content = response.choices[0].message.content.trim();
+  const result = await model.generateContent(prompt);
+  const content = result.response.text().trim();
   const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   return JSON.parse(cleaned);
 }
@@ -69,7 +64,7 @@ async function parsePurchaseInvoicePdf(buffer) {
   }
 
   try {
-    const parsed = await parseWithOpenAI(text);
+    const parsed = await parseWithGemini(text);
 
     if (!parsed || (!parsed.sprzedawca && (!parsed.products || parsed.products.length === 0))) {
       return { success: false, error: 'Nie udało się rozpoznać danych faktury.', data: null };
