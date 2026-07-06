@@ -77,8 +77,9 @@ function extractSupplier(lines, text) {
 // ─── Polish Lp. table parsing ───────────────────────────────────────────────
 
 /**
- * Join multi-line product rows: if a Lp. line doesn't have a unit word,
- * try appending the next line (continuation of product name + data).
+ * Join multi-line product rows: keep appending following lines until we find
+ * a unit word (szt./but. etc.), hit another Lp. line, or exceed 4 lines.
+ * Handles cases where product name AND PKWiU code span multiple PDF lines.
  */
 function collectProductRows(lines) {
   const rows = [];
@@ -91,20 +92,21 @@ function collectProductRows(lines) {
     }
 
     if (LP_RE.test(line)) {
-      if (UNIT_RE.test(line)) {
-        // Complete row on one line
-        rows.push(line);
-      } else if (i + 1 < lines.length) {
-        // Try joining with next line (wrapped product name)
-        const next = lines[i + 1].trim();
-        if (next && !LP_RE.test(next) && !SKIP_LINE.test(next) && !HEADER_WORDS.test(next)) {
-          rows.push(line + ' ' + next);
-          i++; // consume next line
-        } else {
-          rows.push(line);
-        }
-      } else {
-        rows.push(line);
+      let joined = line;
+      let j = i + 1;
+
+      // Keep joining until unit word found or we hit another Lp./skip line
+      while (j < lines.length && !UNIT_RE.test(joined) && j - i <= 4) {
+        const next = lines[j].trim();
+        if (!next || LP_RE.test(next) || SKIP_LINE.test(next) || HEADER_WORDS.test(next)) break;
+        joined = joined + ' ' + next;
+        j++;
+      }
+
+      if (UNIT_RE.test(joined)) {
+        rows.push(joined);
+        i = j; // skip all consumed continuation lines
+        continue;
       }
     }
     i++;
@@ -144,7 +146,12 @@ function parsePolishRow(row) {
   const ilosc = normalizeNumber(tokens[tokens.length - 1]);
   if (ilosc == null || ilosc <= 0 || ilosc > 10000) return null;
 
-  const nazwa = tokens.slice(0, tokens.length - 1).join(' ').trim();
+  // Filter isolated single digits — artifacts from broken PKWiU codes (e.g. "11.07.19." + "0")
+  const nazwa = tokens
+    .slice(0, tokens.length - 1)
+    .filter((t) => !/^\d$/.test(t))
+    .join(' ')
+    .trim();
   if (!nazwa || nazwa.length < 2) return null;
   // Skip if nazwa is just numbers/symbols
   if (/^[\d\s,.%]+$/.test(nazwa)) return null;
