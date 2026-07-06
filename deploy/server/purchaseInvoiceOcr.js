@@ -5,13 +5,24 @@ const INVOICE_LABEL =
 const SUPPLIER_LABEL =
   /(?:from|supplier|vendor|vendeur|fornitore|lieferant|sprzedawca|dostawca)\s*[:.]?\s*(.+)/i;
 const HEADER_WORDS =
-  /\b(qty|quantity|quantit|quantité|menge|ilość|prezzo|price|prix|preis|importo|amount|montant|descri|description|article|codice|code|vat|iva|tva|u\.?m\.?|unit)\b/i;
+  /\b(lp\.?|qty|quantity|quantit|quantité|menge|ilość|prezzo|price|prix|preis|importo|amount|montant|descri|description|article|codice|pkwiu|j\.m|j\.m\.|vat|iva|tva|u\.?m\.?|unit|stawka|wartość|brutto|netto)\b/i;
 const SKIP_LINE =
-  /^(invoice|fattura|facture|rechnung|page|pagina|tel|phone|fax|www\.|http|email|e-mail|bank|iban|swift|bic)/i;
+  /^(invoice|fattura|facture|rechnung|page|pagina|tel|phone|fax|www\.|http|email|e-mail|bank|iban|swift|bic|w tym|razem|łącznie|do zapłaty|summary|total)/i;
 
 function normalizeNumber(value) {
   if (value == null || value === '') return null;
-  const cleaned = String(value).replace(/\s/g, '').replace(',', '.');
+  // handle thousands separators: space or dot before 3-digit group
+  let cleaned = String(value).trim();
+  // remove spaces (thousands separator)
+  cleaned = cleaned.replace(/\s/g, '');
+  // handle European decimal: if comma present, replace with dot
+  // but first check if it's 1.234,56 format vs 1,234.56
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(cleaned)) {
+    // 1.234,56 — dots are thousands, comma is decimal
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else {
+    cleaned = cleaned.replace(',', '.');
+  }
   const num = parseFloat(cleaned);
   return Number.isFinite(num) ? num : null;
 }
@@ -39,55 +50,24 @@ function extractSupplier(lines, text) {
   return null;
 }
 
-function looksLikeProductCode(value) {
-  return /^[A-Z0-9][A-Z0-9\-_.\/]{1,24}$/i.test(value);
-}
+// Polish invoice format with Lp. column:
+// Lp. | Nazwa | PKWiU | Ilość | J.m. | Cena netto | Wartość netto | ...
+function parsePolishLpLine(parts) {
+  // parts[0] = "1." or "1"
+  // parts[1] = Nazwa
+  // parts[2] = PKWiU (e.g. 11.07.19) — skip
+  // parts[3] = Ilość
+  // parts[4] = J.m. (szt.)
+  // parts[5] = Cena netto
+  if (parts.length < 6) return null;
 
-function parseProductLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed || HEADER_WORDS.test(trimmed)) return null;
-  if (SKIP_LINE.test(trimmed)) return null;
-  if (/^(subtotal|netto|vat|iva|tva|total|totale|transport|shipping)/i.test(trimmed)) return null;
+  const nazwa = parts[1];
+  const ilosc = normalizeNumber(parts[3]);
+  const cena = normalizeNumber(parts[5]);
 
-  const tabParts = trimmed.split(/\t+/).map((p) => p.trim()).filter(Boolean);
-  if (tabParts.length >= 3) {
-    return buildProductFromParts(tabParts);
-  }
-
-  const spaced = trimmed.match(
-    /^(.+?)\s+(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)(?:\s+(\d+(?:[.,]\d+)?))?\s*(?:€|EUR|USD|\$)?$/
-  );
-  if (spaced) {
-    const desc = spaced[1].trim();
-    const qty = normalizeNumber(spaced[2]);
-    const price = normalizeNumber(spaced[3]);
-    if (qty == null || price == null || qty <= 0) return null;
-    return splitDescription(desc, qty, price);
-  }
-
-  return null;
-}
-
-function buildProductFromParts(parts) {
-  let kod = '';
-  let nazwa;
-  let qtyIndex;
-  let priceIndex;
-
-  if (parts.length >= 4 && looksLikeProductCode(parts[0])) {
-    kod = parts[0];
-    nazwa = parts[1];
-    qtyIndex = 2;
-    priceIndex = 3;
-  } else {
-    nazwa = parts[0];
-    qtyIndex = 1;
-    priceIndex = 2;
-  }
-
-  const ilosc = normalizeNumber(parts[qtyIndex]);
-  const cena = normalizeNumber(parts[priceIndex]);
-  if (!nazwa || ilosc == null || cena == null || ilosc <= 0) return null;
+  if (!nazwa || nazwa.length < 2) return null;
+  if (ilosc == null || ilosc <= 0) return null;
+  if (cena == null || cena <= 0) return null;
 
   return {
     nazwa: nazwa.slice(0, 200),
@@ -96,19 +76,80 @@ function buildProductFromParts(parts) {
   };
 }
 
-function splitDescription(desc, qty, price) {
-  const tokens = desc.split(/\s+/);
-  let nazwa = desc;
+// Generic tab-separated line: Nazwa | Ilość | Cena | ...
+function parseGenericTabLine(parts) {
+  if (parts.length < 3) return null;
 
-  if (tokens.length >= 2 && looksLikeProductCode(tokens[0])) {
-    nazwa = tokens.slice(1).join(' ');
+  let nazwa, ilosc, cena;
+
+  // Skip if first part looks like product code (not nazwa)
+  if (parts.length >= 4 && /^[A-Z0-9][A-Z0-9\-_.\/]{1,24}$/i.test(parts[0])) {
+    nazwa = parts[1];
+    ilosc = normalizeNumber(parts[2]);
+    cena = normalizeNumber(parts[3]);
+  } else {
+    nazwa = parts[0];
+    ilosc = normalizeNumber(parts[1]);
+    cena = normalizeNumber(parts[2]);
   }
+
+  if (!nazwa || nazwa.length < 2) return null;
+  if (ilosc == null || ilosc <= 0) return null;
+  if (cena == null || cena <= 0) return null;
 
   return {
     nazwa: nazwa.slice(0, 200),
-    ilosc: String(qty),
-    cena: formatPriceForForm(price),
+    ilosc: String(ilosc),
+    cena: formatPriceForForm(cena),
   };
+}
+
+// Space-separated fallback: "Chianti Classico  120  8,50  1020,00"
+function parseSpacedLine(line) {
+  const match = line.match(
+    /^(.+?)\s{2,}(\d+(?:[.,\s]\d+)?)\s+(\d+(?:[.,]\d+)?)\s*(?:€|EUR|PLN|\$)?/
+  );
+  if (!match) return null;
+
+  const nazwa = match[1].trim();
+  const ilosc = normalizeNumber(match[2]);
+  const cena = normalizeNumber(match[3]);
+
+  if (!nazwa || nazwa.length < 2) return null;
+  if (ilosc == null || ilosc <= 0) return null;
+  if (cena == null || cena <= 0) return null;
+
+  return {
+    nazwa: nazwa.slice(0, 200),
+    ilosc: String(ilosc),
+    cena: formatPriceForForm(cena),
+  };
+}
+
+function parseProductLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (SKIP_LINE.test(trimmed)) return null;
+  if (HEADER_WORDS.test(trimmed)) return null;
+
+  // Skip pure number/percentage lines (totals, VAT rows)
+  if (/^[\d\s%.,]+$/.test(trimmed)) return null;
+
+  const parts = trimmed.split(/\t+/).map((p) => p.trim()).filter(Boolean);
+
+  // Polish Lp. format: starts with "1." "2." etc.
+  if (parts.length >= 6 && /^\d+\.?$/.test(parts[0])) {
+    return parsePolishLpLine(parts);
+  }
+
+  // Generic tab-separated
+  if (parts.length >= 3) {
+    const result = parseGenericTabLine(parts);
+    if (result) return result;
+  }
+
+  // Space-separated fallback
+  return parseSpacedLine(trimmed);
 }
 
 function parseProducts(lines) {
