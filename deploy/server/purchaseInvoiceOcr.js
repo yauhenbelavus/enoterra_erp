@@ -1,11 +1,15 @@
-const pdfParseModule = require('pdf-parse');
-const pdfParse = typeof pdfParseModule === 'function' ? pdfParseModule : (pdfParseModule.default || pdfParseModule);
+const { PDFParse } = require('pdf-parse');
 
 // ─── PDF text extraction ─────────────────────────────────────────────────────
 
 async function extractTextFromPdfBuffer(buffer) {
-  const data = await pdfParse(buffer);
-  return data.text || '';
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText({ cellSeparator: '\t', pageJoiner: '\n' });
+    return result.text || '';
+  } finally {
+    await parser.destroy();
+  }
 }
 
 // ─── OpenAI parser ───────────────────────────────────────────────────────────
