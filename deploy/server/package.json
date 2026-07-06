@@ -17,6 +17,8 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "sqlite3": "^5.1.7",
+    "dotenv": "^16.4.7",
+    "openai": "^4.104.0",
     "xlsx": "^0.18.5"
   },
   "description": ""
