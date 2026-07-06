@@ -37,6 +37,20 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+const ocrUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Dozwolone są tylko pliki PDF'));
+    }
+  },
+});
+
+const { parsePurchaseInvoicePdf } = require('./purchaseInvoiceOcr');
+
 // Serve uploaded files from uploads directory (ДОЛЖЕН БЫТЬ ПЕРЕД ВСЕМИ API endpoints)
 app.use('/uploads', (req, res, next) => {
   console.log(`📁 Uploads middleware: ${req.method} ${req.url}`);
@@ -9569,6 +9583,29 @@ app.post('/api/wms/send-shipment', async (req, res) => {
   } catch (error) {
     console.error('❌ Ошибка обработки запроса:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// OCR — rozpoznawanie faktury zakupu z PDF
+app.post('/api/ocr/purchase-invoice', ocrUpload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'Brak pliku PDF' });
+    }
+
+    console.log('📄 OCR purchase invoice:', req.file.originalname, req.file.size, 'bytes');
+    const result = await parsePurchaseInvoicePdf(req.file.buffer);
+
+    if (!result.success) {
+      return res.status(422).json(result);
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('❌ OCR purchase invoice error:', error);
+    res.status(500).json({
+      error: error.message || 'Błąd rozpoznawania faktury zakupu',
+    });
   }
 });
 
