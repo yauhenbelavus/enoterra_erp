@@ -1,4 +1,4 @@
-const { PDFParse } = require('pdf-parse');
+﻿const { PDFParse } = require('pdf-parse');
 
 // ─── PDF text extraction ─────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {
   "sprzedawca": "supplier company name",
   "products": [
-    {"nazwa": "product name", "ilosc": 30, "cena": "3,78"}
+    {"nazwa": "product name", "ilosc": 30, "cena": "38,99"}
   ]
 }
 
@@ -83,7 +83,8 @@ Algorithm — when you see a line starting with "N." (Lp. number, e.g. "8."):
 Example (Polish invoice):
   Line 1: "8. Domaine D'Grottes L'."
   Line 2: "Antidote  30 szt.  31,70  951,00  ..."
-→ ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena": "31,70"}
+→ ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena": "33,29"}
+  (net 31,70 × VAT 5% = 33,29)
 
 This is DIFFERENT from Bortolomiol case where the SAME product name appears in
 TWO separate table rows (paid row + F.o.C. row) — each with its own qty and price.
@@ -119,21 +120,31 @@ Rules:
 - Lotto lines "Qta: 204,000" inside description = IGNORE
 - Multi-pack: multiply only if invoice explicitly shows "3 x 6 = 18"; otherwise use column value
 
-=== CENA (unit net price AFTER discount) ===
-Return FINAL unit price after discount, NOT the list/catalog price.
-Output as string with comma decimal separator (e.g. "3,78").
+=== CENA (final unit price for ERP) ===
+Output as string with comma decimal separator (e.g. "38,99").
 
-Calculate in this priority:
-1. If line net total exists: cena = net_line_total / quantity
+Step 1 — calculate NET unit price after discount:
+1. If line net total exists: net = net_line_total / quantity
    (IMPORTO NETTO, Imp. Netto, Wartość netto, Montant HT; or AMOUNT / QTY)
-2. Else if discount % exists: cena = unit_price × (1 − discount/100)
+2. Else if discount % exists: net = unit_price × (1 − discount/100)
    (% SCONTO, Sc.%, % Rem, DISC.)
-3. Else: cena = unit price column (Cena netto, PREZZO UNIT., Stk. pris, P.U. HT, ITEM.PRICE)
+3. Else: net = unit price column (Cena netto, PREZZO UNIT., Stk. pris, P.U. HT, ITEM.PRICE)
 
-Verify: round(ilosc × cena, 2) should equal line net total (±0.02).
-If mismatch, recalculate using net total / quantity.
+Step 2 — apply VAT if rate is shown on the row:
+If the row has a VAT rate (Stawka VAT, IVA, TVA, VAT, MwSt, % like "23%", "5%", "22%"):
+  cena = net × (1 + vat_rate / 100)
+Examples:
+  net 31,70 + VAT 23% → cena = "38,99"
+  net 31,70 + VAT 5%  → cena = "33,29"
+  net 5,40 + VAT 22%  → cena = "6,59"
 
-F.o.C. / Omaggio / price 0 → cena = "0"
+If NO VAT rate on the row → cena = net (no multiplication).
+
+Alternative when gross line total is visible:
+  cena = Wartość brutto / Ilość  (or gross total / quantity)
+Use this to verify Step 2 (±0.02).
+
+F.o.C. / Omaggio / price 0 → cena = "0" (skip VAT calculation)
 
 === CRITICAL RULES ===
 1. Join multi-line PDF rows into one product BEFORE extracting fields (see MULTI-LINE ROWS)
