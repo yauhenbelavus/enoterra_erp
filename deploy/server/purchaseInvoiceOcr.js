@@ -24,44 +24,110 @@ async function parseWithGroq(text) {
     baseURL: 'https://api.groq.com/openai/v1',
   });
 
-  const prompt = `Extract data from this purchase invoice text.
+  const prompt = `You extract purchase invoice data from raw PDF text into JSON.
 
-Return ONLY valid JSON in this exact format (no markdown, no explanation):
+Return ONLY valid JSON (no markdown, no explanation):
 {
   "sprzedawca": "supplier company name",
   "products": [
-    {"nazwa": "product name", "ilosc": 12, "cena": "6,90"}
+    {"nazwa": "product name", "ilosc": 30, "cena": "3,78"}
   ]
 }
 
+=== SPRZEDAWCA (supplier) ===
+Extract the company that ISSUED the invoice (seller), NOT the buyer.
+
+How to find seller by language:
+- PL: label "Sprzedawca:" → company name after it
+- IT: company at TOP-LEFT (logo/header), or "Fornitore:", "Cedente:"
+- DK: company in header/logo (e.g. "MURI ApS")
+- NO/EN: company name in header (e.g. "Nolo Nordic AS")
+- FR: branding/logo company (e.g. "CHAMPAGNE Chavost")
+
+NEVER return as sprzedawca (these are ALWAYS the buyer):
+- Win Experience, WIN EXPERIENCE, Win Experience Spółka z o.o.
+- ENOTERRA, ENOTERRA POLAND
+- Any name under: Nabywca, Acquirente, Destinatario, Recipient, Kupujący,
+  Bill to, Sold to, Company Data (recipient block)
+
+Return only company name — no address, NIP/VAT, phone.
+
+=== PRODUCTS (line items) ===
+Include physical goods: wine, drinks, bottles, AND pallets (Euro Pallet, EPAL, Paleta).
+One table row = one product entry. Parse row-by-row in table order.
+
+INCLUDE a row only if it has BOTH quantity AND a price value in the same row
+(quantity > 0; price can be 0 for F.o.C./Omaggio/gratis).
+
+SKIP rows without quantity or without price in the same row:
+- delivery address blocks ("Destinazione merce", "VEIS TAX WAREHOUSE", warehouse lines)
+- text-only description lines inside the table
+- payment/shipping notes, references, header-like lines
+
+SKIP non-goods rows:
+- Shipping, Spedizione, SHP, Frakt, Transport, Spedizione (cost lines)
+
+INCLUDE F.o.C./Omaggio/free rows: cena = "0" (quantity must still be present).
+
+=== NAZWA (product name) ===
+Take from description column:
+- PL: "Nazwa"
+- IT: "DESCRIZIONE DEI BENI" / "Description"
+- DK: "Tekst" (first line only — skip HS code and ABV lines below)
+- EN: "DESCRIPTION" (first line; ignore second line like "Utland")
+- FR: "Désignation" (first line; ignore "*Quantité : X - Lot :*" sub-lines)
+
+Clean the name:
+- Remove leading row numbers: "1.", "Lp. 3", "N°1", "N°2"
+- Remove product codes at start if duplicated: "P VBE_ECRU", "KRS1", "HS75BIO"
+- Keep wine name, volume (750ml, 75cl), type (Brut Nature, Spumante)
+- Do NOT merge rows with the same name — each row stays separate
+
+=== ILOŚĆ (quantity) ===
+Total count of bottles/pieces/units (szt, stk, BT, each, pz). Return as integer.
+
+Use the QUANTITY column for THAT row — never copy from another row:
+- PL: "Ilość" (number before "szt")
+- IT: "QUANTITA'" or "Quantity" column
+- DK: "Antal"
+- EN: "QTY."
+- FR: "Quantité" column (NOT "*Quantité : X*" inside description)
+
 Rules:
-- sprzedawca: the SELLER/SUPPLIER name — the company ISSUING the invoice (not the buyer/recipient).
-  * On Italian invoices: look for "Fornitore:", "Cedente:", or the company name at the very TOP of the invoice (before "Spett.le" or "Destinatario").
-  * On Polish invoices: look for "Sprzedawca:" label.
-  * On Danish invoices: look for "Leverandør:" or company name in the header/logo area.
-  * NEVER return the buyer — ignore lines with "Nabywca:", "Acquirente:", "Destinatario:", "Kupujący:", "Bill to:", "Sold to:".
-  * NEVER return "Win Experience", "WIN EXPERIENCE", or any variation of it — that is always the BUYER, never the supplier.
-  * Return just the company name, no address, no VAT number.
-- products: only rows with actual goods/products. Include items with price 0 (free of charge, F.o.C., Omaggio, gratis).
-- ilosc: number — total quantity of individual BOTTLES/PIECES received (not cartons/boxes/cases).
-  Examples:
-  * "3 CS x 6 BT" or "3 kartons × 6 szt" → ilosc = 18
-  * "Antal 6 stk." → ilosc = 6
-  * "Ilość: 12 szt" → ilosc = 12
-  * "Qty: 24" with "Pack: 4 x 6" → ilosc = 24 (use the total, not the pack breakdown)
-  * If only one number visible and unit is BT/szt/stk/pz/bt → that IS the bottle count
-  * "Packag." column = number of cartons (IGNORE), look for "Total Qty" or "Ilość" column instead
-- cena: unit net price as string with comma decimal separator (e.g. "6,90"). Use "0" if price is zero or free.
-- Skip lines that are: shipping cost, payment terms, totals, tax rows, header rows, addresses, notes, lot/batch numbers.
-- Product name: clean readable name without leading sequential numbers (1., N°1, etc.).
+- Same product name in 2 rows → each row has its OWN quantity from its OWN row
+- "Packag" / packages / cartons = IGNORE (not ilosc)
+- Lotto lines "Qta: 204,000" inside description = IGNORE
+- Multi-pack: multiply only if invoice explicitly shows "3 x 6 = 18"; otherwise use column value
+
+=== CENA (unit net price AFTER discount) ===
+Return FINAL unit price after discount, NOT the list/catalog price.
+Output as string with comma decimal separator (e.g. "3,78").
+
+Calculate in this priority:
+1. If line net total exists: cena = net_line_total / quantity
+   (IMPORTO NETTO, Imp. Netto, Wartość netto, Montant HT; or AMOUNT / QTY)
+2. Else if discount % exists: cena = unit_price × (1 − discount/100)
+   (% SCONTO, Sc.%, % Rem, DISC.)
+3. Else: cena = unit price column (Cena netto, PREZZO UNIT., Stk. pris, P.U. HT, ITEM.PRICE)
+
+Verify: round(ilosc × cena, 2) should equal line net total (±0.02).
+If mismatch, recalculate using net total / quantity.
+
+F.o.C. / Omaggio / price 0 → cena = "0"
+
+=== CRITICAL RULES ===
+1. Parse row-by-row — never merge or deduplicate by name
+2. Never assign one row's quantity/price to another row, even if names match
+3. Win Experience / ENOTERRA is never the supplier
+4. When unsure, prefer the column labeled quantity/ilość/antal/qty for ilosc
 
 Invoice text:
-${text.slice(0, 6000)}`;
+${text.slice(0, 8000)}`;
 
   const response = await client.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 2000,
+    max_tokens: 4000,
     temperature: 0,
     response_format: { type: 'json_object' },
   });
@@ -103,7 +169,7 @@ async function parsePurchaseInvoicePdf(buffer) {
       },
     };
   } catch (err) {
-    console.error('❌ OpenAI OCR error:', err.message);
+    console.error('❌ Groq OCR error:', err.message);
     return {
       success: false,
       error: 'Błąd rozpoznawania faktury (AI): ' + (err.message || 'nieznany błąd'),
