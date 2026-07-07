@@ -50,7 +50,26 @@ NEVER return as sprzedawca (these are ALWAYS the buyer):
 - Any name under: Nabywca, Acquirente, Destinatario, Recipient, Kupujący,
   Bill to, Sold to, Company Data (recipient block)
 
-Return only company name — no address, NIP/VAT, phone.
+Return only company trade name — no address, NIP/VAT, phone.
+
+Clean sprzedawca name — remove legal entity form AND everything after it:
+Keep only the trade/brand name before the legal form suffix.
+
+Examples from real invoices:
+  "BORTOLOMIOL Spa" / "BORTOLOMIOL S.p.A."           → "BORTOLOMIOL"
+  "FERAL S.R.L. Società benefit"                     → "FERAL"
+  "MURI ApS"                                         → "MURI"
+  "Nolo Nordic AS"                                   → "Nolo Nordic"
+  "CHAMPAGNE Chavost"                                → "CHAMPAGNE Chavost" (no legal form)
+  "South Central Tomasz Chodorowicz"                 → "South Central Tomasz Chodorowicz" (person, no form)
+
+Remove these forms and ALL text after them:
+- PL: sp. z o.o., Sp. z o.o., spółka z ograniczoną odpowiedzialnością, S.A., sp. j., sp. k.
+- IT: S.p.A., Spa, S.r.l., SRL, Società benefit, S.n.c., S.a.s.
+- DK: ApS, A/S, I/S
+- NO: AS, ASA
+- FR: SA, SAS, SARL, EURL, SNC
+- DE/EN: GmbH, AG, Ltd, Limited, LLC, Inc., Oy, AB, NV, BV
 
 === PRODUCTS (line items) ===
 Include physical goods: wine, drinks, bottles, AND pallets (Euro Pallet, EPAL, Paleta).
@@ -189,6 +208,20 @@ function formatPrice(value) {
   return (Math.round(value * 100) / 100).toFixed(2).replace('.', ',');
 }
 
+/** Strip legal entity suffix and everything after it from supplier name */
+function cleanSupplierName(name) {
+  let s = String(name || '').trim();
+  if (!s) return '';
+
+  s = s.replace(/,.*$/, '').trim();
+
+  const legalFormPattern =
+    /\s+(?:spółka z ograniczoną odpowiedzialnością|spolka z ograniczona odpowiedzialnoscia|societ[aà]\s+benefit|sp\.\s*z\.?\s*o\.?\s*o\.?|s\.\s*p\.\s*a\.?|s\.\s*r\.\s*l\.?|sp\.\s*j\.?|sp\.\s*k\.?|s\.?\s*a\.?\s*s\.?|sarl|sas|eurl|snc|gmbh|ag|aps|a\/s|asa|\bas\b|a\.?\s*s\.?|oy|ab|nv|bv|ltd\.?|limited|llc|inc\.?|corp\.?|co\.?|spa|srl)(?:\s.*)?$/i;
+
+  s = s.replace(legalFormPattern, '').trim();
+  return s.replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
 /** Unit net after discount — calculated on server only */
 function resolveUnitNet(product, ilosc) {
   const lineNet = parseNumber(product.wartosc_netto);
@@ -280,7 +313,7 @@ async function parsePurchaseInvoicePdf(buffer) {
     return {
       success: true,
       data: {
-        sprzedawca: String(parsed.sprzedawca || '').trim(),
+        sprzedawca: cleanSupplierName(parsed.sprzedawca),
         products: (parsed.products || []).map(mapProduct),
       },
     };
