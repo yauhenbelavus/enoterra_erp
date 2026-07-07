@@ -163,9 +163,24 @@ Use the QUANTITY column for THAT row — never copy from another row:
 
 Rules:
 - Same product name in 2 separate table rows → each row has its OWN quantity
-- "Packag" / packages / cartons = IGNORE (not ilosc)
-- Lotto lines "Qta: 204,000" inside description = IGNORE
+- "Packag" / "Packag." / packages / cartons / cases = NEVER ilosc (smaller number)
+- Lotto lines "Qta: 204,000" inside description = IGNORE (batch split, not row qty)
 - Multi-pack: multiply only if invoice explicitly shows "3 x 6 = 18"; otherwise use column value
+
+FERAL S.R.L. invoice — CRITICAL (columns left to right):
+  Code | N.C. | Description | U.d.M. | Packag | Quantity | Prezzo Un. | Sc.% | Imp. Netto | IVA
+
+  Packag = number of cartons/boxes (IGNORE for ilosc)
+  Quantity = total bottles/units (USE for ilosc)
+
+  Row examples — ilosc from Quantity, NEVER from Packag:
+    HS75BIO  Packag=50   Quantity=300,000  Prezzo=6,9000  Imp.Netto=2.070,00  → ilosc=300 (NOT 50)
+    GA75BIO  Packag=6    Quantity=36,000   Prezzo=6,9000  Imp.Netto=248,40    → ilosc=36  (NOT 6)
+    PT75IE   Packag=6    Quantity=36,000   Prezzo=6,9000  Imp.Netto=248,40    → ilosc=36  (NOT 6)
+    Euro Pallet EPAL  Packag=1  Quantity=1,000  Prezzo=9,3000  → ilosc=1
+
+  Sanity check: Imp. Netto / Prezzo Un. ≈ Quantity (e.g. 2070 / 6,90 = 300)
+  Skip lines starting with "Lotto:" — they are NOT product rows
 
 === CRITICAL RULES ===
 1. Join multi-line PDF rows into one product BEFORE extracting fields (see MULTI-LINE ROWS)
@@ -222,6 +237,39 @@ function cleanSupplierName(name) {
   return s.replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
+/** Catalog unit net before line-total division */
+function unitNetFromCatalog(product) {
+  const catalog = parseNumber(
+    product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
+  );
+  const discount = parseNumber(product.rabat_procent ?? product.rabat ?? product.discount);
+  if (catalog > 0 && discount > 0) {
+    return catalog * (1 - discount / 100);
+  }
+  return catalog;
+}
+
+/** Fix Packag-vs-Quantity confusion when line total and unit price are known */
+function resolveQuantity(product) {
+  let ilosc = parseNumber(product.ilosc ?? product.quantity ?? product.quantita);
+  if (ilosc <= 0) return 0;
+
+  const lineNet = parseNumber(product.wartosc_netto);
+  const unitNet = unitNetFromCatalog(product);
+  if (lineNet > 0 && unitNet > 0) {
+    const fromLine = Math.round(lineNet / unitNet);
+    if (fromLine > 0 && fromLine !== ilosc) {
+      const impliedUnit = lineNet / ilosc;
+      const relError = Math.abs(impliedUnit - unitNet) / unitNet;
+      if (relError > 0.15) {
+        ilosc = fromLine;
+      }
+    }
+  }
+
+  return ilosc;
+}
+
 /** Unit net after discount — calculated on server only */
 function resolveUnitNet(product, ilosc) {
   const lineNet = parseNumber(product.wartosc_netto);
@@ -242,7 +290,7 @@ function resolveUnitNet(product, ilosc) {
 
 /** Final unit price + line value — all math on server */
 function computeProductPricing(product) {
-  const ilosc = parseNumber(product.ilosc);
+  const ilosc = resolveQuantity(product);
   if (ilosc <= 0) {
     return { cena: '0', cenaPelna: 0, wartosc: '0' };
   }
@@ -279,10 +327,11 @@ function computeProductPricing(product) {
 }
 
 function mapProduct(product) {
+  const ilosc = resolveQuantity(product);
   const pricing = computeProductPricing(product);
   return {
     nazwa: String(product.nazwa || '').trim().slice(0, 200),
-    ilosc: String(product.ilosc ?? ''),
+    ilosc: String(ilosc),
     cena: pricing.cena,
     cenaPelna: pricing.cenaPelna,
     wartosc: pricing.wartosc,
