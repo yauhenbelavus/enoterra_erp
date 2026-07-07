@@ -207,38 +207,52 @@ function resolveUnitNet(product, ilosc) {
   return catalog;
 }
 
-/** Final cena per unit — all math on server */
-function computeCenaBrutto(product) {
+/** Final unit price + line value — all math on server */
+function computeProductPricing(product) {
   const ilosc = parseNumber(product.ilosc);
-  if (ilosc <= 0) return '0';
+  if (ilosc <= 0) {
+    return { cena: '0', cenaPelna: 0, wartosc: '0' };
+  }
 
   const lineBrutto = parseNumber(product.wartosc_brutto);
   const lineNet = parseNumber(product.wartosc_netto);
   const catalog = parseNumber(product.cena_katalogowa ?? product.cena_netto ?? product.cena);
 
-  if (catalog === 0 && lineNet === 0 && lineBrutto === 0) return '0';
+  if (catalog === 0 && lineNet === 0 && lineBrutto === 0) {
+    return { cena: '0', cenaPelna: 0, wartosc: '0' };
+  }
 
-  // Brutto z VAT — przez dzielenie (jak rabat przez wartosc_netto / ilosc)
+  let cenaPelna = 0;
+  let lineValue = 0;
+
   if (lineBrutto > 0) {
-    return formatPrice(lineBrutto / ilosc);
+    cenaPelna = lineBrutto / ilosc;
+    lineValue = lineBrutto;
+  } else {
+    const unitNet = resolveUnitNet(product, ilosc);
+    if (unitNet === 0) {
+      return { cena: '0', cenaPelna: 0, wartosc: '0' };
+    }
+    const vat = parseNumber(product.vat_procent ?? product.vat);
+    cenaPelna = vat > 0 ? unitNet * (1 + vat / 100) : unitNet;
+    lineValue = cenaPelna * ilosc;
   }
 
-  // Fallback gdy brak kolumny brutto: netto po rabacie × (1 + VAT%)
-  const unitNet = resolveUnitNet(product, ilosc);
-  if (unitNet === 0) return '0';
-
-  const vat = parseNumber(product.vat_procent ?? product.vat);
-  if (vat > 0) {
-    return formatPrice(unitNet * (1 + vat / 100));
-  }
-  return formatPrice(unitNet);
+  return {
+    cena: formatPrice(cenaPelna),
+    cenaPelna,
+    wartosc: formatPrice(lineValue),
+  };
 }
 
 function mapProduct(product) {
+  const pricing = computeProductPricing(product);
   return {
     nazwa: String(product.nazwa || '').trim().slice(0, 200),
     ilosc: String(product.ilosc ?? ''),
-    cena: computeCenaBrutto(product),
+    cena: pricing.cena,
+    cenaPelna: pricing.cenaPelna,
+    wartosc: pricing.wartosc,
   };
 }
 
