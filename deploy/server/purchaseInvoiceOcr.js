@@ -54,22 +54,40 @@ Return only company name — no address, NIP/VAT, phone.
 
 === PRODUCTS (line items) ===
 Include physical goods: wine, drinks, bottles, AND pallets (Euro Pallet, EPAL, Paleta).
-One table row = one product entry. Parse row-by-row in table order.
+Parse the table row-by-row in order.
 
-INCLUDE a row only if it has BOTH quantity > 0 AND a price value in the same row
+INCLUDE a row only if it has BOTH quantity > 0 AND a price value
 (price can be 0 for F.o.C./Omaggio/gratis).
 NEVER output a product with ilosc = 0 or missing quantity.
 
-SKIP rows without quantity or without price in the same row:
+SKIP rows without quantity or without price:
 - delivery address blocks ("Destinazione merce", "VEIS TAX WAREHOUSE", warehouse lines)
-- text-only description lines inside the table (name fragment without qty/price)
-- continuation lines of a multi-line product name (see NAZWA below)
 - payment/shipping notes, references, header-like lines
 
 SKIP non-goods rows:
-- Shipping, Spedizione, SHP, Frakt, Transport, Spedizione (cost lines)
+- Shipping, Spedizione, SHP, Frakt, Transport (cost lines)
 
 INCLUDE F.o.C./Omaggio/free rows: cena = "0" (quantity must still be present).
+
+=== MULTI-LINE ROWS (critical — read before parsing) ===
+PDF text often splits ONE table row across several lines. You MUST join them
+into a single logical row BEFORE extracting nazwa/ilosc/cena.
+
+Algorithm — when you see a line starting with "N." (Lp. number, e.g. "8."):
+1. Start joining this line with the following lines (up to 4 more).
+2. Keep joining until the combined text contains a unit word: szt, but, stk, BT, each, pz, op.
+3. Stop joining if you hit the next Lp. line (e.g. "9.") or a header/skip line.
+4. Treat the joined block as ONE product row — extract nazwa, ilosc, cena from it.
+5. Do NOT output separate products for the continuation lines.
+
+Example (Polish invoice):
+  Line 1: "8. Domaine D'Grottes L'."
+  Line 2: "Antidote  30 szt.  31,70  951,00  ..."
+→ ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena": "31,70"}
+
+This is DIFFERENT from Bortolomiol case where the SAME product name appears in
+TWO separate table rows (paid row + F.o.C. row) — each with its own qty and price.
+Those are two products, do NOT join them.
 
 === NAZWA (product name) ===
 Take from description column:
@@ -81,15 +99,9 @@ Take from description column:
 
 Clean the name:
 - Remove leading row numbers: "1.", "Lp. 3", "N°1", "N°2"
+- Remove PKWiU codes: "11.07.19", "11.07.19.0"
 - Remove product codes at start if duplicated: "P VBE_ECRU", "KRS1", "HS75BIO"
 - Keep wine name, volume (750ml, 75cl), type (Brut Nature, Spumante)
-- Do NOT merge rows with the same name — each row stays separate
-
-Multi-line product names (common on PL invoices):
-- If a line has only partial name text (e.g. "Domaine D'Grottes L'.") with NO quantity
-  and NO price on the same line, it is a CONTINUATION of the previous/next table row name.
-- Join continuation lines into one full nazwa (e.g. "Domaine D'Grottes L'Antidote").
-- NEVER create a separate product entry for a name continuation line.
 
 === ILOŚĆ (quantity) ===
 Total count of bottles/pieces/units (szt, stk, BT, each, pz). Return as integer.
@@ -102,7 +114,7 @@ Use the QUANTITY column for THAT row — never copy from another row:
 - FR: "Quantité" column (NOT "*Quantité : X*" inside description)
 
 Rules:
-- Same product name in 2 rows → each row has its OWN quantity from its OWN row
+- Same product name in 2 separate table rows → each row has its OWN quantity
 - "Packag" / packages / cartons = IGNORE (not ilosc)
 - Lotto lines "Qta: 204,000" inside description = IGNORE
 - Multi-pack: multiply only if invoice explicitly shows "3 x 6 = 18"; otherwise use column value
@@ -124,13 +136,13 @@ If mismatch, recalculate using net total / quantity.
 F.o.C. / Omaggio / price 0 → cena = "0"
 
 === CRITICAL RULES ===
-1. Parse row-by-row — never merge or deduplicate by name
-2. Never assign one row's quantity/price to another row, even if names match
+1. Join multi-line PDF rows into one product BEFORE extracting fields (see MULTI-LINE ROWS)
+2. Never assign one row's quantity/price to a different row
 3. Win Experience / ENOTERRA is never the supplier
 4. When unsure, prefer the column labeled quantity/ilość/antal/qty for ilosc
 
 Invoice text:
-${text.slice(0, 8000)}`;
+${text.slice(0, 12000)}`;
 
   const response = await client.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
@@ -142,13 +154,6 @@ ${text.slice(0, 8000)}`;
 
   const content = response.choices[0].message.content.trim();
   return JSON.parse(content);
-}
-
-function filterValidProducts(products) {
-  return (products || []).filter((p) => {
-    const ilosc = parseFloat(String(p.ilosc ?? '').replace(',', '.'));
-    return Number.isFinite(ilosc) && ilosc > 0;
-  });
 }
 
 // ─── Main entry point ────────────────────────────────────────────────────────
@@ -168,17 +173,7 @@ async function parsePurchaseInvoicePdf(buffer) {
   try {
     const parsed = await parseWithGroq(text);
 
-    if (!parsed) {
-      return { success: false, error: 'Nie udało się rozpoznać danych faktury.', data: null };
-    }
-
-    const products = filterValidProducts(parsed.products).map((p) => ({
-          nazwa: String(p.nazwa || '').trim().slice(0, 200),
-          ilosc: String(p.ilosc ?? ''),
-          cena: String(p.cena ?? '0'),
-        }));
-
-    if (!parsed.sprzedawca && products.length === 0) {
+    if (!parsed || (!parsed.sprzedawca && (!parsed.products || parsed.products.length === 0))) {
       return { success: false, error: 'Nie udało się rozpoznać danych faktury.', data: null };
     }
 
@@ -186,7 +181,11 @@ async function parsePurchaseInvoicePdf(buffer) {
       success: true,
       data: {
         sprzedawca: String(parsed.sprzedawca || '').trim(),
-        products,
+        products: (parsed.products || []).map((p) => ({
+          nazwa: String(p.nazwa || '').trim().slice(0, 200),
+          ilosc: String(p.ilosc ?? ''),
+          cena: String(p.cena ?? '0'),
+        })),
       },
     };
   } catch (err) {
