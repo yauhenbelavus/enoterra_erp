@@ -30,7 +30,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {
   "sprzedawca": "supplier company name",
   "products": [
-    {"nazwa": "product name", "ilosc": 30, "cena": "38,99"}
+    {"nazwa": "Ambijus Act Naturally 750ml", "ilosc": 30, "cena_katalogowa": "38,35", "rabat_procent": 0, "wartosc_netto": "1150,50", "vat_procent": 23, "wartosc_brutto": "1415,12"}
   ]
 }
 
@@ -67,24 +67,52 @@ SKIP rows without quantity or without price:
 SKIP non-goods rows:
 - Shipping, Spedizione, SHP, Frakt, Transport (cost lines)
 
-INCLUDE F.o.C./Omaggio/free rows: cena = "0" (quantity must still be present).
+INCLUDE F.o.C./Omaggio/free rows: cena_katalogowa "0", wartosc_netto "0", wartosc_brutto "0", rabat_procent 0 (ilosc > 0).
+
+=== PRICES — extract RAW values only (NO calculations) ===
+Extract exactly what is printed on the invoice. Do NOT multiply, divide, or apply discount/VAT.
+
+Fields per product:
+- cena_katalogowa: unit list/catalog price from price column BEFORE discount
+  (PL: "Cena netto", IT: "PREZZO UNIT.", DK: "Stk. pris", EN: "ITEM.PRICE", FR: "P.U. HT")
+- rabat_procent: discount % from row (% SCONTO, Sc.%, % Rem, DISC.) — 0 if none
+- wartosc_netto: line NET total (Wartość netto, IMPORTO NETTO, Imp. Netto, Montant HT)
+- vat_procent: VAT rate as integer (23, 5, 22) or 0 if not shown
+- wartosc_brutto: line GROSS total (Wartość brutto) or "0" if not on invoice
+
+NEVER confuse unit price with line total:
+  Cena netto 38,35 (unit) ≠ Wartość netto 1150,50 (line total)
+
+NEVER apply discount or VAT yourself — extract raw column values only.
+
+Server calculation (same logic for discount and VAT):
+- Net after discount: wartosc_netto / ilosc  (or cena_katalogowa × (1 − rabat/100) if no line net)
+- Brutto with VAT:    wartosc_brutto / ilosc  (when Wartość brutto column is present)
+- Fallback VAT only if wartosc_brutto missing: net × (1 + vat_procent/100)
+
+SC row 1 example:
+  wartosc_brutto 1415,12 / ilosc 30 → server cena = 47,17 (do NOT multiply 38,35 × 1,23 yourself)
 
 === MULTI-LINE ROWS (critical — read before parsing) ===
 PDF text often splits ONE table row across several lines. You MUST join them
-into a single logical row BEFORE extracting nazwa/ilosc/cena.
+into a single logical row BEFORE extracting fields.
 
 Algorithm — when you see a line starting with "N." (Lp. number, e.g. "8."):
 1. Start joining this line with the following lines (up to 4 more).
 2. Keep joining until the combined text contains a unit word: szt, but, stk, BT, each, pz, op.
 3. Stop joining if you hit the next Lp. line (e.g. "9.") or a header/skip line.
-4. Treat the joined block as ONE product row — extract nazwa, ilosc, cena from it.
+4. Treat the joined block as ONE product row — extract nazwa, ilosc, prices, vat from it.
 5. Do NOT output separate products for the continuation lines.
 
 Example (Polish invoice):
   Line 1: "8. Domaine D'Grottes L'."
   Line 2: "Antidote  30 szt.  31,70  951,00  ..."
-→ ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena": "33,29"}
-  (net 31,70 × VAT 5% = 33,29)
+→ ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena_katalogowa": "31,70", "rabat_procent": 0, "wartosc_netto": "951,00", "vat_procent": 5, "wartosc_brutto": "998,55"}
+
+Bortolomiol example — extract RAW columns, do NOT calculate discount:
+  PREZZO UNIT. 5,400 | % SCONTO 30 | QUANTITA' 624 | IMPORTO NETTO 2.358,72
+  → {"nazwa": "MIOL ECRU...", "ilosc": 624, "cena_katalogowa": "5,400", "rabat_procent": 30, "wartosc_netto": "2358,72", "vat_procent": 0, "wartosc_brutto": "0"}
+  (server applies discount and VAT — you only extract numbers from columns)
 
 This is DIFFERENT from Bortolomiol case where the SAME product name appears in
 TWO separate table rows (paid row + F.o.C. row) — each with its own qty and price.
@@ -120,32 +148,6 @@ Rules:
 - Lotto lines "Qta: 204,000" inside description = IGNORE
 - Multi-pack: multiply only if invoice explicitly shows "3 x 6 = 18"; otherwise use column value
 
-=== CENA (final unit price for ERP) ===
-Output as string with comma decimal separator (e.g. "38,99").
-
-Step 1 — calculate NET unit price after discount:
-1. If line net total exists: net = net_line_total / quantity
-   (IMPORTO NETTO, Imp. Netto, Wartość netto, Montant HT; or AMOUNT / QTY)
-2. Else if discount % exists: net = unit_price × (1 − discount/100)
-   (% SCONTO, Sc.%, % Rem, DISC.)
-3. Else: net = unit price column (Cena netto, PREZZO UNIT., Stk. pris, P.U. HT, ITEM.PRICE)
-
-Step 2 — apply VAT if rate is shown on the row:
-If the row has a VAT rate (Stawka VAT, IVA, TVA, VAT, MwSt, % like "23%", "5%", "22%"):
-  cena = net × (1 + vat_rate / 100)
-Examples:
-  net 31,70 + VAT 23% → cena = "38,99"
-  net 31,70 + VAT 5%  → cena = "33,29"
-  net 5,40 + VAT 22%  → cena = "6,59"
-
-If NO VAT rate on the row → cena = net (no multiplication).
-
-Alternative when gross line total is visible:
-  cena = Wartość brutto / Ilość  (or gross total / quantity)
-Use this to verify Step 2 (±0.02).
-
-F.o.C. / Omaggio / price 0 → cena = "0" (skip VAT calculation)
-
 === CRITICAL RULES ===
 1. Join multi-line PDF rows into one product BEFORE extracting fields (see MULTI-LINE ROWS)
 2. Never assign one row's quantity/price to a different row
@@ -165,6 +167,79 @@ ${text.slice(0, 12000)}`;
 
   const content = response.choices[0].message.content.trim();
   return JSON.parse(content);
+}
+
+function parseNumber(value) {
+  if (value == null || value === '') return 0;
+  let s = String(value).trim().replace(/\s/g, '').replace(/[^\d,.-]/g, '');
+  if (!s) return 0;
+  if (s.includes(',') && s.includes('.')) {
+    s =
+      s.lastIndexOf(',') > s.lastIndexOf('.')
+        ? s.replace(/\./g, '').replace(',', '.')
+        : s.replace(/,/g, '');
+  } else if (s.includes(',')) {
+    s = s.replace(',', '.');
+  }
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatPrice(value) {
+  return (Math.round(value * 100) / 100).toFixed(2).replace('.', ',');
+}
+
+/** Unit net after discount — calculated on server only */
+function resolveUnitNet(product, ilosc) {
+  const lineNet = parseNumber(product.wartosc_netto);
+  if (lineNet > 0) {
+    return lineNet / ilosc;
+  }
+
+  const catalog = parseNumber(
+    product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
+  );
+  const discount = parseNumber(product.rabat_procent ?? product.rabat ?? product.discount);
+
+  if (catalog > 0 && discount > 0) {
+    return catalog * (1 - discount / 100);
+  }
+  return catalog;
+}
+
+/** Final cena per unit — all math on server */
+function computeCenaBrutto(product) {
+  const ilosc = parseNumber(product.ilosc);
+  if (ilosc <= 0) return '0';
+
+  const lineBrutto = parseNumber(product.wartosc_brutto);
+  const lineNet = parseNumber(product.wartosc_netto);
+  const catalog = parseNumber(product.cena_katalogowa ?? product.cena_netto ?? product.cena);
+
+  if (catalog === 0 && lineNet === 0 && lineBrutto === 0) return '0';
+
+  // Brutto z VAT — przez dzielenie (jak rabat przez wartosc_netto / ilosc)
+  if (lineBrutto > 0) {
+    return formatPrice(lineBrutto / ilosc);
+  }
+
+  // Fallback gdy brak kolumny brutto: netto po rabacie × (1 + VAT%)
+  const unitNet = resolveUnitNet(product, ilosc);
+  if (unitNet === 0) return '0';
+
+  const vat = parseNumber(product.vat_procent ?? product.vat);
+  if (vat > 0) {
+    return formatPrice(unitNet * (1 + vat / 100));
+  }
+  return formatPrice(unitNet);
+}
+
+function mapProduct(product) {
+  return {
+    nazwa: String(product.nazwa || '').trim().slice(0, 200),
+    ilosc: String(product.ilosc ?? ''),
+    cena: computeCenaBrutto(product),
+  };
 }
 
 // ─── Main entry point ────────────────────────────────────────────────────────
@@ -192,11 +267,7 @@ async function parsePurchaseInvoicePdf(buffer) {
       success: true,
       data: {
         sprzedawca: String(parsed.sprzedawca || '').trim(),
-        products: (parsed.products || []).map((p) => ({
-          nazwa: String(p.nazwa || '').trim().slice(0, 200),
-          ilosc: String(p.ilosc ?? ''),
-          cena: String(p.cena ?? '0'),
-        })),
+        products: (parsed.products || []).map(mapProduct),
       },
     };
   } catch (err) {
