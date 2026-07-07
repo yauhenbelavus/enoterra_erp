@@ -35,9 +35,22 @@ Return ONLY valid JSON in this exact format (no markdown, no explanation):
 }
 
 Rules:
-- sprzedawca: the SELLER/SUPPLIER name (not the buyer). Look for "Sprzedawca:", "Fornitore:", "Supplier:", company name at top of invoice. Return just the name, no address.
+- sprzedawca: the SELLER/SUPPLIER name — the company ISSUING the invoice (not the buyer/recipient).
+  * On Italian invoices: look for "Fornitore:", "Cedente:", or the company name at the very TOP of the invoice (before "Spett.le" or "Destinatario").
+  * On Polish invoices: look for "Sprzedawca:" label.
+  * On Danish invoices: look for "Leverandør:" or company name in the header/logo area.
+  * NEVER return the buyer — ignore lines with "Nabywca:", "Acquirente:", "Destinatario:", "Kupujący:", "Bill to:", "Sold to:".
+  * NEVER return "Win Experience", "WIN EXPERIENCE", or any variation of it — that is always the BUYER, never the supplier.
+  * Return just the company name, no address, no VAT number.
 - products: only rows with actual goods/products. Include items with price 0 (free of charge, F.o.C., Omaggio, gratis).
-- ilosc: number — total quantity of individual bottles/pieces/units received. If invoice shows "3 kartons x 6 bottles" → 18.
+- ilosc: number — total quantity of individual BOTTLES/PIECES received (not cartons/boxes/cases).
+  Examples:
+  * "3 CS x 6 BT" or "3 kartons × 6 szt" → ilosc = 18
+  * "Antal 6 stk." → ilosc = 6
+  * "Ilość: 12 szt" → ilosc = 12
+  * "Qty: 24" with "Pack: 4 x 6" → ilosc = 24 (use the total, not the pack breakdown)
+  * If only one number visible and unit is BT/szt/stk/pz/bt → that IS the bottle count
+  * "Packag." column = number of cartons (IGNORE), look for "Total Qty" or "Ilość" column instead
 - cena: unit net price as string with comma decimal separator (e.g. "6,90"). Use "0" if price is zero or free.
 - Skip lines that are: shipping cost, payment terms, totals, tax rows, header rows, addresses, notes, lot/batch numbers.
 - Product name: clean readable name without leading sequential numbers (1., N°1, etc.).

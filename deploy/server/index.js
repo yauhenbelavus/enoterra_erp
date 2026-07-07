@@ -3882,25 +3882,29 @@ app.get('/api/invoices', (req, res) => {
   );
 });
 
-// Следующий номер фактуры (только числовая часть: 001, 002, …). Берём максимум по сохранённым номерам + 1.
+// Следующий номер faktury: серия по data_faktury (не по data utworzenia / created_at).
 app.get('/api/invoices/next-number-only', (req, res) => {
   console.log('🔢 GET /api/invoices/next-number-only - Next invoice number', req.query);
-  db.all('SELECT numer_faktury FROM invoices', (err, rows) => {
+  db.all('SELECT numer_faktury, data_faktury FROM invoices', (err, rows) => {
     if (err) {
       console.error('❌ Error getting next invoice number:', err);
       return res.status(500).json({ error: err.message });
     }
 
-    // Определяем месяц/год: используем data_faktury из query, иначе текущую дату
+    const parseDateParts = (dateStr) => {
+      const match = String(dateStr || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!match) return null;
+      return { year: parseInt(match[1], 10), month: parseInt(match[2], 10) };
+    };
+
+    // Месяц/год целевой серии — из data_faktury в запросе (поле «Data faktury» в форме)
     let targetMonth;
     let targetYear;
     const dataFakturyParam = req.query.data_faktury;
-    if (dataFakturyParam) {
-      const d = new Date(dataFakturyParam);
-      if (!isNaN(d.getTime())) {
-        targetMonth = d.getMonth() + 1;
-        targetYear = d.getFullYear();
-      }
+    const targetParts = dataFakturyParam ? parseDateParts(dataFakturyParam) : null;
+    if (targetParts) {
+      targetYear = targetParts.year;
+      targetMonth = targetParts.month;
     }
     if (!targetMonth || !targetYear) {
       const now = new Date();
@@ -3908,26 +3912,27 @@ app.get('/api/invoices/next-number-only', (req, res) => {
       targetYear = now.getFullYear();
     }
 
-    // Ищем максимальный порядковый номер среди фактур целевого месяца и года
-    // Формат: FS/1/09/2026
+    // Максимальный порядковый номер среди faktur с той же data_faktury (mm/yyyy)
     let maxNum = 0;
     (rows || []).forEach((r) => {
       const str = (r.numer_faktury || '').trim();
-      const match = str.match(/^FS\/(\d+)\/(\d{2})\/(\d{4})$/i);
-      if (match) {
-        const seq = parseInt(match[1], 10);
-        const month = parseInt(match[2], 10);
-        const year = parseInt(match[3], 10);
-        if (year === targetYear && month === targetMonth && seq > maxNum) {
-          maxNum = seq;
-        }
+      const numMatch = str.match(/^FS\/(\d+)\/(\d{2})\/(\d{4})$/i);
+      if (!numMatch) return;
+
+      const seq = parseInt(numMatch[1], 10);
+      const dateParts = parseDateParts(r.data_faktury);
+      const invoiceMonth = dateParts ? dateParts.month : parseInt(numMatch[2], 10);
+      const invoiceYear = dateParts ? dateParts.year : parseInt(numMatch[3], 10);
+
+      if (invoiceYear === targetYear && invoiceMonth === targetMonth && seq > maxNum) {
+        maxNum = seq;
       }
     });
 
     const nextNum = maxNum + 1;
     const mm = targetMonth.toString().padStart(2, '0');
     const numer_faktury = `FS/${nextNum}/${mm}/${targetYear}`;
-    console.log(`✅ Next invoice number: ${numer_faktury} (month: ${mm}, year: ${targetYear}, max was: ${maxNum})`);
+    console.log(`✅ Next invoice number: ${numer_faktury} (data_faktury month: ${mm}/${targetYear}, max was: ${maxNum})`);
     res.json({ numer_faktury });
   });
 });
