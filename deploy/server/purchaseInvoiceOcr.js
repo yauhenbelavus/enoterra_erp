@@ -56,12 +56,14 @@ Return only company name — no address, NIP/VAT, phone.
 Include physical goods: wine, drinks, bottles, AND pallets (Euro Pallet, EPAL, Paleta).
 One table row = one product entry. Parse row-by-row in table order.
 
-INCLUDE a row only if it has BOTH quantity AND a price value in the same row
-(quantity > 0; price can be 0 for F.o.C./Omaggio/gratis).
+INCLUDE a row only if it has BOTH quantity > 0 AND a price value in the same row
+(price can be 0 for F.o.C./Omaggio/gratis).
+NEVER output a product with ilosc = 0 or missing quantity.
 
 SKIP rows without quantity or without price in the same row:
 - delivery address blocks ("Destinazione merce", "VEIS TAX WAREHOUSE", warehouse lines)
-- text-only description lines inside the table
+- text-only description lines inside the table (name fragment without qty/price)
+- continuation lines of a multi-line product name (see NAZWA below)
 - payment/shipping notes, references, header-like lines
 
 SKIP non-goods rows:
@@ -82,6 +84,12 @@ Clean the name:
 - Remove product codes at start if duplicated: "P VBE_ECRU", "KRS1", "HS75BIO"
 - Keep wine name, volume (750ml, 75cl), type (Brut Nature, Spumante)
 - Do NOT merge rows with the same name — each row stays separate
+
+Multi-line product names (common on PL invoices):
+- If a line has only partial name text (e.g. "Domaine D'Grottes L'.") with NO quantity
+  and NO price on the same line, it is a CONTINUATION of the previous/next table row name.
+- Join continuation lines into one full nazwa (e.g. "Domaine D'Grottes L'Antidote").
+- NEVER create a separate product entry for a name continuation line.
 
 === ILOŚĆ (quantity) ===
 Total count of bottles/pieces/units (szt, stk, BT, each, pz). Return as integer.
@@ -136,6 +144,13 @@ ${text.slice(0, 8000)}`;
   return JSON.parse(content);
 }
 
+function filterValidProducts(products) {
+  return (products || []).filter((p) => {
+    const ilosc = parseFloat(String(p.ilosc ?? '').replace(',', '.'));
+    return Number.isFinite(ilosc) && ilosc > 0;
+  });
+}
+
 // ─── Main entry point ────────────────────────────────────────────────────────
 
 async function parsePurchaseInvoicePdf(buffer) {
@@ -153,7 +168,17 @@ async function parsePurchaseInvoicePdf(buffer) {
   try {
     const parsed = await parseWithGroq(text);
 
-    if (!parsed || (!parsed.sprzedawca && (!parsed.products || parsed.products.length === 0))) {
+    if (!parsed) {
+      return { success: false, error: 'Nie udało się rozpoznać danych faktury.', data: null };
+    }
+
+    const products = filterValidProducts(parsed.products).map((p) => ({
+          nazwa: String(p.nazwa || '').trim().slice(0, 200),
+          ilosc: String(p.ilosc ?? ''),
+          cena: String(p.cena ?? '0'),
+        }));
+
+    if (!parsed.sprzedawca && products.length === 0) {
       return { success: false, error: 'Nie udało się rozpoznać danych faktury.', data: null };
     }
 
@@ -161,11 +186,7 @@ async function parsePurchaseInvoicePdf(buffer) {
       success: true,
       data: {
         sprzedawca: String(parsed.sprzedawca || '').trim(),
-        products: (parsed.products || []).map((p) => ({
-          nazwa: String(p.nazwa || '').trim().slice(0, 200),
-          ilosc: String(p.ilosc ?? ''),
-          cena: String(p.cena ?? '0'),
-        })),
+        products,
       },
     };
   } catch (err) {
