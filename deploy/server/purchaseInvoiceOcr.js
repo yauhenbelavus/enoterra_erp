@@ -131,7 +131,15 @@ Example (Polish invoice):
 Bortolomiol example — extract RAW columns, do NOT calculate discount:
   PREZZO UNIT. 5,400 | % SCONTO 30 | QUANTITA' 624 | IMPORTO NETTO 2.358,72
   → {"nazwa": "MIOL ECRU...", "ilosc": 624, "cena_katalogowa": "5,400", "rabat_procent": 30, "wartosc_netto": "2358,72", "vat_procent": 0, "wartosc_brutto": "0"}
-  (server applies discount and VAT — you only extract numbers from columns)
+
+  Row 2 (same product, F.o.C.): PREZZO 0 | QUANTITA' 30 | IMPORTO NETTO 0 → separate product, cena 0
+
+  Row 3: PREZZO UNIT. 7,100 | % SCONTO 30 | QUANTITA' 240 | IMPORTO NETTO 1.192,80
+  → {"nazwa": "MIOL Prosecco...", "ilosc": 240, "cena_katalogowa": "7,100", "rabat_procent": 30, "wartosc_netto": "1192,80", ...}
+
+  EVERY paid row MUST have its OWN rabat_procent and wartosc_netto — copy % SCONTO from each row, do NOT skip on rows 2+.
+  PREZZO UNIT. is BEFORE discount; IMPORTO NETTO is AFTER discount (already reduced).
+  Server: cena = wartosc_netto / ilosc (e.g. 2358,72 / 624 = 3,78 — NOT 5,40).
 
 This is DIFFERENT from Bortolomiol case where the SAME product name appears in
 TWO separate table rows (paid row + F.o.C. row) — each with its own qty and price.
@@ -238,15 +246,38 @@ function cleanSupplierName(name) {
 }
 
 /** Catalog unit net before line-total division */
-function unitNetFromCatalog(product) {
+function unitNetFromCatalog(product, discountOverride) {
   const catalog = parseNumber(
     product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
   );
-  const discount = parseNumber(product.rabat_procent ?? product.rabat ?? product.discount);
+  const discount =
+    discountOverride ??
+    parseNumber(product.rabat_procent ?? product.rabat ?? product.discount);
   if (catalog > 0 && discount > 0) {
     return catalog * (1 - discount / 100);
   }
   return catalog;
+}
+
+/** Infer discount % when LLM omitted rabat_procent but line net is below catalog × qty */
+function inferDiscountPercent(product, ilosc) {
+  const explicit = parseNumber(product.rabat_procent ?? product.rabat ?? product.discount);
+  if (explicit > 0) return explicit;
+
+  const lineNet = parseNumber(product.wartosc_netto);
+  const catalog = parseNumber(
+    product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
+  );
+  if (lineNet <= 0 || catalog <= 0 || ilosc <= 0) return 0;
+
+  const fullLine = catalog * ilosc;
+  if (fullLine <= lineNet * 1.005) return 0;
+
+  const pct = (1 - lineNet / fullLine) * 100;
+  if (pct >= 0.5 && pct <= 99) {
+    return Math.round(pct * 100) / 100;
+  }
+  return 0;
 }
 
 /** Fix Packag-vs-Quantity confusion when line total and unit price are known */
@@ -255,15 +286,25 @@ function resolveQuantity(product) {
   if (ilosc <= 0) return 0;
 
   const lineNet = parseNumber(product.wartosc_netto);
-  const unitNet = unitNetFromCatalog(product);
-  if (lineNet > 0 && unitNet > 0) {
+  const catalog = parseNumber(
+    product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
+  );
+  if (lineNet <= 0 || catalog <= 0) return ilosc;
+
+  const discount = inferDiscountPercent(product, ilosc);
+  const unitNet = unitNetFromCatalog(product, discount);
+  const impliedUnit = lineNet / ilosc;
+
+  // Packag confusion: implied unit price much HIGHER than catalog/discounted price → qty too small
+  if (impliedUnit > unitNet * 1.15) {
     const fromLine = Math.round(lineNet / unitNet);
-    if (fromLine > 0 && fromLine !== ilosc) {
-      const impliedUnit = lineNet / ilosc;
-      const relError = Math.abs(impliedUnit - unitNet) / unitNet;
-      if (relError > 0.15) {
-        ilosc = fromLine;
-      }
+    if (fromLine > ilosc) {
+      ilosc = fromLine;
+    }
+  } else if (impliedUnit > catalog * 1.15) {
+    const fromCatalog = Math.round(lineNet / catalog);
+    if (fromCatalog > ilosc) {
+      ilosc = fromCatalog;
     }
   }
 
@@ -273,19 +314,12 @@ function resolveQuantity(product) {
 /** Unit net after discount — calculated on server only */
 function resolveUnitNet(product, ilosc) {
   const lineNet = parseNumber(product.wartosc_netto);
-  if (lineNet > 0) {
+  if (lineNet > 0 && ilosc > 0) {
     return lineNet / ilosc;
   }
 
-  const catalog = parseNumber(
-    product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
-  );
-  const discount = parseNumber(product.rabat_procent ?? product.rabat ?? product.discount);
-
-  if (catalog > 0 && discount > 0) {
-    return catalog * (1 - discount / 100);
-  }
-  return catalog;
+  const discount = inferDiscountPercent(product, ilosc);
+  return unitNetFromCatalog(product, discount);
 }
 
 /** Final unit price + line value — all math on server */
@@ -306,7 +340,13 @@ function computeProductPricing(product) {
   let cenaPelna = 0;
   let lineValue = 0;
 
-  if (lineBrutto > 0) {
+  // Prefer line net total (already includes discount) over brutto when both exist
+  if (lineNet > 0) {
+    const unitNet = resolveUnitNet(product, ilosc);
+    const vat = parseNumber(product.vat_procent ?? product.vat);
+    cenaPelna = vat > 0 ? unitNet * (1 + vat / 100) : unitNet;
+    lineValue = cenaPelna * ilosc;
+  } else if (lineBrutto > 0) {
     cenaPelna = lineBrutto / ilosc;
     lineValue = lineBrutto;
   } else {
