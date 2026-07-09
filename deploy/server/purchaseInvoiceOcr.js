@@ -182,10 +182,12 @@ FERAL S.R.L. invoice — CRITICAL (columns left to right):
   Quantity = total bottles/units (USE for ilosc)
 
   Row examples — ilosc from Quantity, NEVER from Packag:
-    HS75BIO  Packag=50   Quantity=300,000  Prezzo=6,9000  Imp.Netto=2.070,00  → ilosc=300 (NOT 50)
-    GA75BIO  Packag=6    Quantity=36,000   Prezzo=6,9000  Imp.Netto=248,40    → ilosc=36  (NOT 6)
-    PT75IE   Packag=6    Quantity=36,000   Prezzo=6,9000  Imp.Netto=248,40    → ilosc=36  (NOT 6)
-    Euro Pallet EPAL  Packag=1  Quantity=1,000  Prezzo=9,3000  → ilosc=1
+    HS75BIO  Packag=50   Quantity=300,000  Prezzo=6,9000  Imp.Netto=2.070,00  → ilosc=300 (NOT 50, NOT 300000)
+    GA75BIO  Packag=6    Quantity=36,000   Prezzo=6,9000  Imp.Netto=248,40    → ilosc=36  (NOT 6, NOT 36000)
+    Euro Pallet EPAL  Packag=1  Quantity=1,000  Prezzo=9,3000  Imp.Netto=9,30  → ilosc=1 (NOT 1000)
+
+  Italian quantity format: comma + three zeros = decimal display, NOT thousands separator.
+    "300,000" = 300 bottles | "36,000" = 36 | "1,000" = 1 — return as integer 300/36/1, never 300000/36000/1000.
 
   Sanity check: Imp. Netto / Prezzo Un. ≈ Quantity (e.g. 2070 / 6,90 = 300)
   Skip lines starting with "Lotto:" — they are NOT product rows
@@ -225,6 +227,21 @@ function parseNumber(value) {
   }
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Parse quantity — handles Italian "300,000" (= 300 units, not 300000) */
+function parseQuantity(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 0;
+
+  // Italian ERP: 300,000 / 36,000 / 1,000 — comma + 3 decimal zeros = whole units
+  const itDecimalQty = raw.match(/^(\d{1,7}),0{3}$/);
+  if (itDecimalQty) {
+    return parseInt(itDecimalQty[1], 10);
+  }
+
+  const n = parseNumber(raw);
+  return Math.round(n) === n ? n : Math.round(n);
 }
 
 function formatPrice(value) {
@@ -280,9 +297,9 @@ function inferDiscountPercent(product, ilosc) {
   return 0;
 }
 
-/** Fix Packag-vs-Quantity confusion when line total and unit price are known */
+/** Fix Packag-vs-Quantity and inflated Italian qty (300,000 → 300000) */
 function resolveQuantity(product) {
-  let ilosc = parseNumber(product.ilosc ?? product.quantity ?? product.quantita);
+  let ilosc = parseQuantity(product.ilosc ?? product.quantity ?? product.quantita);
   if (ilosc <= 0) return 0;
 
   const lineNet = parseNumber(product.wartosc_netto);
@@ -304,6 +321,19 @@ function resolveQuantity(product) {
   } else if (impliedUnit > catalog * 1.15) {
     const fromCatalog = Math.round(lineNet / catalog);
     if (fromCatalog > ilosc) {
+      ilosc = fromCatalog;
+    }
+  }
+
+  // Inflated qty (300,000 read as 300000): implied unit price absurdly low
+  if (impliedUnit < unitNet * 0.15 && unitNet > 0) {
+    const fromUnitNet = Math.round(lineNet / unitNet);
+    if (fromUnitNet > 0 && ilosc > fromUnitNet * 5) {
+      ilosc = fromUnitNet;
+    }
+  } else if (impliedUnit < catalog * 0.15) {
+    const fromCatalog = Math.round(lineNet / catalog);
+    if (fromCatalog > 0 && ilosc > fromCatalog * 5) {
       ilosc = fromCatalog;
     }
   }
@@ -345,7 +375,7 @@ function computeProductPricing(product) {
     const unitNet = resolveUnitNet(product, ilosc);
     const vat = parseNumber(product.vat_procent ?? product.vat);
     cenaPelna = vat > 0 ? unitNet * (1 + vat / 100) : unitNet;
-    lineValue = cenaPelna * ilosc;
+    lineValue = lineNet;
   } else if (lineBrutto > 0) {
     cenaPelna = lineBrutto / ilosc;
     lineValue = lineBrutto;
