@@ -357,6 +357,7 @@ db.serialize(() => {
     kosztDostawy REAL DEFAULT 0,
     aktualny_kurs REAL DEFAULT 1,
     podatek_akcyzowy REAL DEFAULT 0,
+    rabat REAL DEFAULT 0,
     products TEXT, -- JSON массив товаров
     productInvoice TEXT,
     transportInvoice TEXT,
@@ -366,6 +367,20 @@ db.serialize(() => {
       console.error('❌ Error creating product_receipts table:', err);
     } else {
       console.log('✅ Product receipts table ready');
+
+      // Страховка: если таблица уже существовала без колонки rabat (старая БД,
+      // созданная до её появления в этом CREATE TABLE) — добавляем её отдельно.
+      db.run(`ALTER TABLE product_receipts ADD COLUMN rabat REAL DEFAULT 0`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column rabat already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding rabat column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column rabat added to product_receipts');
+        }
+      });
     }
   });
 
@@ -6723,6 +6738,19 @@ app.post('/api/product-receipts', upload.fields([
   console.log(`🔄 Processing ${products.length} products for receipt`);
   
   // Разрешаем дубликаты продуктов в одной приёмке
+
+  // Пересчитываем wartosc на сервере из фактического состава products + rabat,
+  // а не доверяем значению, посчитанному на клиенте — иначе итоговая сумма
+  // приёмки может не совпадать с суммой строк товаров, сохранённых в той же записи
+  // (например, если на фронтенде использовалась неокруглённая цена для расчёта суммы,
+  // а в products попала уже округлённая cena).
+  const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
+  const productsTotalValue = products.reduce((sum, p) => sum + ((p.ilosc || 0) * (p.cena || 0)), 0);
+  const calculatedWartosc = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
+  if (Math.abs((parseFloat(wartosc) || 0) - calculatedWartosc) > 0.01) {
+    console.warn(`⚠️ POST /api/product-receipts: wartosc mismatch — client sent ${wartosc}, server calculated ${calculatedWartosc}. Using server-calculated value.`);
+  }
+  wartosc = calculatedWartosc;
   
   // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
   // Исключаем aksesoria из расчета транспорта
@@ -6730,53 +6758,54 @@ app.post('/api/product-receipts', upload.fields([
     if (product.typ === 'aksesoria') return total;
     return total + (product.ilosc || 0);
   }, 0);
-  const kurs = aktualnyKurs || 1;
+  const kurs = parseFloat(String(aktualnyKurs || '1').replace(',', '.')) || 1;
   const kosztDostawyPerUnit = totalBottles > 0 ? Math.round((((kosztDostawy || 0) / totalBottles) * kurs) * 100) / 100 : 0;
   
   console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
   console.log(`📊 Podatek akcyzowy input: ${podatekAkcyzowy}`);
   console.log(`📊 Aktualny kurs input: ${aktualnyKurs}`);
   
-  db.run(
-    'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, products, productInvoice, transportInvoice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), JSON.stringify(products), productInvoice || null, transportInvoice || null],
-    function(err) {
-      if (err) {
-        console.error('❌ Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      
-      const receiptId = this.lastID;
+  // Вся операция (создание документа приёмки + партии products + working_sheets)
+  // выполняется в ОДНОЙ транзакции, чтобы при любом сбое откатывался и сам
+  // документ product_receipts, а не оставался "призраком" без склада за ним.
+  const createReceiptWithProducts = async () => {
+    const startTime = Date.now();
+    console.log(`⏱️ Starting product processing at ${new Date().toISOString()}`);
+
+    // Начинаем транзакцию для обеспечения консистентности (включая создание самой приёмки)
+    await new Promise((resolve, reject) => {
+      db.run('BEGIN TRANSACTION', (err) => {
+        if (err) {
+          console.error('❌ Error starting transaction:', err);
+          reject(err);
+        } else {
+          console.log('🔄 Transaction started');
+          resolve();
+        }
+      });
+    });
+
+    try {
+      const receiptId = await new Promise((resolve, reject) => {
+        db.run(
+          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), JSON.stringify(products), productInvoice || null, transportInvoice || null, date],
+          function(err) {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(this.lastID);
+            }
+          }
+        );
+      });
       console.log('✅ Product receipt saved with ID:', receiptId);
-      
+
       // Автоматически добавляем товары в working_sheets
       let processedCount = 0;
       let productsInserted = 0;
       let workingSheetsUpdated = 0;
       let workingSheetsInserted = 0;
-      
-
-      
-            // Функция для последовательной обработки товаров при создании
-      const processProductsSequentially = async () => {
-        const startTime = Date.now();
-        console.log(`⏱️ Starting product processing at ${new Date().toISOString()}`);
-        
-        // Начинаем транзакцию для обеспечения консистентности
-        await new Promise((resolve, reject) => {
-          db.run('BEGIN TRANSACTION', (err) => {
-            if (err) {
-              console.error('❌ Error starting transaction:', err);
-              reject(err);
-            } else {
-              console.log('🔄 Transaction started');
-              resolve();
-            }
-          });
-        });
-
-        try {
           // Группируем товары по коду для суммирования количества
           const productsByCode = {};
           for (const product of products) {
@@ -6797,7 +6826,7 @@ app.post('/api/product-receipts', upload.fields([
               console.log(`➕ Creating new product record: ${product.kod} (ilosc: ${product.ilosc})`);
             await new Promise((resolve, reject) => {
               db.run(
-                  'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                  'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                   product.kod, 
                   product.nazwa, 
@@ -6806,7 +6835,8 @@ app.post('/api/product-receipts', upload.fields([
                   product.ilosc,
                   product.ilosc, // ilosc_aktualna
                     receiptId,
-                    (product.cena || 0) === 0 ? 'samples' : null
+                    (product.cena || 0) === 0 ? 'samples' : null,
+                    date // created_at = data zakupu, а не текущая дата создания записи
                 ],
                 function(err) {
                   if (err) {
@@ -7006,7 +7036,7 @@ app.post('/api/product-receipts', upload.fields([
                   console.log(`  - koszt_wlasny: ${finalKosztWlasny} (type: ${typeof finalKosztWlasny})`);
                   
                   db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
                       productCode, 
                       mainProduct.nazwa, 
@@ -7019,7 +7049,8 @@ app.post('/api/product-receipts', upload.fields([
                       mainProduct.objetosc || null,
                       finalKosztDostawy,
                       finalPodatek,
-                      finalKosztWlasny
+                      finalKosztWlasny,
+                      date // created_at = data zakupu, а не текущая дата создания записи
                     ],
                     function(err) {
                       if (err) {
@@ -7091,12 +7122,10 @@ app.post('/api/product-receipts', upload.fields([
             res.status(500).json({ error: 'Failed to process products: ' + error.message });
           }
         }
-      };
-      
-      // Запускаем последовательную обработку
-      processProductsSequentially();
-    }
-  );
+  };
+
+  // Запускаем создание приёмки (документ + products + working_sheets — всё в одной транзакции)
+  createReceiptWithProducts();
 });
 
 app.put('/api/product-receipts/:id', upload.fields([
@@ -7170,80 +7199,106 @@ app.put('/api/product-receipts/:id', upload.fields([
   if (products.some((p) => !p.kod)) {
     return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
   }
+
+  // Пересчитываем wartosc на сервере из фактического состава products + rabat,
+  // а не доверяем значению, посчитанному на клиенте — см. аналогичную логику в POST.
+  const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
+  const productsTotalValue = products.reduce((sum, p) => sum + ((p.ilosc || 0) * (p.cena || 0)), 0);
+  const calculatedWartosc = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
+  if (Math.abs((parseFloat(wartosc) || 0) - calculatedWartosc) > 0.01) {
+    console.warn(`⚠️ PUT /api/product-receipts/${id}: wartosc mismatch — client sent ${wartosc}, server calculated ${calculatedWartosc}. Using server-calculated value.`);
+  }
+  wartosc = calculatedWartosc;
   
-  // Сначала получаем старые данные для сравнения
-  db.get('SELECT products, productInvoice, transportInvoice, podatek_akcyzowy, aktualny_kurs, kosztDostawy FROM product_receipts WHERE id = ?', [id], (err, oldReceipt) => {
-    if (err) {
-      console.error('❌ Database error:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    
-    if (!oldReceipt) {
-      console.log(`❌ Product receipt with ID ${id} not found`);
-      return res.status(404).json({ error: 'Product receipt not found' });
-    }
-    
-    const oldProducts = JSON.parse(oldReceipt.products || '[]');
-    const oldPodatekAkcyzowy = parseFloat(String(oldReceipt.podatek_akcyzowy || '0').replace(',', '.')) || 0;
-    const newPodatekAkcyzowy = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
-    const podatekAkcyzowyChanged = Math.abs(oldPodatekAkcyzowy - newPodatekAkcyzowy) > 0.01;
-    
-    const oldKurs = parseFloat(oldReceipt.aktualny_kurs || '1') || 1;
-    const newKurs = parseFloat(aktualnyKurs || '1') || 1;
-    const kursChanged = Math.abs(oldKurs - newKurs) > 0.01;
-    
-    const oldKosztDostawy = parseFloat(oldReceipt.kosztDostawy || '0') || 0;
-    const newKosztDostawy = parseFloat(kosztDostawy || '0') || 0;
-    const kosztDostawyChanged = Math.abs(oldKosztDostawy - newKosztDostawy) > 0.01;
-    
-    console.log(`🔄 Found ${oldProducts.length} old products, updating to ${products.length} new products`);
-    console.log(`📊 Podatek akcyzowy: old=${oldPodatekAkcyzowy}, new=${newPodatekAkcyzowy}, changed=${podatekAkcyzowyChanged}`);
-    console.log(`💰 Kurs: old=${oldKurs}, new=${newKurs}, changed=${kursChanged}`);
-    console.log(`🚚 Koszt dostawy: old=${oldKosztDostawy}, new=${newKosztDostawy}, changed=${kosztDostawyChanged}`);
-    console.log('📋 Products array received from frontend:', JSON.stringify(products, null, 2));
-    
-    // Сохраняем существующие файлы, если новые не загружены
-    const finalProductInvoice = productInvoice || oldReceipt.productInvoice;
-    const finalTransportInvoice = transportInvoice || oldReceipt.transportInvoice;
-    
-    console.log('📎 Files to save (PUT):', { 
-      productInvoice: finalProductInvoice, 
-      transportInvoice: finalTransportInvoice,
-      newProductInvoice: productInvoice,
-      newTransportInvoice: transportInvoice,
-      oldProductInvoice: oldReceipt.productInvoice,
-      oldTransportInvoice: oldReceipt.transportInvoice
-    });
-    
-    // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
-    const kurs = parseFloat(String(aktualnyKurs || '1').replace(',', '.')) || 1;
-    const podatekAkcyzowyParsed = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
-    const rabatParsed = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
-    
-    db.run(
-      'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, products = ?, productInvoice = ?, transportInvoice = ? WHERE id = ?',
-      [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, podatekAkcyzowyParsed, rabatParsed, JSON.stringify(products), finalProductInvoice, finalTransportInvoice, id],
-      function(err) {
+  // Вся операция обновления приёмки (документ product_receipts + партии products +
+  // working_sheets) выполняется в ОДНОЙ транзакции, чтобы документ и склад не могли
+  // рассинхронизироваться при частичном сбое на любом из шагов.
+  const updateReceiptWithProducts = async () => {
+    await new Promise((resolve, reject) => {
+      db.run('BEGIN TRANSACTION', (err) => {
         if (err) {
-          console.error('❌ Database error:', err);
-          res.status(500).json({ error: err.message });
-          return;
+          console.error('❌ Error starting transaction (PUT):', err);
+          reject(err);
+        } else {
+          console.log('🔄 Transaction started (PUT)');
+          resolve();
         }
-        
-        console.log('✅ Product receipt updated with ID:', id);
-        console.log('📎 Files saved (PUT):', { productInvoice: finalProductInvoice, transportInvoice: finalTransportInvoice });
-        
-        // Обновляем товары в working_sheets и products
-        let processedCount = 0;
-        let workingSheetsUpdated = 0;
-        let productsUpdated = 0;
-        let productsInserted = 0;
-        let productsDeleted = 0;
-        
-        // Функция для последовательной обработки товаров
-        const processProductsSequentially = async () => {
-          try {
+      });
+    });
+
+    try {
+      // Сначала получаем старые данные для сравнения
+      const oldReceipt = await new Promise((resolve, reject) => {
+        db.get('SELECT dataPrzyjecia, products, productInvoice, transportInvoice, podatek_akcyzowy, aktualny_kurs, kosztDostawy FROM product_receipts WHERE id = ?', [id], (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+
+      if (!oldReceipt) {
+        console.log(`❌ Product receipt with ID ${id} not found`);
+        throw Object.assign(new Error('Product receipt not found'), { statusCode: 404 });
+      }
+
+      const oldProducts = JSON.parse(oldReceipt.products || '[]');
+      const oldPodatekAkcyzowy = parseFloat(String(oldReceipt.podatek_akcyzowy || '0').replace(',', '.')) || 0;
+      const newPodatekAkcyzowy = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
+      const podatekAkcyzowyChanged = Math.abs(oldPodatekAkcyzowy - newPodatekAkcyzowy) > 0.01;
+      
+      const oldKurs = parseFloat(oldReceipt.aktualny_kurs || '1') || 1;
+      const newKurs = parseFloat(aktualnyKurs || '1') || 1;
+      const kursChanged = Math.abs(oldKurs - newKurs) > 0.01;
+      
+      const oldKosztDostawy = parseFloat(oldReceipt.kosztDostawy || '0') || 0;
+      const newKosztDostawy = parseFloat(kosztDostawy || '0') || 0;
+      const kosztDostawyChanged = Math.abs(oldKosztDostawy - newKosztDostawy) > 0.01;
+      
+      console.log(`🔄 Found ${oldProducts.length} old products, updating to ${products.length} new products`);
+      console.log(`📊 Podatek akcyzowy: old=${oldPodatekAkcyzowy}, new=${newPodatekAkcyzowy}, changed=${podatekAkcyzowyChanged}`);
+      console.log(`💰 Kurs: old=${oldKurs}, new=${newKurs}, changed=${kursChanged}`);
+      console.log(`🚚 Koszt dostawy: old=${oldKosztDostawy}, new=${newKosztDostawy}, changed=${kosztDostawyChanged}`);
+      console.log('📋 Products array received from frontend:', JSON.stringify(products, null, 2));
+      
+      // Сохраняем существующие файлы, если новые не загружены
+      const finalProductInvoice = productInvoice || oldReceipt.productInvoice;
+      const finalTransportInvoice = transportInvoice || oldReceipt.transportInvoice;
+      
+      console.log('📎 Files to save (PUT):', { 
+        productInvoice: finalProductInvoice, 
+        transportInvoice: finalTransportInvoice,
+        newProductInvoice: productInvoice,
+        newTransportInvoice: transportInvoice,
+        oldProductInvoice: oldReceipt.productInvoice,
+        oldTransportInvoice: oldReceipt.transportInvoice
+      });
+      
+      // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
+      const kurs = parseFloat(String(aktualnyKurs || '1').replace(',', '.')) || 1;
+      const podatekAkcyzowyParsed = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
+      const rabatParsed = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
+
+      await new Promise((resolve, reject) => {
+        db.run(
+          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, podatekAkcyzowyParsed, rabatParsed, JSON.stringify(products), finalProductInvoice, finalTransportInvoice, date, id],
+          function(err) {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
+      });
+
+      console.log('✅ Product receipt updated with ID:', id);
+      console.log('📎 Files saved (PUT):', { productInvoice: finalProductInvoice, transportInvoice: finalTransportInvoice });
+
+      // Обновляем товары в working_sheets и products
+      let processedCount = 0;
+      let workingSheetsUpdated = 0;
+      let productsUpdated = 0;
+      let productsInserted = 0;
+      let productsDeleted = 0;
+
+      {
             // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
             // Исключаем aksesoria из расчета транспорта
             const totalBottles = products.reduce((total, product) => {
@@ -7267,6 +7322,23 @@ app.put('/api/product-receipts/:id', upload.fields([
                 }
               });
             });
+            
+            // Если изменилась дата закупки (data zakupu) — синхронизируем created_at
+            // в products для этой приемки, даже если состав/количество товаров не менялись
+            const dataPrzyjeciaChanged = String(oldReceipt.dataPrzyjecia || '') !== String(date || '');
+            if (dataPrzyjeciaChanged) {
+              await new Promise((resolve, reject) => {
+                db.run('UPDATE products SET created_at = ? WHERE receipt_id = ?', [date, id], (err) => {
+                  if (err) {
+                    console.error('❌ Error syncing products.created_at with new dataPrzyjecia:', err);
+                    reject(err);
+                  } else {
+                    console.log(`✅ Synced products.created_at to ${date} for receipt ${id}`);
+                    resolve();
+                  }
+                });
+              });
+            }
             
             // Группируем старые товары по kod и суммируем количества
             const oldProductsByKod = {};
@@ -7332,8 +7404,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                 for (const item of newProduct.items) {
               await new Promise((resolve, reject) => {
                     db.run(
-                      'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                      [item.kod, item.nazwa, item.kod_kreskowy || null, item.cena || 0, item.ilosc, item.ilosc, id, (item.cena || 0) === 0 ? 'samples' : null],
+                      'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      [item.kod, item.nazwa, item.kod_kreskowy || null, item.cena || 0, item.ilosc, item.ilosc, id, (item.cena || 0) === 0 ? 'samples' : null, date],
                       function(err) {
                   if (err) {
                           console.error(`❌ Error inserting new product ${productCode}:`, err);
@@ -7389,7 +7461,26 @@ app.put('/api/product-receipts/:id', upload.fields([
                 // Если количество изменилось, нужно пересоздать записи в products
                 if (changes.ilosc) {
                   console.log(`🔄 Quantity changed for ${productCode}: ${oldProduct.ilosc} → ${newProduct.ilosc}`);
-                  
+
+                  // ВАЖНО: нельзя просто пересоздать партию с ilosc_aktualna = новое ilosc —
+                  // это стёрло бы информацию о том, сколько из старой партии уже продано через
+                  // FIFO-списание (products.ilosc_aktualna). Вместо этого переносим дельту:
+                  // новый остаток = старый остаток + (новое количество - старое количество).
+                  const oldTotalIloscAktualna = oldProduct.records.reduce((sum, r) => sum + (r.ilosc_aktualna || 0), 0);
+                  const delta = (newProduct.ilosc || 0) - (oldProduct.ilosc || 0);
+                  let newTotalIloscAktualna = oldTotalIloscAktualna + delta;
+
+                  if (newTotalIloscAktualna < 0) {
+                    console.warn(`⚠️ ${productCode}: new ilosc (${newProduct.ilosc}) is smaller than already sold quantity (sold=${oldProduct.ilosc - oldTotalIloscAktualna}). Clamping remaining stock to 0.`);
+                    newTotalIloscAktualna = 0;
+                  }
+                  if (newTotalIloscAktualna > newProduct.ilosc) {
+                    // защита от рассинхронизации при округлении/крайних случаях
+                    newTotalIloscAktualna = newProduct.ilosc;
+                  }
+
+                  console.log(`📦 ${productCode}: preserving sold history — oldStock=${oldTotalIloscAktualna}, delta=${delta}, newStock=${newTotalIloscAktualna}`);
+
                   // Удаляем старые записи
               await new Promise((resolve, reject) => {
                     db.run('DELETE FROM products WHERE receipt_id = ? AND kod = ?', [id, productCode], function(err) {
@@ -7403,18 +7494,34 @@ app.put('/api/product-receipts/:id', upload.fields([
                     });
                   });
                   
-                  // Создаем новые записи
-                  for (const item of newProduct.items) {
+                  // Создаем новые записи, распределяя сохранённый остаток (ilosc_aktualna)
+                  // по новым позициям пропорционально их количеству (в норме позиция одна,
+                  // и весь остаток целиком уходит в неё)
+                  let remainingAktualnaToDistribute = newTotalIloscAktualna;
+                  const newItemsCount = newProduct.items.length;
+                  for (let itemIndex = 0; itemIndex < newItemsCount; itemIndex++) {
+                    const item = newProduct.items[itemIndex];
+                    const isLastItem = itemIndex === newItemsCount - 1;
+                    let itemIloscAktualna;
+                    if (isLastItem) {
+                      itemIloscAktualna = remainingAktualnaToDistribute;
+                    } else {
+                      const share = (newProduct.ilosc || 0) > 0 ? (item.ilosc || 0) / newProduct.ilosc : 0;
+                      itemIloscAktualna = Math.min(item.ilosc || 0, Math.round(newTotalIloscAktualna * share));
+                    }
+                    itemIloscAktualna = Math.max(0, Math.min(itemIloscAktualna, item.ilosc || 0));
+                    remainingAktualnaToDistribute -= itemIloscAktualna;
+
                     await new Promise((resolve, reject) => {
                     db.run(
-                        'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                        [item.kod, item.nazwa, item.kod_kreskowy || null, item.cena || 0, item.ilosc, item.ilosc, id, (item.cena || 0) === 0 ? 'samples' : null],
+                        'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [item.kod, item.nazwa, item.kod_kreskowy || null, item.cena || 0, item.ilosc, itemIloscAktualna, id, (item.cena || 0) === 0 ? 'samples' : null, date],
                       function(err) {
                         if (err) {
                             console.error(`❌ Error inserting updated product ${productCode}:`, err);
                           reject(err);
                         } else {
-                            console.log(`✅ Created updated product record: ${productCode} with ID: ${this.lastID}`);
+                            console.log(`✅ Created updated product record: ${productCode} with ID: ${this.lastID}, ilosc=${item.ilosc}, ilosc_aktualna=${itemIloscAktualna}`);
                         productsUpdated++;
                         resolve();
                         }
@@ -7477,7 +7584,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 console.log(`➕ Adding product to working_sheets: ${normalizedCode}`);
 
                 const totalQuantityResult = await new Promise((resolve, reject) => {
-                  db.get('SELECT SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [normalizedCode], (err, result) => {
+                  db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [normalizedCode], (err, result) => {
                     if (err) reject(err);
                     else resolve(result?.total_ilosc || 0);
                   });
@@ -7530,8 +7637,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   }
 
                   db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue],
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue, date],
                     function (err) {
                       if (err) {
                         console.error(`❌ Error creating working_sheets for ${normalizedCode}:`, err);
@@ -7570,7 +7677,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   } else {
                   // Товар есть в других приемках - пересчитываем количество
                   const totalQuantityResult = await new Promise((resolve, reject) => {
-                    db.get('SELECT SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
+                    db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
                       if (err) reject(err);
                       else resolve(result?.total_ilosc || 0);
                     });
@@ -7605,7 +7712,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   console.log(`⚠️ No working_sheets record for ${productCode}, creating new one...`);
                   // Создаем новую запись
                   const totalQuantityResult = await new Promise((resolve, reject) => {
-                    db.get('SELECT SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
+                    db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
                       if (err) reject(err);
                       else resolve(result?.total_ilosc || 0);
                     });
@@ -7622,8 +7729,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
               await new Promise((resolve, reject) => {
                         db.run(
-                      'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                      [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue],
+                      'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue, date],
                           function(err) {
                   if (err) {
                           console.error(`❌ Error creating working_sheets for ${productCode}:`, err);
@@ -7637,6 +7744,17 @@ app.put('/api/product-receipts/:id', upload.fields([
                         );
                   });
                   continue;
+                }
+                
+                // Синхронизируем created_at ТОЛЬКО если он был выставлен именно этой приёмкой.
+                // Признак этого: created_at в working_sheets совпадает со старой (до изменения)
+                // датой приёмки — значит эта приёмка сбросила created_at (остаток был 0 при её создании).
+                // Если даты не совпадают — created_at принадлежит другой/более старой партии, не трогаем.
+                const oldReceiptDatePart = String(oldReceipt.dataPrzyjecia || '').slice(0, 10);
+                const wsCreatedAtPart = String(workingSheetRecord.created_at || '').slice(0, 10);
+                const shouldSyncCreatedAt = dataPrzyjeciaChanged && oldReceiptDatePart && wsCreatedAtPart === oldReceiptDatePart;
+                if (dataPrzyjeciaChanged) {
+                  console.log(`🗓️ created_at sync check for ${productCode}: ws.created_at=${wsCreatedAtPart}, oldReceiptDate=${oldReceiptDatePart}, willSync=${shouldSyncCreatedAt}`);
                 }
                 
                 // Определяем, что изменилось в working_sheets
@@ -7659,20 +7777,21 @@ app.put('/api/product-receipts/:id', upload.fields([
                 // Если изменился только курс, kosztDostawy или podatekAkcyzowy, но не товары, все равно нужно обновить соответствующие поля
                 const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged;
                 const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc; // Если изменился только podatek_akcyzowy (не через objetosc)
-                const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate;
+                const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate || shouldSyncCreatedAt;
                   
                 if (!hasWsChanges && !needsReceiptParamsUpdate) {
                   console.log(`✅ No working_sheets changes for ${productCode}, skipping update`);
                   continue;
                 }
                 
-                // Если изменились только параметры приемки (курс, kosztDostawy, podatek_akcyzowy), но не товары, обновляем соответствующие поля
+                // Если изменились только параметры приемки (курс, kosztDostawy, podatek_akcyzowy, data zakupu), но не товары, обновляем соответствующие поля
                 // Но только если товар существует и в старой, и в новой версии приемки
                 if (!hasWsChanges && needsReceiptParamsUpdate && oldProduct && newProduct) {
                   const updateReason = [];
                   if (kursChanged) updateReason.push('kurs');
                   if (kosztDostawyChanged) updateReason.push('kosztDostawy');
                   if (needsPodatekAkcyzowyUpdate) updateReason.push('podatek_akcyzowy');
+                  if (shouldSyncCreatedAt) updateReason.push('dataPrzyjecia');
                   console.log(`💰 Only receipt params changed for ${productCode} (${updateReason.join(', ')}), updating working_sheets`);
                   
                   // Сохраняем снимок ДО изменений
@@ -7748,6 +7867,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                   updateFields.push('koszt_wlasny = ?');
                   updateValues.push(kosztWlasnyValue);
                   
+                  // Синхронизируем created_at с новой датой приемки, но только если её выставила именно эта приёмка
+                  if (shouldSyncCreatedAt) {
+                    updateFields.push('created_at = ?');
+                    updateValues.push(date);
+                  }
+                  
                   // Обновляем working_sheets
                   await new Promise((resolve, reject) => {
                         db.run(
@@ -7797,7 +7922,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 // Если количество в приемке изменилось, пересчитываем общее количество
                 if (wsChanges.ilosc) {
                   const totalQuantityResult = await new Promise((resolve, reject) => {
-                    db.get('SELECT SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
+                    db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
                       if (err) reject(err);
                       else resolve(result?.total_ilosc || 0);
                   });
@@ -7910,6 +8035,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                   updateValues.push(kosztWlasnyValue);
                 }
                 
+                // Синхронизируем created_at с новой датой приемки, но только если её выставила именно эта приёмка
+                if (shouldSyncCreatedAt) {
+                  updateFields.push('created_at = ?');
+                  updateValues.push(date);
+                }
+                
                 if (updateFields.length > 0) {
                   updateValues.push(productCode);
                   await new Promise((resolve, reject) => {
@@ -7932,216 +8063,307 @@ app.put('/api/product-receipts/:id', upload.fields([
               }
             }
             
-            // Шаг 4: Отправляем ответ
-            console.log(`🎉 Update processing complete: ${workingSheetsUpdated} working_sheets updated, ${productsUpdated} products updated, ${productsInserted} products created, ${productsDeleted} products deleted`);
-            
-            res.json({ 
-              message: 'Product receipt updated successfully',
-              workingSheetsUpdated: workingSheetsUpdated,
-              productsUpdated: productsUpdated,
-              productsCreated: productsInserted,
-              productsDeleted: productsDeleted
-            });
-            
-          } catch (error) {
-            console.error('❌ Error during product processing:', error);
-            res.status(500).json({ error: 'Failed to update working sheets: ' + error.message });
+      }
+
+      // Шаг 4: Коммитим транзакцию и отправляем ответ
+      await new Promise((resolve, reject) => {
+        db.run('COMMIT', (err) => {
+          if (err) {
+            console.error('❌ Error committing transaction (PUT):', err);
+            reject(err);
+          } else {
+            console.log('✅ Transaction committed successfully (PUT)');
+            resolve();
           }
-        };
-        
-        // Запускаем последовательную обработку и ждем завершения
-        processProductsSequentially().then(() => {
-          console.log('✅ All product processing completed successfully');
-        }).catch((error) => {
-          console.error('❌ Error during product processing:', error);
-          res.status(500).json({ error: 'Failed to update working sheets: ' + error.message });
+        });
+      });
+
+      console.log(`🎉 Update processing complete: ${workingSheetsUpdated} working_sheets updated, ${productsUpdated} products updated, ${productsInserted} products created, ${productsDeleted} products deleted`);
+
+      res.json({
+        message: 'Product receipt updated successfully',
+        workingSheetsUpdated: workingSheetsUpdated,
+        productsUpdated: productsUpdated,
+        productsCreated: productsInserted,
+        productsDeleted: productsDeleted
+      });
+
+    } catch (error) {
+      console.error('❌ Error during product processing (PUT):', error);
+
+      // Откатываем транзакцию — документ и склад останутся ровно в том состоянии,
+      // в котором были до начала PUT-запроса
+      try {
+        await new Promise((resolve, reject) => {
+          db.run('ROLLBACK', (rollbackErr) => {
+            if (rollbackErr) {
+              console.error('❌ Error rolling back transaction (PUT):', rollbackErr);
+              reject(rollbackErr);
+            } else {
+              console.log('🔄 Transaction rolled back (PUT)');
+              resolve();
+            }
+          });
+        });
+      } catch (rollbackError) {
+        console.error('❌ Failed to rollback transaction (PUT):', rollbackError);
+      }
+
+      if (!res.headersSent) {
+        const statusCode = error.statusCode || 500;
+        res.status(statusCode).json({
+          error: statusCode === 404 ? 'Product receipt not found' : 'Failed to update working sheets: ' + error.message
         });
       }
-    );
-  });
+    }
+  };
+
+  // Запускаем обновление приёмки (документ + products + working_sheets — всё в одной транзакции)
+  updateReceiptWithProducts();
 });
 
-app.delete('/api/product-receipts/:id', (req, res) => {
+app.delete('/api/product-receipts/:id', async (req, res) => {
   const { id } = req.params;
   console.log(`📦 DELETE /api/product-receipts/${id} - Deleting product receipt`);
-  
-  // 1) Считываем строку приёмки вместе с товарами и датой
-  db.get('SELECT products, dataPrzyjecia FROM product_receipts WHERE id = ?', [id], (err, receiptRow) => {
-    if (err) {
-      console.error('❌ DB error reading receipt:', err);
-      return res.status(500).json({ error: err.message });
-    }
+
+  // Вся операция удаления приёмки (products + working_sheets + history + сам документ)
+  // выполняется в ОДНОЙ транзакции, чтобы при сбое на любом шаге склад не остался
+  // в наполовину удалённом/пересчитанном состоянии.
+  await new Promise((resolve, reject) => {
+    db.run('BEGIN TRANSACTION', (err) => {
+      if (err) {
+        console.error('❌ Error starting transaction (DELETE):', err);
+        reject(err);
+      } else {
+        console.log('🔄 Transaction started (DELETE)');
+        resolve();
+      }
+    });
+  });
+
+  try {
+    // 1) Считываем строку приёмки вместе с товарами и датой
+    const receiptRow = await new Promise((resolve, reject) => {
+      db.get('SELECT products, dataPrzyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+
     if (!receiptRow) {
       console.log(`❌ Receipt ${id} not found`);
-      return res.status(404).json({ error: 'Product receipt not found' });
+      throw Object.assign(new Error('Product receipt not found'), { statusCode: 404 });
     }
-    
+
     const products = JSON.parse(receiptRow.products || '[]');
     const receiptDate = receiptRow.dataPrzyjecia;
     const receiptDateOnly = (receiptDate || '').toString().substring(0,10);
     console.log(`🔍 ${products.length} product rows, date=${receiptDateOnly}`);
 
     // 2) Удаляем связанные строки из products
-    db.run('DELETE FROM products WHERE receipt_id = ?', [id], function (prodErr) {
-      if (prodErr) {
-        console.error('❌ Error deleting products:', prodErr);
-        return res.status(500).json({ error: prodErr.message });
-      }
-      console.log(`✅ Deleted ${this.changes} product rows`);
+    const deletedProductsCount = await new Promise((resolve, reject) => {
+      db.run('DELETE FROM products WHERE receipt_id = ?', [id], function (prodErr) {
+        if (prodErr) reject(prodErr);
+        else resolve(this.changes);
+      });
+    });
+    console.log(`✅ Deleted ${deletedProductsCount} product rows`);
 
-      // 3) Пересчитываем working_sheets, затем history и саму приёмку
-      let processedWS = 0;
-      let wsDeleted = 0;
-      let wsUpdated = 0;
+    // 3) Пересчитываем working_sheets для каждого товара (последовательно, а не параллельно,
+    // чтобы не полагаться на порядок выполнения независимых callback'ов)
+    let wsDeleted = 0;
+    let wsUpdated = 0;
 
-      const finishReceiptDelete = () => {
-        db.run('DELETE FROM working_sheets_history WHERE receipt_id = ?', [id], (historyErr) => {
-          if (historyErr) {
-            console.error('❌ Error deleting history for receipt:', historyErr);
-            return res.status(500).json({ error: historyErr.message });
+    for (const product of products) {
+      const productKod = normalizeProductKod(product.kod);
+
+      const wsRow = await new Promise((resolve) => {
+        db.get('SELECT * FROM working_sheets WHERE kod = ?', [productKod], (wsErr, row) => {
+          if (wsErr) {
+            console.error('❌ working_sheets read error:', wsErr);
+            resolve(null);
+          } else {
+            resolve(row);
           }
-          console.log(`🗑️ Deleted working_sheets_history for receipt ${id}`);
-
-          db.run('DELETE FROM product_receipts WHERE id = ?', [id], function (recErr) {
-            if (recErr) {
-              console.error('❌ Error deleting receipt:', recErr);
-              return res.status(500).json({ error: recErr.message });
-            }
-            console.log('✅ Product receipt row deleted');
-            res.json({
-              message: 'Product receipt deleted successfully',
-              workingSheetsDeleted: wsDeleted,
-              workingSheetsUpdated: wsUpdated,
-              priceHistoryDeleted: 0,
-            });
-          });
         });
-      };
-
-      if (products.length === 0) {
-        return finishReceiptDelete();
-      }
-
-      products.forEach((product) => {
-        const productKod = normalizeProductKod(product.kod);
-        db.get(
-          'SELECT * FROM working_sheets WHERE kod = ?',
-          [productKod],
-          (wsErr, wsRow) => {
-            if (wsErr) {
-              console.error('❌ working_sheets read error:', wsErr);
-              finalize();
-              return;
-            }
-
-            if (!wsRow) {
-              finalize();
-              return;
-            }
-
-            db.get(
-              'SELECT COUNT(*) as cnt FROM products WHERE kod = ?',
-              [productKod],
-              (cntErr, cntRow) => {
-                if (cntErr) {
-                  console.error('❌ count error:', cntErr);
-                  finalize();
-                  return;
-                }
-
-                const leftReceipts = cntRow.cnt || 0;
-                if (leftReceipts === 0) {
-                  console.log(`🔍 Looking for snapshot before receipt ${id} for product ${productKod}`);
-                  db.get(
-                    `SELECT * FROM working_sheets_history
-                     WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
-                     ORDER BY created_at DESC LIMIT 1`,
-                    [productKod, id],
-                    (snapshotErr, snapshot) => {
-                      if (snapshotErr) {
-                        console.error(`❌ Error finding snapshot for ${productKod}:`, snapshotErr);
-                        finalize();
-                        return;
-                      }
-
-                      if (snapshot) {
-                        console.log(`🔄 Restoring ${productKod} from snapshot (receipt_id: ${id})`);
-                        db.run(
-                          `UPDATE working_sheets SET
-                            nazwa = ?,
-                            ilosc = ?,
-                            kod_kreskowy = ?,
-                            typ = ?,
-                            sprzedawca = ?,
-                            cena = ?,
-                            data_waznosci = ?,
-                            objetosc = ?,
-                            koszt_dostawy_per_unit = ?
-                          WHERE kod = ?`,
-                          [
-                            snapshot.nazwa,
-                            snapshot.ilosc,
-                            snapshot.kod_kreskowy,
-                            snapshot.typ,
-                            snapshot.sprzedawca,
-                            snapshot.cena,
-                            snapshot.data_waznosci,
-                            snapshot.objetosc,
-                            snapshot.koszt_dostawy_per_unit,
-                            productKod,
-                          ],
-                          function (restoreErr) {
-                            if (restoreErr) {
-                              console.error(`❌ Error restoring ${productKod}:`, restoreErr);
-                            } else {
-                              console.log(`✅ Restored ${productKod} to state before receipt ${id}`);
-                              wsUpdated++;
-                            }
-                            finalize();
-                          }
-                        );
-                      } else {
-                        console.log(`🗑️ No snapshot found for ${productKod}, deleting from working_sheets`);
-                        db.run('DELETE FROM working_sheets WHERE kod = ?', [productKod], function (delErr) {
-                          if (!delErr) wsDeleted++;
-                          finalize();
-                        });
-                      }
-                    }
-                  );
-                } else {
-                  db.get(
-                    'SELECT SUM(ilosc) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?',
-                    [productKod],
-                    (sumErr, sumRow) => {
-                      if (sumErr) return finalize();
-                      const qty = sumRow.total_ilosc || 0;
-                      const price = sumRow.max_cena || 0;
-                      db.run(
-                        'UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?',
-                        [qty, price, productKod],
-                        function (upErr) {
-                          if (!upErr) wsUpdated++;
-                          finalize();
-                        }
-                      );
-                    }
-                  );
-                }
-              }
-            );
-          }
-        );
       });
 
-      function finalize() {
-        processedWS++;
-        if (processedWS === products.length) {
-          finishReceiptDelete();
+      if (!wsRow) continue;
+
+      const cntRow = await new Promise((resolve) => {
+        db.get('SELECT COUNT(*) as cnt FROM products WHERE kod = ?', [productKod], (cntErr, row) => {
+          if (cntErr) {
+            console.error('❌ count error:', cntErr);
+            resolve({ cnt: 0 });
+          } else {
+            resolve(row || { cnt: 0 });
+          }
+        });
+      });
+
+      const leftReceipts = cntRow.cnt || 0;
+
+      if (leftReceipts === 0) {
+        console.log(`🔍 Looking for snapshot before receipt ${id} for product ${productKod}`);
+        const snapshot = await new Promise((resolve) => {
+          db.get(
+            `SELECT * FROM working_sheets_history
+             WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
+             ORDER BY created_at DESC LIMIT 1`,
+            [productKod, id],
+            (snapshotErr, row) => {
+              if (snapshotErr) {
+                console.error(`❌ Error finding snapshot for ${productKod}:`, snapshotErr);
+                resolve(null);
+              } else {
+                resolve(row);
+              }
+            }
+          );
+        });
+
+        if (snapshot) {
+          console.log(`🔄 Restoring ${productKod} from snapshot (receipt_id: ${id})`);
+          await new Promise((resolve) => {
+            db.run(
+              `UPDATE working_sheets SET
+                nazwa = ?,
+                ilosc = ?,
+                kod_kreskowy = ?,
+                typ = ?,
+                sprzedawca = ?,
+                cena = ?,
+                data_waznosci = ?,
+                objetosc = ?,
+                koszt_dostawy_per_unit = ?
+              WHERE kod = ?`,
+              [
+                snapshot.nazwa,
+                snapshot.ilosc,
+                snapshot.kod_kreskowy,
+                snapshot.typ,
+                snapshot.sprzedawca,
+                snapshot.cena,
+                snapshot.data_waznosci,
+                snapshot.objetosc,
+                snapshot.koszt_dostawy_per_unit,
+                productKod,
+              ],
+              function (restoreErr) {
+                if (restoreErr) {
+                  console.error(`❌ Error restoring ${productKod}:`, restoreErr);
+                } else {
+                  console.log(`✅ Restored ${productKod} to state before receipt ${id}`);
+                  wsUpdated++;
+                }
+                resolve();
+              }
+            );
+          });
+        } else {
+          console.log(`🗑️ No snapshot found for ${productKod}, deleting from working_sheets`);
+          await new Promise((resolve) => {
+            db.run('DELETE FROM working_sheets WHERE kod = ?', [productKod], function (delErr) {
+              if (!delErr) wsDeleted++;
+              resolve();
+            });
+          });
+        }
+      } else {
+        const sumRow = await new Promise((resolve) => {
+          db.get(
+            'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?',
+            [productKod],
+            (sumErr, row) => {
+              if (sumErr) resolve(null);
+              else resolve(row);
+            }
+          );
+        });
+
+        if (sumRow) {
+          const qty = sumRow.total_ilosc || 0;
+          const price = sumRow.max_cena || 0;
+          await new Promise((resolve) => {
+            db.run(
+              'UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?',
+              [qty, price, productKod],
+              function (upErr) {
+                if (!upErr) wsUpdated++;
+                resolve();
+              }
+            );
+          });
         }
       }
+    }
+
+    // 4) Удаляем историю working_sheets, относящуюся к этой приёмке
+    await new Promise((resolve, reject) => {
+      db.run('DELETE FROM working_sheets_history WHERE receipt_id = ?', [id], (historyErr) => {
+        if (historyErr) reject(historyErr);
+        else resolve();
+      });
     });
-  });
+    console.log(`🗑️ Deleted working_sheets_history for receipt ${id}`);
+
+    // 5) Удаляем сам документ приёмки (после того, как все связанные записи уже удалены)
+    await new Promise((resolve, reject) => {
+      db.run('DELETE FROM product_receipts WHERE id = ?', [id], function (recErr) {
+        if (recErr) reject(recErr);
+        else resolve();
+      });
+    });
+    console.log('✅ Product receipt row deleted');
+
+    // 6) Коммитим транзакцию и отправляем ответ
+    await new Promise((resolve, reject) => {
+      db.run('COMMIT', (err) => {
+        if (err) {
+          console.error('❌ Error committing transaction (DELETE):', err);
+          reject(err);
+        } else {
+          console.log('✅ Transaction committed successfully (DELETE)');
+          resolve();
+        }
+      });
+    });
+
+    res.json({
+      message: 'Product receipt deleted successfully',
+      workingSheetsDeleted: wsDeleted,
+      workingSheetsUpdated: wsUpdated,
+      priceHistoryDeleted: 0,
+    });
+
+  } catch (error) {
+    console.error('❌ Error during receipt deletion:', error);
+
+    // Откатываем транзакцию — ни документ, ни products, ни working_sheets
+    // не должны измениться при сбое на любом из шагов
+    try {
+      await new Promise((resolve, reject) => {
+        db.run('ROLLBACK', (rollbackErr) => {
+          if (rollbackErr) {
+            console.error('❌ Error rolling back transaction (DELETE):', rollbackErr);
+            reject(rollbackErr);
+          } else {
+            console.log('🔄 Transaction rolled back (DELETE)');
+            resolve();
+          }
+        });
+      });
+    } catch (rollbackError) {
+      console.error('❌ Failed to rollback transaction (DELETE):', rollbackError);
+    }
+
+    if (!res.headersSent) {
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({
+        error: statusCode === 404 ? 'Product receipt not found' : error.message
+      });
+    }
+  }
 });
 
 
