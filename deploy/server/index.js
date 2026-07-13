@@ -81,6 +81,40 @@ const db = new sqlite3.Database(dbPath);
 // Устанавливаем таймаут для операций с базой данных
 db.configure('busyTimeout', 30000); // 30 секунд
 
+function normalizeProductKod(kod) {
+  return String(kod || '').trim();
+}
+
+function normalizeReceiptProducts(products) {
+  if (!Array.isArray(products)) return products;
+  return products.map((product) => ({
+    ...product,
+    kod: normalizeProductKod(product.kod),
+  }));
+}
+
+function getTodayDateString() {
+  return new Date().toLocaleDateString('en-CA');
+}
+
+function ensureWorkingSheetsUniqueIndex() {
+  db.run('DROP INDEX IF EXISTS idx_working_sheets_kod_active', (dropErr) => {
+    if (dropErr) {
+      console.error('❌ Error dropping old working_sheets kod index:', dropErr.message);
+    }
+    db.run(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_working_sheets_kod_unique ON working_sheets(kod)',
+      (err) => {
+        if (err) {
+          console.error('❌ Error creating working_sheets kod unique index:', err.message);
+        } else {
+          console.log('✅ working_sheets unique index on kod ready');
+        }
+      }
+    );
+  });
+}
+
 // Database initialization
 db.serialize(() => {
   // Включаем поддержку внешних ключей
@@ -310,6 +344,7 @@ db.serialize(() => {
       console.error('❌ Error creating working_sheets table:', err);
     } else {
       console.log('✅ Working sheets table ready');
+      ensureWorkingSheetsUniqueIndex();
     }
   });
 
@@ -6660,8 +6695,13 @@ app.post('/api/product-receipts', upload.fields([
   
   // Парсим kosztDostawy с заменой запятой на точку
   kosztDostawy = parseFloat(String(kosztDostawy || '0').replace(',', '.')) || 0;
+
+  if (!date) {
+    date = getTodayDateString();
+    console.log(`📅 Date not provided, using today: ${date}`);
+  }
   
-  console.log('📦 POST /api/product-receipts - Creating new product receipt:', { 
+  console.log('📦 POST /api/product-receipts - Creating new product receipt:', {
     date, 
     sprzedawca, 
     wartosc, 
@@ -6673,6 +6713,11 @@ app.post('/api/product-receipts', upload.fields([
   if (!date || !products || !Array.isArray(products)) {
     console.log('❌ Validation failed: date and products array are required');
     return res.status(400).json({ error: 'Date and products array are required' });
+  }
+
+  products = normalizeReceiptProducts(products);
+  if (products.some((p) => !p.kod)) {
+    return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
   }
   
   console.log(`🔄 Processing ${products.length} products for receipt`);
@@ -6850,7 +6895,7 @@ app.post('/api/product-receipts', upload.fields([
                       const currentIlosc = wsRow ? wsRow.ilosc : 1;
                       const isZeroStock = currentIlosc === 0;
                       if (isZeroStock) {
-                        console.log(`🔄 Zero stock detected for ${productCode} — resetting created_at to receipt date ${dataPrzyjecia}`);
+                        console.log(`🔄 Zero stock detected for ${productCode} — resetting created_at to receipt date ${date}`);
                       }
 
                       const updateQuery = isZeroStock
@@ -6895,7 +6940,7 @@ app.post('/api/product-receipts', upload.fields([
                             kosztDostawyPerUnitForProduct || 0,
                             podatekValueUpd || 0,
                             kosztWlasnyValueUpd || 0,
-                            dataPrzyjecia,
+                            date,
                             productCode
                           ]
                         : [
@@ -7119,6 +7164,11 @@ app.put('/api/product-receipts/:id', upload.fields([
   if (!date || !products || !Array.isArray(products)) {
     console.log('❌ Validation failed: date and products array are required');
     return res.status(400).json({ error: 'Date and products array are required' });
+  }
+
+  products = normalizeReceiptProducts(products);
+  if (products.some((p) => !p.kod)) {
+    return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
   }
   
   // Сначала получаем старые данные для сравнения
@@ -7423,17 +7473,16 @@ app.put('/api/product-receipts/:id', upload.fields([
               const newProduct = newProductsByKod[productCode];
               
               if (!oldProduct && newProduct) {
-                // Новый товар - создаем запись в working_sheets
-                console.log(`➕ Creating working_sheets for new product: ${productCode}`);
-                
-                // Получаем общее количество из всех приемок
+                const normalizedCode = normalizeProductKod(productCode);
+                console.log(`➕ Adding product to working_sheets: ${normalizedCode}`);
+
                 const totalQuantityResult = await new Promise((resolve, reject) => {
-                  db.get('SELECT SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
+                  db.get('SELECT SUM(ilosc) as total_ilosc FROM products WHERE kod = ?', [normalizedCode], (err, result) => {
                     if (err) reject(err);
                     else resolve(result?.total_ilosc || 0);
+                  });
                 });
-              });
-              
+
                 const sourceProduct = newProduct.items[0];
                 const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                 const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
@@ -7441,20 +7490,54 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                 const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                 const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
-                // Для aksesoria транспорт не распределяется
                 const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
                 const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitForProduct + podatekValue).toFixed(2));
-                
-              await new Promise((resolve, reject) => {
+
+                const existingWs = await new Promise((resolve, reject) => {
+                  db.get(
+                    'SELECT id FROM working_sheets WHERE kod = ?',
+                    [normalizedCode],
+                    (err, row) => (err ? reject(err) : resolve(row))
+                  );
+                });
+
+                await new Promise((resolve, reject) => {
+                  if (existingWs) {
+                    console.log(`🔄 ${normalizedCode} already in working_sheets — updating`);
+                    db.run(
+                      `UPDATE working_sheets SET
+                        nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena = ?,
+                        data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?,
+                        podatek_akcyzowy = ?, koszt_wlasny = ?
+                       WHERE kod = ?`,
+                      [
+                        sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null,
+                        sourceProduct.typ || null, sprzedawca || null, maxCena,
+                        sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null,
+                        kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue, normalizedCode,
+                      ],
+                      function (err) {
+                        if (err) {
+                          console.error(`❌ Error updating working_sheets for ${normalizedCode}:`, err);
+                          reject(err);
+                        } else {
+                          workingSheetsUpdated++;
+                          resolve();
+                        }
+                      }
+                    );
+                    return;
+                  }
+
                   db.run(
                     'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue],
-                    function(err) {
-                  if (err) {
-                        console.error(`❌ Error creating working_sheets for ${productCode}:`, err);
-                    reject(err);
+                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue],
+                    function (err) {
+                      if (err) {
+                        console.error(`❌ Error creating working_sheets for ${normalizedCode}:`, err);
+                        reject(err);
                       } else {
-                        console.log(`✅ Created working_sheets for ${productCode}`);
+                        console.log(`✅ Created working_sheets for ${normalizedCode}`);
                         workingSheetsUpdated++;
                         resolve();
                       }
@@ -7906,41 +7989,60 @@ app.delete('/api/product-receipts/:id', (req, res) => {
       }
       console.log(`✅ Deleted ${this.changes} product rows`);
 
-      // 3) Удаляем саму приёмку и правим working_sheets
-        proceedToDeleteReceipt();
-      
-      function proceedToDeleteReceipt() {
-        db.run('DELETE FROM product_receipts WHERE id = ?', [id], function (recErr) {
-          if (recErr) {
-            console.error('❌ Error deleting receipt:', recErr);
-            return res.status(500).json({ error: recErr.message });
+      // 3) Пересчитываем working_sheets, затем history и саму приёмку
+      let processedWS = 0;
+      let wsDeleted = 0;
+      let wsUpdated = 0;
+
+      const finishReceiptDelete = () => {
+        db.run('DELETE FROM working_sheets_history WHERE receipt_id = ?', [id], (historyErr) => {
+          if (historyErr) {
+            console.error('❌ Error deleting history for receipt:', historyErr);
+            return res.status(500).json({ error: historyErr.message });
           }
-          console.log('✅ Product receipt row deleted');
+          console.log(`🗑️ Deleted working_sheets_history for receipt ${id}`);
 
-          // ==== перерасчёт working_sheets (старый код оставляем без изменений) ====
-          let processedWS = 0;
-          let wsDeleted = 0;
-          let wsUpdated = 0;
+          db.run('DELETE FROM product_receipts WHERE id = ?', [id], function (recErr) {
+            if (recErr) {
+              console.error('❌ Error deleting receipt:', recErr);
+              return res.status(500).json({ error: recErr.message });
+            }
+            console.log('✅ Product receipt row deleted');
+            res.json({
+              message: 'Product receipt deleted successfully',
+              workingSheetsDeleted: wsDeleted,
+              workingSheetsUpdated: wsUpdated,
+              priceHistoryDeleted: 0,
+            });
+          });
+        });
+      };
 
-          if (products.length === 0) {
-            return res.json({ message: 'Receipt deleted (empty)', workingSheetsDeleted: 0, workingSheetsUpdated: 0, priceHistoryDeleted: 0 });
-          }
+      if (products.length === 0) {
+        return finishReceiptDelete();
+      }
 
-          products.forEach(product => {
-            db.get('SELECT * FROM working_sheets WHERE kod = ?', [product.kod], (wsErr, wsRow) => {
-              if (wsErr) {
-                console.error('❌ working_sheets read error:', wsErr);
-                finalize();
-                  return;
-                }
-                
-              if (!wsRow) {
-                finalize();
-                return;
-              }
+      products.forEach((product) => {
+        const productKod = normalizeProductKod(product.kod);
+        db.get(
+          'SELECT * FROM working_sheets WHERE kod = ?',
+          [productKod],
+          (wsErr, wsRow) => {
+            if (wsErr) {
+              console.error('❌ working_sheets read error:', wsErr);
+              finalize();
+              return;
+            }
 
-              // Сколько приёмок осталось
-              db.get('SELECT COUNT(*) as cnt FROM products WHERE kod = ?', [product.kod], (cntErr, cntRow) => {
+            if (!wsRow) {
+              finalize();
+              return;
+            }
+
+            db.get(
+              'SELECT COUNT(*) as cnt FROM products WHERE kod = ?',
+              [productKod],
+              (cntErr, cntRow) => {
                 if (cntErr) {
                   console.error('❌ count error:', cntErr);
                   finalize();
@@ -7949,25 +8051,23 @@ app.delete('/api/product-receipts/:id', (req, res) => {
 
                 const leftReceipts = cntRow.cnt || 0;
                 if (leftReceipts === 0) {
-                  // Ищем снимок ДО этой приемки в working_sheets_history
-                  console.log(`🔍 Looking for snapshot before receipt ${id} for product ${product.kod}`);
+                  console.log(`🔍 Looking for snapshot before receipt ${id} for product ${productKod}`);
                   db.get(
-                    `SELECT * FROM working_sheets_history 
+                    `SELECT * FROM working_sheets_history
                      WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
                      ORDER BY created_at DESC LIMIT 1`,
-                    [product.kod, id],
+                    [productKod, id],
                     (snapshotErr, snapshot) => {
                       if (snapshotErr) {
-                        console.error(`❌ Error finding snapshot for ${product.kod}:`, snapshotErr);
+                        console.error(`❌ Error finding snapshot for ${productKod}:`, snapshotErr);
                         finalize();
                         return;
                       }
-                      
+
                       if (snapshot) {
-                        // Восстанавливаем данные из снимка ДО приемки
-                        console.log(`🔄 Restoring ${product.kod} from snapshot (receipt_id: ${id})`);
+                        console.log(`🔄 Restoring ${productKod} from snapshot (receipt_id: ${id})`);
                         db.run(
-                          `UPDATE working_sheets SET 
+                          `UPDATE working_sheets SET
                             nazwa = ?,
                             ilosc = ?,
                             kod_kreskowy = ?,
@@ -7988,60 +8088,57 @@ app.delete('/api/product-receipts/:id', (req, res) => {
                             snapshot.data_waznosci,
                             snapshot.objetosc,
                             snapshot.koszt_dostawy_per_unit,
-                            product.kod
+                            productKod,
                           ],
-                          function(restoreErr) {
+                          function (restoreErr) {
                             if (restoreErr) {
-                              console.error(`❌ Error restoring ${product.kod}:`, restoreErr);
+                              console.error(`❌ Error restoring ${productKod}:`, restoreErr);
                             } else {
-                              console.log(`✅ Restored ${product.kod} to state before receipt ${id}`);
+                              console.log(`✅ Restored ${productKod} to state before receipt ${id}`);
                               wsUpdated++;
                             }
-                            
-                            // Удаляем снимок из истории
-                            db.run('DELETE FROM working_sheets_history WHERE receipt_id = ?', [id], (historyErr) => {
-                              if (historyErr) {
-                                console.error(`❌ Error deleting history for receipt ${id}:`, historyErr);
-                              } else {
-                                console.log(`🗑️ Deleted history records for receipt ${id}`);
-                              }
-                              finalize();
-                            });
+                            finalize();
                           }
                         );
                       } else {
-                        // Снимка нет - товар был создан из приемки, удаляем
-                        console.log(`🗑️ No snapshot found for ${product.kod}, deleting from working_sheets`);
-                  db.run('DELETE FROM working_sheets WHERE kod = ?', [product.kod], function (delErr) {
-                    if (!delErr) wsDeleted++;
-                    finalize();
-              });
+                        console.log(`🗑️ No snapshot found for ${productKod}, deleting from working_sheets`);
+                        db.run('DELETE FROM working_sheets WHERE kod = ?', [productKod], function (delErr) {
+                          if (!delErr) wsDeleted++;
+                          finalize();
+                        });
                       }
                     }
                   );
-            } else {
-                  // пересчитать количество (и максимальную цену)
-                  db.get('SELECT SUM(ilosc) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?', [product.kod], (sumErr, sumRow) => {
-                    if (sumErr) return finalize();
-                    const qty = sumRow.total_ilosc || 0;
-                    const price = sumRow.max_cena || 0;
-                    db.run('UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?', [qty, price, product.kod], function (upErr) {
-                      if (!upErr) wsUpdated++;
-                      finalize();
-                    });
-                  });
+                } else {
+                  db.get(
+                    'SELECT SUM(ilosc) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?',
+                    [productKod],
+                    (sumErr, sumRow) => {
+                      if (sumErr) return finalize();
+                      const qty = sumRow.total_ilosc || 0;
+                      const price = sumRow.max_cena || 0;
+                      db.run(
+                        'UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?',
+                        [qty, price, productKod],
+                        function (upErr) {
+                          if (!upErr) wsUpdated++;
+                          finalize();
+                        }
+                      );
+                    }
+                  );
                 }
-              });
-            });
-          });
-
-          function finalize() {
-            processedWS++;
-            if (processedWS === products.length) {
-              res.json({ message: 'Product receipt deleted successfully', workingSheetsDeleted: wsDeleted, workingSheetsUpdated: wsUpdated, priceHistoryDeleted: 0 });
+              }
+            );
           }
-        }
+        );
       });
+
+      function finalize() {
+        processedWS++;
+        if (processedWS === products.length) {
+          finishReceiptDelete();
+        }
       }
     });
   });
@@ -8365,24 +8462,42 @@ app.get('/api/working-sheets/search', (req, res) => {
 
 app.post('/api/working-sheets', (req, res) => {
   const { data, produkt_id, kod, nazwa, ilosc, typ } = req.body;
-  console.log('📝 POST /api/working-sheets - Creating new working sheet:', { kod, nazwa, ilosc, typ });
-  
-  if (!data || !kod || !nazwa || !ilosc) {
+  const normalizedKod = normalizeProductKod(kod);
+  console.log('📝 POST /api/working-sheets - Creating new working sheet:', { kod: normalizedKod, nazwa, ilosc, typ });
+
+  if (!data || !normalizedKod || !nazwa || !ilosc) {
     console.log('❌ Validation failed: kod, nazwa, and ilosc are required');
     return res.status(400).json({ error: 'Kod, nazwa, and ilosc are required' });
   }
-  
-  db.run(
-    'INSERT INTO working_sheets (kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?)',
-    [kod, nazwa, ilosc, typ || 'sprzedaz'],
-    function(err) {
-      if (err) {
-        console.error('❌ Database error:', err);
-        res.status(500).json({ error: err.message });
-        return;
+
+  db.get(
+    'SELECT id FROM working_sheets WHERE kod = ?',
+    [normalizedKod],
+    (findErr, existing) => {
+      if (findErr) {
+        console.error('❌ Database error:', findErr);
+        return res.status(500).json({ error: findErr.message });
       }
-      console.log(`✅ Working sheet created with ID: ${this.lastID}`);
-      res.json({ id: this.lastID, message: 'Working sheet added successfully' });
+
+      if (existing) {
+        return res.status(409).json({
+          error: `Produkt o kodzie "${normalizedKod}" już istnieje w working_sheets (id: ${existing.id})`,
+        });
+      }
+
+      db.run(
+        'INSERT INTO working_sheets (kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?)',
+        [normalizedKod, nazwa, ilosc, typ || 'sprzedaz'],
+        function(err) {
+          if (err) {
+            console.error('❌ Database error:', err);
+            res.status(500).json({ error: err.message });
+            return;
+          }
+          console.log(`✅ Working sheet created with ID: ${this.lastID}`);
+          res.json({ id: this.lastID, message: 'Working sheet added successfully' });
+        }
+      );
     }
   );
 });
@@ -8428,7 +8543,7 @@ app.delete('/api/working-sheets/:id', (req, res) => {
 
 // Endpoint для получения курса валюты по коду товара
 app.get('/api/working-sheets/kurs/:kod', (req, res) => {
-  const { kod } = req.params;
+  const kod = normalizeProductKod(req.params.kod);
   console.log(`💰 GET /api/working-sheets/kurs/${kod} - Fetching exchange rate for product`);
   
   // Получаем курс из последней приемки для данного товара
@@ -8455,9 +8570,10 @@ app.get('/api/working-sheets/kurs/:kod', (req, res) => {
 
 app.put('/api/working-sheets/update', (req, res) => {
   const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, rezerwacje, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy, kurs } = req.body;
+  const normalizedKod = kod !== undefined && kod !== null ? normalizeProductKod(kod) : undefined;
   console.log(`📝 PUT /api/working-sheets/update - Updating working sheet:`, { 
     id, 
-    kod, 
+    kod: normalizedKod, 
     nazwa, 
     ilosc, 
     typ 
@@ -8505,8 +8621,11 @@ app.put('/api/working-sheets/update', (req, res) => {
     }
     
     // Используем переданный курс из формы или пытаемся получить из связанного receipt'а
-    const productKod = kod || existingRecord.kod;
+    const productKod = normalizedKod !== undefined ? normalizedKod : normalizeProductKod(existingRecord.kod);
     
+    if (!productKod) {
+      return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
+    }
     // Если курс передан из формы, используем его напрямую
     if (kurs !== undefined) {
       const finalKursValue = parseFloat(kurs) || 4.25;
@@ -8520,7 +8639,7 @@ app.put('/api/working-sheets/update', (req, res) => {
     db.run(
           'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
       [
-        kod || existingRecord.kod,
+        productKod,
         nazwa || existingRecord.nazwa,
         ilosc || existingRecord.ilosc,
         typ || existingRecord.typ,
@@ -8544,12 +8663,11 @@ app.put('/api/working-sheets/update', (req, res) => {
         }
         
         console.log(`✅ Working sheet ${id} updated successfully`);
-        console.log(`📊 Changes: kod=${kod || existingRecord.kod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
+        console.log(`📊 Changes: kod=${productKod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
         
         // Если изменилась цена, обновляем её в products для записей с receipt_id = NULL
         const updatedCena = cena || existingRecord.cena;
         if (cena && cena !== existingRecord.cena) {
-          const productKod = kod || existingRecord.kod;
           console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena} → ${cena}`);
           console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
           
@@ -8572,7 +8690,7 @@ app.put('/api/working-sheets/update', (req, res) => {
           message: 'Working sheet updated successfully',
           id: id,
           changes: {
-            kod: kod || existingRecord.kod,
+            kod: productKod,
             nazwa: nazwa || existingRecord.nazwa,
             ilosc: ilosc || existingRecord.ilosc,
             typ: typ || existingRecord.typ
@@ -8602,7 +8720,7 @@ app.put('/api/working-sheets/update', (req, res) => {
           db.run(
             'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
             [
-              kod || existingRecord.kod,
+              productKod,
               nazwa || existingRecord.nazwa,
               ilosc || existingRecord.ilosc,
               typ || existingRecord.typ,
@@ -8626,12 +8744,11 @@ app.put('/api/working-sheets/update', (req, res) => {
               }
               
               console.log(`✅ Working sheet ${id} updated successfully`);
-              console.log(`📊 Changes: kod=${kod || existingRecord.kod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
+              console.log(`📊 Changes: kod=${productKod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
               
               // Если изменилась цена, обновляем её в products для записей с receipt_id = NULL
               const updatedCena = cena || existingRecord.cena;
               if (cena && cena !== existingRecord.cena) {
-                const productKod = kod || existingRecord.kod;
                 console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena} → ${cena}`);
                 console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
                 
@@ -8654,7 +8771,7 @@ app.put('/api/working-sheets/update', (req, res) => {
                 message: 'Working sheet updated successfully',
                 id: id,
                 changes: {
-                  kod: kod || existingRecord.kod,
+                  kod: productKod,
                   nazwa: nazwa || existingRecord.nazwa,
                   ilosc: ilosc || existingRecord.ilosc,
                   typ: typ || existingRecord.typ
@@ -9214,7 +9331,7 @@ app.post('/api/sheets', (req, res) => {
             return isNaN(num) ? null : num;
           };
           
-          const kod = getValueOrNull(row[finalKodIndex]);
+          const kod = normalizeProductKod(getValueOrNull(row[finalKodIndex]));
           const nazwa = getValueOrNull(row[finalNazwaIndex]);
           const ilosc = getNumberOrNull(row[finalIloscIndex]);
           
