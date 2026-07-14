@@ -93,6 +93,73 @@ function normalizeReceiptProducts(products) {
   }));
 }
 
+// ===== Мультивалютность фактур =====
+// Код валюты фактуры в верхнем регистре, по умолчанию EUR.
+function normalizeWalutaFaktury(waluta) {
+  const s = String(waluta == null ? 'EUR' : waluta).trim().toUpperCase();
+  return s || 'EUR';
+}
+
+// Разбор курса (принимает запятую как десятичный разделитель). Курсы всегда
+// приходят в стандартном направлении "1 EUR = X валюты" и должны быть > 0.
+function parseKursValue(value, fallback = 1) {
+  const n = parseFloat(String(value == null ? '' : value).replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Пересчёт цены одной позиции из валюты фактуры в EUR.
+//  - EUR: цена как есть
+//  - PLN: делим на aktualnyKurs (курс EUR→PLN, который уже используется для koszt_wlasny)
+//  - прочие валюты (DKK, NOK, USD…): делим на kursFaktury (курс EUR→валюта)
+function convertCenaToEur(cena, walutaFaktury, aktualnyKurs, kursFaktury) {
+  const price = parseFloat(String(cena == null ? '0' : cena).replace(',', '.')) || 0;
+  const waluta = normalizeWalutaFaktury(walutaFaktury);
+  if (waluta === 'EUR') return price;
+  const divisor = waluta === 'PLN' ? parseKursValue(aktualnyKurs) : parseKursValue(kursFaktury);
+  return Math.round((price / divisor) * 100) / 100;
+}
+
+// Готовит рабочую копию позиций приёмки для внутренней обработки (products,
+// working_sheets): цена конвертируется в EUR, а оригинальная цена в валюте
+// фактуры сохраняется в cenaOryginalna (для расчёта koszt_wlasny по PLN напрямую
+// и для обратной записи в JSON приёмки).
+function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
+  if (!Array.isArray(products)) return products;
+  const waluta = normalizeWalutaFaktury(walutaFaktury);
+  return products.map((p) => {
+    const cenaOryginalna = parseFloat(String(p.cena == null ? '0' : p.cena).replace(',', '.')) || 0;
+    const cenaEur = waluta === 'EUR'
+      ? cenaOryginalna
+      : convertCenaToEur(cenaOryginalna, waluta, aktualnyKurs, kursFaktury);
+    return { ...p, cena: cenaEur, cenaOryginalna };
+  });
+}
+
+// Базовая часть koszt_wlasny в злотых (без доставки и податка).
+// Для фактур в PLN берём оригинальную злотовую цену напрямую, чтобы избежать
+// потери точности на round-trip EUR→PLN. Для остальных валют: цена EUR × курс EUR→PLN.
+function kosztWlasnyBazaPln(walutaFaktury, cenaEur, cenaOryginalnaPln, kursEurPln) {
+  const waluta = normalizeWalutaFaktury(walutaFaktury);
+  if (waluta === 'PLN') {
+    const pln = parseFloat(String(cenaOryginalnaPln == null ? '' : cenaOryginalnaPln).replace(',', '.'));
+    if (Number.isFinite(pln) && pln > 0) return pln;
+  }
+  return (parseFloat(cenaEur) || 0) * (parseFloat(kursEurPln) || 1);
+}
+
+function computeKosztWlasny(walutaFaktury, cenaEur, cenaOryginalna, kursEurPln, kosztDostawyPerUnit, podatekValue) {
+  const baza = kosztWlasnyBazaPln(walutaFaktury, cenaEur, cenaOryginalna, kursEurPln);
+  return parseFloat((baza + (kosztDostawyPerUnit || 0) + (podatekValue || 0)).toFixed(2));
+}
+
+// JSON приёмки хранит cena в валюте фактуры; для products/working_sheets — EUR.
+function prepareReceiptProducts(products, walutaFaktury, aktualnyKurs, kursFaktury) {
+  const normalized = normalizeReceiptProducts(products);
+  const productsForJson = normalized.map((p) => ({ ...p }));
+  const productsInternal = withCenaEur(normalized, walutaFaktury, aktualnyKurs, kursFaktury);
+  return { productsForJson, productsInternal };
+}
+
 function getTodayDateString() {
   return new Date().toLocaleDateString('en-CA');
 }
@@ -358,6 +425,8 @@ db.serialize(() => {
     aktualny_kurs REAL DEFAULT 1,
     podatek_akcyzowy REAL DEFAULT 0,
     rabat REAL DEFAULT 0,
+    waluta_faktury TEXT DEFAULT 'EUR',
+    kurs_faktury REAL DEFAULT 1,
     products TEXT, -- JSON массив товаров
     productInvoice TEXT,
     transportInvoice TEXT,
@@ -379,6 +448,32 @@ db.serialize(() => {
           }
         } else {
           console.log('✅ Column rabat added to product_receipts');
+        }
+      });
+
+      // Мультивалютность: валюта фактуры и курс "1 EUR = X валюты" (стандартное
+      // направление). Для старых записей проставится DEFAULT 'EUR' / 1, что
+      // эквивалентно их текущему поведению (все существующие фактуры были в EUR).
+      db.run(`ALTER TABLE product_receipts ADD COLUMN waluta_faktury TEXT DEFAULT 'EUR'`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column waluta_faktury already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding waluta_faktury column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column waluta_faktury added to product_receipts');
+        }
+      });
+      db.run(`ALTER TABLE product_receipts ADD COLUMN kurs_faktury REAL DEFAULT 1`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column kurs_faktury already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding kurs_faktury column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column kurs_faktury added to product_receipts');
         }
       });
     }
@@ -6672,7 +6767,7 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -6687,6 +6782,8 @@ app.post('/api/product-receipts', upload.fields([
       aktualnyKurs = jsonData.aktualnyKurs;
       podatekAkcyzowy = jsonData.podatekAkcyzowy;
       rabat = jsonData.rabat;
+      walutaFaktury = jsonData.walutaFaktury;
+      kursFaktury = jsonData.kursFaktury;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed:', { productInvoice, transportInvoice });
@@ -6704,9 +6801,15 @@ app.post('/api/product-receipts', upload.fields([
     aktualnyKurs = req.body.aktualnyKurs;
     podatekAkcyzowy = req.body.podatekAkcyzowy;
     rabat = req.body.rabat;
+    walutaFaktury = req.body.walutaFaktury;
+    kursFaktury = req.body.kursFaktury;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
+
+  // Нормализуем валюту фактуры и курс EUR→валюта (для EUR/PLN курс фактуры не нужен).
+  walutaFaktury = normalizeWalutaFaktury(walutaFaktury);
+  kursFaktury = parseKursValue(kursFaktury);
   
   // Парсим kosztDostawy с заменой запятой на точку
   kosztDostawy = parseFloat(String(kosztDostawy || '0').replace(',', '.')) || 0;
@@ -6734,18 +6837,17 @@ app.post('/api/product-receipts', upload.fields([
   if (products.some((p) => !p.kod)) {
     return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
   }
+
+  const kurs = parseKursValue(aktualnyKurs);
+  const { productsForJson, productsInternal } = prepareReceiptProducts(products, walutaFaktury, kurs, kursFaktury);
   
-  console.log(`🔄 Processing ${products.length} products for receipt`);
+  console.log(`🔄 Processing ${productsInternal.length} products for receipt (waluta: ${walutaFaktury})`);
   
   // Разрешаем дубликаты продуктов в одной приёмке
 
-  // Пересчитываем wartosc на сервере из фактического состава products + rabat,
-  // а не доверяем значению, посчитанному на клиенте — иначе итоговая сумма
-  // приёмки может не совпадать с суммой строк товаров, сохранённых в той же записи
-  // (например, если на фронтенде использовалась неокруглённая цена для расчёта суммы,
-  // а в products попала уже округлённая cena).
+  // wartosc в валюте фактуры (cena в JSON — оригинальная валюта)
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
-  const productsTotalValue = products.reduce((sum, p) => sum + ((p.ilosc || 0) * (p.cena || 0)), 0);
+  const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
   const calculatedWartosc = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
   if (Math.abs((parseFloat(wartosc) || 0) - calculatedWartosc) > 0.01) {
     console.warn(`⚠️ POST /api/product-receipts: wartosc mismatch — client sent ${wartosc}, server calculated ${calculatedWartosc}. Using server-calculated value.`);
@@ -6754,11 +6856,10 @@ app.post('/api/product-receipts', upload.fields([
   
   // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
   // Исключаем aksesoria из расчета транспорта
-  const totalBottles = products.reduce((total, product) => {
+  const totalBottles = productsInternal.reduce((total, product) => {
     if (product.typ === 'aksesoria') return total;
     return total + (product.ilosc || 0);
   }, 0);
-  const kurs = parseFloat(String(aktualnyKurs || '1').replace(',', '.')) || 1;
   const kosztDostawyPerUnit = totalBottles > 0 ? Math.round((((kosztDostawy || 0) / totalBottles) * kurs) * 100) / 100 : 0;
   
   console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
@@ -6788,8 +6889,8 @@ app.post('/api/product-receipts', upload.fields([
     try {
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), JSON.stringify(products), productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -6808,7 +6909,7 @@ app.post('/api/product-receipts', upload.fields([
       let workingSheetsInserted = 0;
           // Группируем товары по коду для суммирования количества
           const productsByCode = {};
-          for (const product of products) {
+          for (const product of productsInternal) {
             if (!productsByCode[product.kod]) {
               productsByCode[product.kod] = [];
             }
@@ -6910,7 +7011,7 @@ app.post('/api/product-receipts', upload.fields([
                         (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                       // Для aksesoria транспорт не распределяется
                       const kosztDostawyPerUnitForProduct = mainProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnit;
-                      const kosztWlasnyValueUpd = parseFloat((cenaValue * kurs + kosztDostawyPerUnitForProduct + podatekValueUpd).toFixed(2));
+                      const kosztWlasnyValueUpd = computeKosztWlasny(walutaFaktury, cenaValue, mainProduct.cenaOryginalna, kurs, kosztDostawyPerUnitForProduct, podatekValueUpd);
                       
                       console.log(`📊 UPDATE ${productCode}:`);
                       console.log(`  - newPrice: ${newPrice} → ${cenaValue}`);
@@ -7014,7 +7115,7 @@ app.post('/api/product-receipts', upload.fields([
                     (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                   // Для aksesoria транспорт не распределяется
                   const kosztDostawyPerUnitForProduct = mainProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnit;
-                  const kosztWlasnyValue = parseFloat((cenaValue * kurs + kosztDostawyPerUnitForProduct + podatekValue).toFixed(2));
+                  const kosztWlasnyValue = computeKosztWlasny(walutaFaktury, cenaValue, mainProduct.cenaOryginalna, kurs, kosztDostawyPerUnitForProduct, podatekValue);
                   console.log(`💰 Final podatekValue for ${productCode}: ${podatekValue} (forced to 0: ${isBezalkoholoweOrFermentOrAksesoria})`);
                   
                   console.log(`📊 Product ${productCode}:`);
@@ -7144,7 +7245,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoiceFile: req.files?.transportInvoice
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -7159,6 +7260,8 @@ app.put('/api/product-receipts/:id', upload.fields([
       aktualnyKurs = jsonData.aktualnyKurs;
       podatekAkcyzowy = jsonData.podatekAkcyzowy;
       rabat = jsonData.rabat;
+      walutaFaktury = jsonData.walutaFaktury;
+      kursFaktury = jsonData.kursFaktury;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed (PUT):', { productInvoice, transportInvoice });
@@ -7176,12 +7279,16 @@ app.put('/api/product-receipts/:id', upload.fields([
     aktualnyKurs = req.body.aktualnyKurs;
     podatekAkcyzowy = req.body.podatekAkcyzowy;
     rabat = req.body.rabat;
+    walutaFaktury = req.body.walutaFaktury;
+    kursFaktury = req.body.kursFaktury;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
   
   // Парсим kosztDostawy с заменой запятой на точку
   kosztDostawy = parseFloat(String(kosztDostawy || '0').replace(',', '.')) || 0;
+  walutaFaktury = normalizeWalutaFaktury(walutaFaktury);
+  kursFaktury = parseKursValue(kursFaktury);
   
   console.log(`📦 PUT /api/product-receipts/${id} - Updating product receipt:`, { 
     date, 
@@ -7200,10 +7307,14 @@ app.put('/api/product-receipts/:id', upload.fields([
     return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
   }
 
+  const kurs = parseKursValue(aktualnyKurs);
+  const { productsForJson, productsInternal } = prepareReceiptProducts(products, walutaFaktury, kurs, kursFaktury);
+  products = productsInternal;
+
   // Пересчитываем wartosc на сервере из фактического состава products + rabat,
   // а не доверяем значению, посчитанному на клиенте — см. аналогичную логику в POST.
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
-  const productsTotalValue = products.reduce((sum, p) => sum + ((p.ilosc || 0) * (p.cena || 0)), 0);
+  const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
   const calculatedWartosc = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
   if (Math.abs((parseFloat(wartosc) || 0) - calculatedWartosc) > 0.01) {
     console.warn(`⚠️ PUT /api/product-receipts/${id}: wartosc mismatch — client sent ${wartosc}, server calculated ${calculatedWartosc}. Using server-calculated value.`);
@@ -7273,14 +7384,13 @@ app.put('/api/product-receipts/:id', upload.fields([
       });
       
       // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
-      const kurs = parseFloat(String(aktualnyKurs || '1').replace(',', '.')) || 1;
       const podatekAkcyzowyParsed = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
       const rabatParsed = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, podatekAkcyzowyParsed, rabatParsed, JSON.stringify(products), finalProductInvoice, finalTransportInvoice, date, id],
+          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, kurs, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
           function(err) {
             if (err) reject(err);
             else resolve();
@@ -7598,7 +7708,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                 const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                 const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
-                const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitForProduct + podatekValue).toFixed(2));
+                const maxCenaOryginalna = Math.max(...newProduct.items.map(p => parseFloat(p.cenaOryginalna ?? p.cena ?? 0)));
+                const kosztWlasnyValue = computeKosztWlasny(walutaFaktury, maxCena, maxCenaOryginalna, kurs, kosztDostawyPerUnitForProduct, podatekValue);
 
                 const existingWs = await new Promise((resolve, reject) => {
                   db.get(
@@ -7725,7 +7836,9 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
-                  const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitValue + podatekValue).toFixed(2));
+                  const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
+                  const maxCenaOryginalna = Math.max(...newProduct.items.map(p => parseFloat(p.cenaOryginalna ?? p.cena ?? 0)));
+                  const kosztWlasnyValue = computeKosztWlasny(walutaFaktury, maxCena, maxCenaOryginalna, kurs, kosztDostawyPerUnitForProduct, podatekValue);
                   
               await new Promise((resolve, reject) => {
                         db.run(
@@ -7847,7 +7960,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
                   // Пересчитываем koszt_wlasny
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                  const kosztWlasnyValue = parseFloat((maxCena * kurs + finalKosztDostawyPerUnit + finalPodatekAkcyzowy).toFixed(2));
+                  const maxCenaOryginalna = Math.max(...newProduct.items.map(p => parseFloat(p.cenaOryginalna ?? p.cena ?? 0)));
+                  const kosztWlasnyValue = computeKosztWlasny(walutaFaktury, maxCena, maxCenaOryginalna, kurs, finalKosztDostawyPerUnit, finalPodatekAkcyzowy);
                   
                   // Формируем UPDATE запрос только для измененных полей
                   const updateFields = [];
@@ -7970,7 +8084,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   // Для aksesoria транспорт не распределяется
                   const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
-                  const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitForProduct + podatekValue).toFixed(2));
+                  const maxCenaOryginalna = Math.max(...newProduct.items.map(p => parseFloat(p.cenaOryginalna ?? p.cena ?? 0)));
+                  const kosztWlasnyValue = computeKosztWlasny(walutaFaktury, maxCena, maxCenaOryginalna, kurs, kosztDostawyPerUnitForProduct, podatekValue);
                   
                   updateFields.push('koszt_wlasny = ?');
                   updateValues.push(kosztWlasnyValue);
@@ -7988,7 +8103,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const sourceProduct = newProduct.items[0];
                   const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
                   const currentPodatekAkcyzowy = workingSheetRecord.podatek_akcyzowy || 0;
-                  const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitForProduct + currentPodatekAkcyzowy).toFixed(2));
+                  const maxCenaOryginalna = Math.max(...newProduct.items.map(p => parseFloat(p.cenaOryginalna ?? p.cena ?? 0)));
+                  const kosztWlasnyValue = computeKosztWlasny(walutaFaktury, maxCena, maxCenaOryginalna, kurs, kosztDostawyPerUnitForProduct, currentPodatekAkcyzowy);
                   
                   // Удаляем старое значение koszt_wlasny, если оно уже есть
                   const kosztWlasnyIndex = updateFields.indexOf('koszt_wlasny = ?');
@@ -8022,7 +8138,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   // Пересчитываем koszt_wlasny, используя ТЕКУЩЕЕ значение podatek_akcyzowy из БД
                   const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                   const currentPodatekAkcyzowy = workingSheetRecord.podatek_akcyzowy || 0;
-                  const kosztWlasnyValue = parseFloat((maxCena * kurs + kosztDostawyPerUnitForProduct + currentPodatekAkcyzowy).toFixed(2));
+                  const maxCenaOryginalna = Math.max(...newProduct.items.map(p => parseFloat(p.cenaOryginalna ?? p.cena ?? 0)));
+                  const kosztWlasnyValue = computeKosztWlasny(walutaFaktury, maxCena, maxCenaOryginalna, kurs, kosztDostawyPerUnitForProduct, currentPodatekAkcyzowy);
                   
                   // Удаляем старое значение koszt_wlasny, если оно уже есть
                   const kosztWlasnyIndex = updateFields.indexOf('koszt_wlasny = ?');

@@ -29,10 +29,24 @@ async function parseWithGroq(text) {
 Return ONLY valid JSON (no markdown, no explanation):
 {
   "sprzedawca": "supplier company name",
+  "waluta": "EUR",
   "products": [
     {"nazwa": "Ambijus Act Naturally 750ml", "ilosc": 30, "cena_katalogowa": "38,35", "rabat_procent": 0, "wartosc_netto": "1150,50", "vat_procent": 23, "wartosc_brutto": "1415,12"}
   ]
 }
+
+=== WALUTA (invoice currency) ===
+Detect the currency used for product prices on the invoice.
+Return exactly one of: EUR, PLN, DKK (uppercase).
+
+How to detect:
+- Currency symbols in price columns or totals: € / EUR → EUR; zł / PLN → PLN; kr / DKK → DKK
+- Polish invoices (zł, PLN, "Wartość netto" in zł) → PLN
+- Danish invoices (kr, DKK, "Stk. pris" in kr) → DKK
+- Italian/Eurozone invoices (€, EUR) → EUR
+- Default to EUR only if no currency indicator is found
+
+Prices in products must stay in the detected invoice currency — do NOT convert to EUR.
 
 === SPRZEDAWCA (supplier) ===
 Extract the company that ISSUED the invoice (seller), NOT the buyer.
@@ -396,6 +410,12 @@ function computeProductPricing(product) {
   };
 }
 
+function normalizeWaluta(waluta) {
+  const w = String(waluta || 'EUR').trim().toUpperCase();
+  if (w === 'PLN' || w === 'DKK') return w;
+  return 'EUR';
+}
+
 function mapProduct(product) {
   const ilosc = resolveQuantity(product);
   const pricing = computeProductPricing(product);
@@ -433,6 +453,7 @@ async function parsePurchaseInvoicePdf(buffer) {
       success: true,
       data: {
         sprzedawca: cleanSupplierName(parsed.sprzedawca),
+        waluta: normalizeWaluta(parsed.waluta),
         products: (parsed.products || []).map(mapProduct),
       },
     };
