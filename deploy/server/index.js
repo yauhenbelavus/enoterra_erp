@@ -101,10 +101,11 @@ function normalizeWalutaFaktury(waluta) {
 }
 
 // Разбор курса (принимает запятую как десятичный разделитель). Курсы всегда
-// приходят в стандартном направлении "1 EUR = X валюты" и должны быть > 0.
+// приходят в стандартном направлении "1 EUR = X валюты", > 0, округление до 2 знаков.
 function parseKursValue(value, fallback = 1) {
   const n = parseFloat(String(value == null ? '' : value).replace(',', '.'));
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.round(n * 100) / 100;
 }
 
 // Пересчёт цены одной позиции из валюты фактуры в EUR.
