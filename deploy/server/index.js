@@ -8397,6 +8397,10 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
           });
         }
       } else {
+        // Есть другие партии этого kod — пересчитываем ilosc/cena из остатков.
+        // Nazwa и прочие поля: если текущее состояние в working_sheets совпадает
+        // с тем, что записала удаляемая przyjęcie, откатываем метаданные
+        // к snapshot before_receipt (иначе оставляем — их уже перезаписала более новая przyjęcie).
         const sumRow = await new Promise((resolve) => {
           db.get(
             'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?',
@@ -8408,9 +8412,78 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
           );
         });
 
-        if (sumRow) {
-          const qty = sumRow.total_ilosc || 0;
-          const price = sumRow.max_cena || 0;
+        if (!sumRow) continue;
+
+        const qty = sumRow.total_ilosc || 0;
+        const price = sumRow.max_cena || 0;
+        const deletedNazwa = (product.nazwa || '').trim();
+        const currentNazwa = (wsRow.nazwa || '').trim();
+        const shouldRestoreMeta =
+          deletedNazwa.length > 0 && currentNazwa === deletedNazwa;
+
+        let snapshot = null;
+        if (shouldRestoreMeta) {
+          snapshot = await new Promise((resolve) => {
+            db.get(
+              `SELECT * FROM working_sheets_history
+               WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
+               ORDER BY created_at DESC LIMIT 1`,
+              [productKod, id],
+              (snapshotErr, row) => {
+                if (snapshotErr) {
+                  console.error(`❌ Error finding snapshot for ${productKod}:`, snapshotErr);
+                  resolve(null);
+                } else {
+                  resolve(row);
+                }
+              }
+            );
+          });
+        }
+
+        if (snapshot) {
+          console.log(
+            `🔄 Restoring metadata for ${productKod} from snapshot (receipt ${id}), qty from remaining batches`
+          );
+          await new Promise((resolve) => {
+            db.run(
+              `UPDATE working_sheets SET
+                nazwa = ?,
+                ilosc = ?,
+                kod_kreskowy = ?,
+                typ = ?,
+                sprzedawca = ?,
+                cena = ?,
+                data_waznosci = ?,
+                objetosc = ?,
+                koszt_dostawy_per_unit = ?
+              WHERE kod = ?`,
+              [
+                snapshot.nazwa,
+                qty,
+                snapshot.kod_kreskowy,
+                snapshot.typ,
+                snapshot.sprzedawca,
+                price,
+                snapshot.data_waznosci,
+                snapshot.objetosc,
+                snapshot.koszt_dostawy_per_unit,
+                productKod,
+              ],
+              function (restoreErr) {
+                if (restoreErr) {
+                  console.error(`❌ Error restoring metadata for ${productKod}:`, restoreErr);
+                } else {
+                  console.log(
+                    `✅ Restored ${productKod}: nazwa="${snapshot.nazwa}", ilosc=${qty}, cena=${price}`
+                  );
+                  wsUpdated++;
+                }
+                resolve();
+              }
+            );
+          });
+        } else {
           await new Promise((resolve) => {
             db.run(
               'UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?',
