@@ -10072,19 +10072,20 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
 }
 
 // Favicon from logo letter "e" — must be registered BEFORE any SPA catch-all
-const faviconPath = path.join(__dirname, 'favicon.png');
-const sendFavicon = (req, res) => {
-  if (!fs.existsSync(faviconPath)) {
+const faviconPngPath = path.join(__dirname, 'favicon.png');
+const faviconSvgPath = path.join(__dirname, 'favicon.svg');
+const sendFaviconFile = (filePath, mime) => (req, res) => {
+  if (!fs.existsSync(filePath)) {
     return res.status(404).end();
   }
-  res.type('image/png');
+  res.type(mime);
   res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.sendFile(faviconPath);
+  res.sendFile(filePath);
 };
-app.get('/favicon.png', sendFavicon);
-app.get('/favicon.ico', sendFavicon);
-app.get('/favicon.svg', sendFavicon);
-app.get('/vite.svg', sendFavicon);
+app.get('/favicon.svg', sendFaviconFile(faviconSvgPath, 'image/svg+xml'));
+app.get('/favicon.png', sendFaviconFile(faviconPngPath, 'image/png'));
+app.get('/favicon.ico', sendFaviconFile(faviconPngPath, 'image/png'));
+app.get('/vite.svg', sendFaviconFile(faviconSvgPath, 'image/svg+xml'));
 
 // Serve static files from parent directory (frontend)
 // В dev режиме фронт работает на Vite (порт 3000), поэтому сервер на 3001 не должен обслуживать статику
