@@ -190,6 +190,190 @@ function ensureWorkingSheetsUniqueIndex() {
   });
 }
 
+function ensureWorkingSheetsFrozenColumns() {
+  db.run('ALTER TABLE working_sheets ADD COLUMN zamrozone_srednie_zuzycie REAL', (alterErr) => {
+    if (alterErr && !String(alterErr.message).includes('duplicate column')) {
+      console.error('❌ Error adding zamrozone_srednie_zuzycie:', alterErr.message);
+    }
+  });
+  db.run('ALTER TABLE working_sheets ADD COLUMN zamrozone_data_wyczerpania TEXT', (alterErr) => {
+    if (alterErr && !String(alterErr.message).includes('duplicate column')) {
+      console.error('❌ Error adding zamrozone_data_wyczerpania:', alterErr.message);
+    }
+  });
+}
+
+function parseOrderDateFromNumber(orderNumber) {
+  if (!orderNumber) return null;
+  const datePattern = /(\d{1,2})_(\d{1,2})_(\d{4})$/;
+  const match = String(orderNumber).match(datePattern);
+  if (match) {
+    const day = match[1].padStart(2, '0');
+    const month = match[2].padStart(2, '0');
+    const year = match[3];
+    const date = new Date(`${year}-${month}-${day}`);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  const altPattern = /(\d{1,2})-(\d{1,2})-(\d{4})$/;
+  const altMatch = String(orderNumber).match(altPattern);
+  if (altMatch) {
+    const day = altMatch[1].padStart(2, '0');
+    const month = altMatch[2].padStart(2, '0');
+    const year = altMatch[3];
+    const date = new Date(`${year}-${month}-${day}`);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return null;
+}
+
+function getOrderProductSaleDate(row) {
+  const fromNumber = parseOrderDateFromNumber(row.numer_zamowienia);
+  if (fromNumber) return fromNumber;
+  if (row.data_utworzenia) {
+    const fromCreated = new Date(row.data_utworzenia);
+    if (!Number.isNaN(fromCreated.getTime())) return fromCreated;
+  }
+  if (row.created_at) {
+    const fromOpCreated = new Date(row.created_at);
+    if (!Number.isNaN(fromOpCreated.getTime())) return fromOpCreated;
+  }
+  return null;
+}
+
+function computeAverageConsumptionFromRows(rows, startDate, endDate) {
+  const salesProducts = rows.filter((row) => {
+    const d = getOrderProductSaleDate(row);
+    if (!d) return !startDate;
+    if (startDate && d < startDate) return false;
+    if (d > endDate) return false;
+    return true;
+  });
+
+  if (salesProducts.length === 0) return 0;
+
+  let firstSaleDate = null;
+  for (const row of salesProducts) {
+    const d = getOrderProductSaleDate(row);
+    if (d && (!firstSaleDate || d < firstSaleDate)) firstSaleDate = d;
+  }
+  if (!firstSaleDate) return 0;
+
+  const days = Math.max(1, Math.ceil((endDate.getTime() - firstSaleDate.getTime()) / (1000 * 60 * 60 * 24)));
+  const totalSales = salesProducts.reduce((sum, row) => sum + (row.ilosc || 0), 0);
+  return totalSales / days;
+}
+
+function fetchOrderProductsForKod(kod) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT op.kod, op.ilosc, op.created_at, o.numer_zamowienia, o.data_utworzenia
+       FROM order_products op
+       JOIN orders o ON o.id = op.orderId
+       WHERE op.kod = ?`,
+      [kod],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+
+async function computeFrozenConsumptionMetrics(kod, createdAt) {
+  const rows = await fetchOrderProductsForKod(kod);
+  const startDate = createdAt ? new Date(createdAt) : null;
+  let lastDate = null;
+
+  for (const row of rows) {
+    const d = getOrderProductSaleDate(row);
+    if (!d) continue;
+    if (startDate && d < startDate) continue;
+    if (!lastDate || d > lastDate) lastDate = d;
+  }
+
+  if (!lastDate) return { avg: null, depletionDate: null };
+
+  const avg = computeAverageConsumptionFromRows(rows, startDate, lastDate);
+  const depletionDate = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}-${String(lastDate.getDate()).padStart(2, '0')}`;
+  return { avg, depletionDate };
+}
+
+function saveFrozenConsumptionMetrics(kod, metrics) {
+  return new Promise((resolve, reject) => {
+    if (metrics.avg == null || metrics.depletionDate == null) {
+      resolve();
+      return;
+    }
+    db.run(
+      'UPDATE working_sheets SET zamrozone_srednie_zuzycie = ?, zamrozone_data_wyczerpania = ? WHERE kod = ?',
+      [metrics.avg, metrics.depletionDate, kod],
+      (err) => (err ? reject(err) : resolve())
+    );
+  });
+}
+
+function clearFrozenConsumptionMetrics(kod) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      'UPDATE working_sheets SET zamrozone_srednie_zuzycie = NULL, zamrozone_data_wyczerpania = NULL WHERE kod = ?',
+      [kod],
+      (err) => (err ? reject(err) : resolve())
+    );
+  });
+}
+
+async function handleWorkingSheetsStockDecrease(kod, saleMeta = {}) {
+  return new Promise((resolve) => {
+    db.get(
+      'SELECT ilosc, created_at, zamrozone_srednie_zuzycie FROM working_sheets WHERE kod = ?',
+      [kod],
+      async (err, row) => {
+        if (err || !row) {
+          resolve();
+          return;
+        }
+
+        try {
+          if (row.ilosc <= 0) {
+            const metrics = await computeFrozenConsumptionMetrics(kod, row.created_at);
+            await saveFrozenConsumptionMetrics(kod, metrics);
+            console.log(`🧊 Frozen consumption metrics for ${kod}:`, metrics);
+          } else if (row.zamrozone_srednie_zuzycie != null && row.created_at && saleMeta.affectsConsumptionMetrics !== false) {
+            const saleDate = saleMeta.saleDate
+              || (saleMeta.numerZamowienia ? parseOrderDateFromNumber(saleMeta.numerZamowienia) : null)
+              || new Date();
+            const periodStart = new Date(row.created_at);
+            if (saleDate >= periodStart) {
+              await clearFrozenConsumptionMetrics(kod);
+              console.log(`🔓 Cleared frozen consumption metrics for ${kod} (sale in current period)`);
+            }
+          }
+        } catch (freezeErr) {
+          console.error(`❌ handleWorkingSheetsStockDecrease(${kod}):`, freezeErr);
+        }
+
+        resolve();
+      }
+    );
+  });
+}
+
+function runWorkingSheetsDecrease(kod, amount, saleMeta, callback) {
+  db.run(
+    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
+    [amount, kod],
+    function(updateErr) {
+      if (updateErr) {
+        callback(updateErr);
+        return;
+      }
+      handleWorkingSheetsStockDecrease(kod, saleMeta)
+        .then(() => callback(null))
+        .catch(() => callback(null));
+    }
+  );
+}
+
 // Database initialization
 db.serialize(() => {
   // Включаем поддержку внешних ключей
@@ -413,6 +597,8 @@ db.serialize(() => {
     koszt_dostawy_per_unit REAL DEFAULT 0,
     podatek_akcyzowy REAL DEFAULT 0,
     koszt_wlasny REAL DEFAULT 0,
+    zamrozone_srednie_zuzycie REAL,
+    zamrozone_data_wyczerpania TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
     if (err) {
@@ -420,6 +606,7 @@ db.serialize(() => {
     } else {
       console.log('✅ Working sheets table ready');
       ensureWorkingSheetsUniqueIndex();
+      ensureWorkingSheetsFrozenColumns();
     }
   });
 
@@ -3058,9 +3245,10 @@ app.post('/api/orders', (req, res) => {
                   };
                   
                   // Обновляем количество в working_sheets (всегда списываем ВСЁ количество заказа)
-                  db.run(
-                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                    [ilosc, kod],
+                  runWorkingSheetsDecrease(
+                    kod,
+                    ilosc,
+                    { numerZamowienia: order_number },
                     function(updateErr) {
                       if (updateErr) {
                         console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
@@ -4823,9 +5011,10 @@ app.post('/api/writeoffs', (req, res) => {
                   }
                   
                   function updateWorkingSheets() {
-                    db.run(
-                      'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                      [ilosc, kod],
+                    runWorkingSheetsDecrease(
+                      kod,
+                      ilosc,
+                      { numerZamowienia: numer_odpisania },
                       function(updateErr) {
                         if (updateErr) {
                           console.error(`❌ Error updating working_sheets for product ${kod}:`, updateErr);
@@ -5150,9 +5339,10 @@ app.put('/api/orders/:id', (req, res) => {
       console.log(`🔄 handleQuantityIncrease: ${kod} +${quantity} (clientId: ${clientId}, nazwa: ${nazwa})`);
       
       // 1. Сначала обновляем working_sheets
-      db.run(
-        'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-        [quantity, kod],
+      runWorkingSheetsDecrease(
+        kod,
+        quantity,
+        { numerZamowienia: numer_zamowienia },
         function(updateErr) {
           if (updateErr) {
             console.error(`❌ Error updating working_sheets for ${kod}:`, updateErr);
@@ -5317,9 +5507,10 @@ app.put('/api/orders/:id', (req, res) => {
       console.log(`🔄 handlePrzychodQuantityDecrease (przychód): ${kod} -${quantity} (уменьшаем working_sheets)`);
       
       // Для przychodu уменьшение количества = уменьшение на складе
-      db.run(
-        'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-        [quantity, kod],
+      runWorkingSheetsDecrease(
+        kod,
+        quantity,
+        { affectsConsumptionMetrics: false },
         function(updateErr) {
           if (updateErr) {
             console.error(`❌ Error updating working_sheets for ${kod}:`, updateErr);
@@ -5837,9 +6028,10 @@ app.put('/api/orders/:id', (req, res) => {
                     console.log(`✅ Saved ${consumptions.length} consumption rows for order ${id}`);
                   }
                   // Обновляем working_sheets после FIFO списания
-                  db.run(
-                    'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                    [quantityDiff, productKod],
+                  runWorkingSheetsDecrease(
+                    productKod,
+                    quantityDiff,
+                    { numerZamowienia: numer_zamowienia },
                     function(updateErr) {
                       if (updateErr) {
                         console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
@@ -5853,9 +6045,10 @@ app.put('/api/orders/:id', (req, res) => {
               );
             } else {
               // Обновляем working_sheets даже если нет записей в order_consumptions
-              db.run(
-                'UPDATE working_sheets SET ilosc = ilosc - ? WHERE kod = ?',
-                [quantityDiff, productKod],
+              runWorkingSheetsDecrease(
+                productKod,
+                quantityDiff,
+                { numerZamowienia: numer_zamowienia },
                 function(updateErr) {
                   if (updateErr) {
                     console.error(`❌ Error updating working_sheets after FIFO for ${productKod}:`, updateErr);
