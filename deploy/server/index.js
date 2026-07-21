@@ -203,6 +203,23 @@ function ensureWorkingSheetsFrozenColumns() {
   });
 }
 
+function ensureOrdersClientIdColumn() {
+  db.run('ALTER TABLE orders ADD COLUMN client_id INTEGER', (alterErr) => {
+    if (alterErr && !String(alterErr.message).includes('duplicate column')) {
+      console.error('❌ Error adding client_id to orders:', alterErr.message);
+    } else if (!alterErr) {
+      console.log('✅ Column client_id added to orders');
+    }
+  });
+  db.run('CREATE INDEX IF NOT EXISTS idx_orders_client_id ON orders(client_id)', (err) => {
+    if (err) {
+      console.error('❌ Error creating index idx_orders_client_id:', err.message);
+    } else {
+      console.log('✅ Index idx_orders_client_id ready');
+    }
+  });
+}
+
 function parseOrderDateFromNumber(orderNumber) {
   if (!orderNumber) return null;
   const datePattern = /(\d{1,2})_(\d{1,2})_(\d{4})$/;
@@ -428,16 +445,19 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     klient TEXT NOT NULL,
+    client_id INTEGER,
     numer_zamowienia TEXT NOT NULL,
     data_utworzenia DATETIME DEFAULT CURRENT_TIMESTAMP,
     laczna_ilosc INTEGER DEFAULT 0,
     typ TEXT DEFAULT 'zamowienie',
-    numer_zwrotu TEXT
+    numer_zwrotu TEXT,
+    FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE SET NULL
   )`, (err) => {
     if (err) {
       console.error('❌ Error creating orders table:', err);
     } else {
       console.log('✅ Orders table ready');
+      ensureOrdersClientIdColumn();
     }
   });
 
