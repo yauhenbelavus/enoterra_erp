@@ -10605,6 +10605,21 @@ app.delete('/api/komis', (req, res) => {
   });
 });
 
+app.get('/favicon.png', (req, res) => {
+  res.type('image/png');
+  res.sendFile(path.join(__dirname, 'favicon.png'));
+});
+
+app.get('/favicon.ico', (req, res) => {
+  res.type('image/png');
+  res.sendFile(path.join(__dirname, 'favicon.png'));
+});
+
+app.get('/favicon.svg', (req, res) => {
+  res.type('image/png');
+  res.sendFile(path.join(__dirname, 'favicon.png'));
+});
+
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
 app.get('*', (req, res) => {
   const indexPath = path.join(__dirname, '../index.html');
