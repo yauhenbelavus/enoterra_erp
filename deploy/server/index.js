@@ -10071,6 +10071,21 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
   console.log('🚀 Production mode - test endpoints disabled');
 }
 
+// Favicon from logo letter "e" — must be registered BEFORE any SPA catch-all
+const faviconPath = path.join(__dirname, 'favicon.png');
+const sendFavicon = (req, res) => {
+  if (!fs.existsSync(faviconPath)) {
+    return res.status(404).end();
+  }
+  res.type('image/png');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(faviconPath);
+};
+app.get('/favicon.png', sendFavicon);
+app.get('/favicon.ico', sendFavicon);
+app.get('/favicon.svg', sendFavicon);
+app.get('/vite.svg', sendFavicon);
+
 // Serve static files from parent directory (frontend)
 // В dev режиме фронт работает на Vite (порт 3000), поэтому сервер на 3001 не должен обслуживать статику
 // В production режиме обслуживаем статические файлы из dist
@@ -10603,21 +10618,6 @@ app.delete('/api/komis', (req, res) => {
     console.log(`✅ Komis override reset: klient=${klient}, kod=${kod}`);
     res.json({ success: true });
   });
-});
-
-app.get('/favicon.png', (req, res) => {
-  res.type('image/png');
-  res.sendFile(path.join(__dirname, 'favicon.png'));
-});
-
-app.get('/favicon.ico', (req, res) => {
-  res.type('image/png');
-  res.sendFile(path.join(__dirname, 'favicon.png'));
-});
-
-app.get('/favicon.svg', (req, res) => {
-  res.type('image/png');
-  res.sendFile(path.join(__dirname, 'favicon.png'));
 });
 
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
