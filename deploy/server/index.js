@@ -10071,8 +10071,8 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
   console.log('🚀 Production mode - test endpoints disabled');
 }
 
-// Favicon from logo letter "e" — must be registered BEFORE any SPA catch-all
-const faviconSvgPath = path.join(__dirname, 'favicon.svg');
+// Favicon lives in server/assets (URL /server/assets/favicon.svg)
+const faviconSvgPath = path.join(__dirname, 'assets', 'favicon.svg');
 const sendFavicon = (req, res) => {
   if (!fs.existsSync(faviconSvgPath)) {
     return res.status(404).end();
@@ -10081,6 +10081,7 @@ const sendFavicon = (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.sendFile(faviconSvgPath);
 };
+app.get('/server/assets/favicon.svg', sendFavicon);
 app.get('/favicon.svg', sendFavicon);
 app.get('/favicon.ico', sendFavicon);
 app.get('/vite.svg', sendFavicon);
