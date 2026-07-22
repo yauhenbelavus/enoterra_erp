@@ -10084,7 +10084,6 @@ const sendFavicon = (req, res) => {
 app.get('/server/assets/favicon.svg', sendFavicon);
 app.get('/favicon.svg', sendFavicon);
 app.get('/favicon.ico', sendFavicon);
-app.get('/vite.svg', sendFavicon);
 
 // Serve static files from parent directory (frontend)
 // В dev режиме фронт работает на Vite (порт 3000), поэтому сервер на 3001 не должен обслуживать статику
