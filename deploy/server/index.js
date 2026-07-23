@@ -5359,6 +5359,8 @@ app.put('/api/orders/:id', (req, res) => {
     return res.status(400).json({ error: 'Order number is required' });
   }
 
+  let smartUpdateOrderProducts;
+
   const applyOrderUpdate = (clientId, klientName, orderType) => {
     klient = klientName;
     db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, oldOrderProducts) => {
@@ -5445,7 +5447,7 @@ app.put('/api/orders/:id', (req, res) => {
     });
   });
 
-  function smartUpdateOrderProducts(oldOrderProducts, clientId, orderType) {
+  smartUpdateOrderProducts = function(oldOrderProducts, clientId, orderType) {
     console.log(`🧠 Smart update: processing ${products.length} new products against ${oldOrderProducts.length} existing products (clientId: ${clientId}, orderType: ${orderType})`);
     
     // Создаем карты для быстрого поиска - используем массивы для каждого ключа
