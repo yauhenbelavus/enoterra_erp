@@ -346,7 +346,12 @@ function cascadeClientRename(clientId, oldNazwa, newNazwa, callback) {
       return callback(ordersErr);
     }
 
-    db.run('UPDATE komis SET klient = ? WHERE klient = ?', [trimmedNew, trimmedOld], (komisErr) => {
+    db.run(
+      `UPDATE komis SET klient = ?, client_id = COALESCE(client_id, ?)
+       WHERE client_id = ?
+          OR (client_id IS NULL AND LOWER(TRIM(klient)) = LOWER(TRIM(?)))`,
+      [trimmedNew, clientId, clientId, trimmedOld],
+      (komisErr) => {
       if (komisErr) {
         console.error(`❌ Error updating komis.klient for client ${clientId}:`, komisErr);
         return callback(komisErr);
@@ -3389,7 +3394,7 @@ app.post('/api/orders', (req, res) => {
 
                   // Синхронизация с таблицей komis
                   if ((typ || 'sprzedaz') === 'komis') {
-                    syncKomisProduct(klientName, kod, nazwa, ilosc);
+                    syncKomisProduct(klientName, kod, nazwa, ilosc, clientId);
                   }
                   
                   // Функция для продолжения после обновления резерваций
@@ -5552,7 +5557,7 @@ app.put('/api/orders/:id', (req, res) => {
 
           // Синхронизация с таблицей komis
           if ((oldProduct.typ || 'sprzedaz') === 'komis' && quantityDiff !== 0) {
-            syncKomisProduct(klient, kod, nazwa, quantityDiff);
+            syncKomisProduct(klient, kod, nazwa, quantityDiff, clientId);
           }
 
           if (quantityDiff > 0) {
@@ -5796,7 +5801,7 @@ app.put('/api/orders/:id', (req, res) => {
 
             // Синхронизация с таблицей komis
             if ((typ || 'sprzedaz') === 'komis') {
-              syncKomisProduct(klient, kod, nazwa, Number(ilosc));
+              syncKomisProduct(klient, kod, nazwa, Number(ilosc), clientId);
             }
 
             // Для przychodu используем специальную функцию
@@ -5857,7 +5862,7 @@ app.put('/api/orders/:id', (req, res) => {
 
                   // Синхронизация с таблицей komis (при замене типа)
                   if ((oldProduct.typ || 'sprzedaz') === 'komis') {
-                    syncKomisProduct(klient, kod, oldProduct.nazwa, -Number(ilosc));
+                    syncKomisProduct(klient, kod, oldProduct.nazwa, -Number(ilosc), clientId);
                   }
 
                   // Восстанавливаем количество в working_sheets
@@ -5890,7 +5895,7 @@ app.put('/api/orders/:id', (req, res) => {
 
               // Синхронизация с таблицей komis
               if ((oldProduct.typ || 'sprzedaz') === 'komis') {
-                syncKomisProduct(klient, kod, oldProduct.nazwa, -Number(ilosc));
+                syncKomisProduct(klient, kod, oldProduct.nazwa, -Number(ilosc), clientId);
               }
 
               // Восстанавливаем количество в working_sheets
@@ -10761,14 +10766,10 @@ db.run(`CREATE TABLE IF NOT EXISTS komis (
 });
 
 // Вспомогательная функция синхронизации komis (fire-and-forget)
-function syncKomisProduct(klient, kod, nazwa, deltaIlosc) {
+function syncKomisProduct(klient, kod, nazwa, deltaIlosc, clientId = null) {
   if (!klient || !kod) return;
 
-  resolveClientIdByKlient(klient, (lookupErr, clientId) => {
-    if (lookupErr) {
-      console.error('❌ syncKomisProduct client lookup:', lookupErr.message);
-    }
-
+  const writeKomis = (resolvedClientId) => {
     if (deltaIlosc > 0) {
       db.run(
         `INSERT INTO komis (client_id, klient, kod, nazwa, ilosc, updated_at)
@@ -10778,19 +10779,48 @@ function syncKomisProduct(klient, kod, nazwa, deltaIlosc) {
            nazwa = excluded.nazwa,
            client_id = COALESCE(excluded.client_id, komis.client_id),
            updated_at = CURRENT_TIMESTAMP`,
-        [clientId, klient, kod, nazwa || '', deltaIlosc],
+        [resolvedClientId, klient, kod, nazwa || '', deltaIlosc],
         (e) => { if (e) console.error('❌ syncKomisProduct(+):', e.message); }
       );
-    } else if (deltaIlosc < 0) {
-      db.run(
-        `UPDATE komis SET
-           ilosc = MAX(0, ilosc + ?),
-           updated_at = CURRENT_TIMESTAMP
-         WHERE klient = ? AND kod = ?`,
-        [deltaIlosc, klient, kod],
-        (e) => { if (e) console.error('❌ syncKomisProduct(-):', e.message); }
-      );
+      return;
     }
+
+    if (deltaIlosc < 0) {
+      const parsedId = parseClientId(resolvedClientId);
+      if (parsedId) {
+        db.run(
+          `UPDATE komis SET
+             ilosc = MAX(0, ilosc + ?),
+             updated_at = CURRENT_TIMESTAMP
+           WHERE kod = ?
+             AND (client_id = ? OR (client_id IS NULL AND LOWER(TRIM(klient)) = LOWER(TRIM(?))))`,
+          [deltaIlosc, kod, parsedId, klient],
+          (e) => { if (e) console.error('❌ syncKomisProduct(-):', e.message); }
+        );
+      } else {
+        db.run(
+          `UPDATE komis SET
+             ilosc = MAX(0, ilosc + ?),
+             updated_at = CURRENT_TIMESTAMP
+           WHERE klient = ? AND kod = ?`,
+          [deltaIlosc, klient, kod],
+          (e) => { if (e) console.error('❌ syncKomisProduct(-):', e.message); }
+        );
+      }
+    }
+  };
+
+  const parsedClientId = parseClientId(clientId);
+  if (parsedClientId) {
+    writeKomis(parsedClientId);
+    return;
+  }
+
+  resolveClientIdByKlient(klient, (lookupErr, resolvedClientId) => {
+    if (lookupErr) {
+      console.error('❌ syncKomisProduct client lookup:', lookupErr.message);
+    }
+    writeKomis(resolvedClientId);
   });
 }
 
@@ -10798,7 +10828,17 @@ function syncKomisProduct(klient, kod, nazwa, deltaIlosc) {
 app.get('/api/komis/summary', (req, res) => {
   console.log('📦 GET /api/komis/summary - Fetching komis summary by client');
 
-  db.all('SELECT klient, kod, nazwa, ilosc FROM komis ORDER BY klient, kod', [], (err, rows) => {
+  db.all(`
+    SELECT
+      k.client_id,
+      COALESCE(c.nazwa, k.klient) AS klient,
+      k.kod,
+      k.nazwa,
+      k.ilosc
+    FROM komis k
+    LEFT JOIN clients c ON c.id = k.client_id
+    ORDER BY klient, k.kod
+  `, [], (err, rows) => {
     if (err) {
       console.error('❌ Error fetching komis summary:', err);
       return res.status(500).json({ error: err.message });
@@ -10806,11 +10846,17 @@ app.get('/api/komis/summary', (req, res) => {
 
     const groupedByClient = {};
     (rows || []).forEach(row => {
-      if (!groupedByClient[row.klient]) {
-        groupedByClient[row.klient] = { klient: row.klient, products: [], total_ilosc: 0 };
+      const groupKey = row.client_id ? `id:${row.client_id}` : `name:${row.klient}`;
+      if (!groupedByClient[groupKey]) {
+        groupedByClient[groupKey] = {
+          klient: row.klient,
+          client_id: row.client_id || null,
+          products: [],
+          total_ilosc: 0
+        };
       }
-      groupedByClient[row.klient].products.push({ kod: row.kod, nazwa: row.nazwa, ilosc: row.ilosc });
-      groupedByClient[row.klient].total_ilosc += row.ilosc;
+      groupedByClient[groupKey].products.push({ kod: row.kod, nazwa: row.nazwa, ilosc: row.ilosc });
+      groupedByClient[groupKey].total_ilosc += row.ilosc;
     });
 
     const result = Object.values(groupedByClient);
@@ -10822,26 +10868,39 @@ app.get('/api/komis/summary', (req, res) => {
 // GET /api/komis/client/:klient — данные по одному клиенту из таблицы komis (+ цена)
 app.get('/api/komis/client/:klient', (req, res) => {
   const klient = decodeURIComponent(req.params.klient);
+  const includeZero = req.query.include_zero === '1';
   console.log(`📦 GET /api/komis/client/${klient}`);
 
   db.all(`
-    SELECT k.kod, k.nazwa, k.ilosc, ws.cena_sprzedazy
+    SELECT
+      k.client_id,
+      COALESCE(c.nazwa, k.klient) AS klient_resolved,
+      k.kod,
+      k.nazwa,
+      k.ilosc,
+      ws.cena_sprzedazy
     FROM komis k
+    LEFT JOIN clients c ON c.id = k.client_id
     LEFT JOIN working_sheets ws ON k.kod = ws.kod
-    WHERE k.klient = ?
+    WHERE LOWER(TRIM(COALESCE(c.nazwa, k.klient))) = LOWER(TRIM(?))
+       OR LOWER(TRIM(k.klient)) = LOWER(TRIM(?))
     ORDER BY k.kod
-  `, [klient], (err, rows) => {
+  `, [klient, klient], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
 
-    const products = (rows || []).map(row => ({
+    const products = (rows || [])
+      .filter(row => includeZero || row.ilosc > 0)
+      .map(row => ({
       kod: row.kod,
       nazwa: row.nazwa,
       ilosc: row.ilosc,
       cena_sprzedazy: row.cena_sprzedazy || null
     }));
     const total_ilosc = products.reduce((sum, p) => sum + p.ilosc, 0);
+    const resolvedKlient = rows && rows.length > 0 ? rows[0].klient_resolved : klient;
+    const client_id = rows && rows.length > 0 ? rows[0].client_id : null;
 
-    res.json({ klient, products, total_ilosc });
+    res.json({ klient: resolvedKlient, client_id, products, total_ilosc });
   });
 });
 
