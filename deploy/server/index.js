@@ -220,6 +220,154 @@ function ensureOrdersClientIdColumn() {
   });
 }
 
+function ensureKomisClientIdColumn() {
+  db.run('ALTER TABLE komis ADD COLUMN client_id INTEGER', (alterErr) => {
+    if (alterErr && !String(alterErr.message).includes('duplicate column')) {
+      console.error('❌ Error adding client_id to komis:', alterErr.message);
+    } else if (!alterErr) {
+      console.log('✅ Column client_id added to komis');
+    }
+  });
+  db.run('CREATE INDEX IF NOT EXISTS idx_komis_client_id ON komis(client_id)', (err) => {
+    if (err) {
+      console.error('❌ Error creating index idx_komis_client_id:', err.message);
+    } else {
+      console.log('✅ Index idx_komis_client_id ready');
+    }
+  });
+}
+
+function resolveClientIdByKlient(klientName, callback) {
+  const name = String(klientName || '').trim();
+  if (!name) {
+    return callback(null, null);
+  }
+  db.get(
+    'SELECT id FROM clients WHERE LOWER(TRIM(nazwa)) = LOWER(?) LIMIT 1',
+    [name],
+    (err, row) => {
+      if (err) return callback(err);
+      callback(null, row ? row.id : null);
+    }
+  );
+}
+
+function parseClientId(value) {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return id;
+}
+
+function resolveClientById(clientId, callback) {
+  const id = parseClientId(clientId);
+  if (!id) {
+    return callback(null, { error: 'client_id is required', status: 400 });
+  }
+  db.get('SELECT id, nazwa FROM clients WHERE id = ?', [id], (err, row) => {
+    if (err) return callback(err);
+    if (!row) {
+      return callback(null, { error: 'Client not found', status: 404 });
+    }
+    callback(null, { clientId: row.id, klientName: row.nazwa });
+  });
+}
+
+function resolveInvoiceClient({ order_id, klient }, callback) {
+  const orderId = parseClientId(order_id);
+  if (orderId) {
+    db.get(
+      `SELECT
+        o.client_id,
+        COALESCE(c.nazwa, o.klient) AS klient_name,
+        c.firma AS klient_firma
+      FROM orders o
+      LEFT JOIN clients c ON c.id = o.client_id
+      WHERE o.id = ?`,
+      [orderId],
+      (err, row) => {
+        if (err) return callback(err);
+        if (!row) {
+          return callback(null, { error: 'Order not found', status: 404 });
+        }
+        if (!row.client_id) {
+          return callback(null, { error: 'Order has no client_id', status: 400 });
+        }
+        callback(null, {
+          clientId: row.client_id,
+          klientName: row.klient_name || String(klient || '').trim(),
+          klientFirma: row.klient_firma || null,
+        });
+      }
+    );
+    return;
+  }
+
+  const name = String(klient || '').trim();
+  if (!name) {
+    return callback(null, { error: 'klient is required when order_id is missing', status: 400 });
+  }
+
+  db.get(
+    'SELECT id, nazwa, firma FROM clients WHERE LOWER(TRIM(nazwa)) = LOWER(TRIM(?)) LIMIT 1',
+    [name],
+    (err, row) => {
+      if (err) return callback(err);
+      callback(null, {
+        clientId: row ? row.id : null,
+        klientName: row ? row.nazwa : name,
+        klientFirma: row ? (row.firma || null) : null,
+      });
+    }
+  );
+}
+
+const ORDER_WITH_CLIENT_JOIN = `
+  FROM orders o
+  LEFT JOIN clients c ON c.id = o.client_id
+`;
+
+function withResolvedOrderKlient(orderRow) {
+  if (!orderRow) return orderRow;
+  if (orderRow.klient_resolved == null) return orderRow;
+  const { klient_resolved, ...rest } = orderRow;
+  return { ...rest, klient: klient_resolved };
+}
+
+function cascadeClientRename(clientId, oldNazwa, newNazwa, callback) {
+  const trimmedNew = String(newNazwa || '').trim();
+  const trimmedOld = String(oldNazwa || '').trim();
+  if (!trimmedNew || trimmedOld === trimmedNew) {
+    return callback(null);
+  }
+
+  db.run('UPDATE orders SET klient = ? WHERE client_id = ?', [trimmedNew, clientId], (ordersErr) => {
+    if (ordersErr) {
+      console.error(`❌ Error updating orders.klient for client ${clientId}:`, ordersErr);
+      return callback(ordersErr);
+    }
+
+    db.run('UPDATE komis SET klient = ? WHERE klient = ?', [trimmedNew, trimmedOld], (komisErr) => {
+      if (komisErr) {
+        console.error(`❌ Error updating komis.klient for client ${clientId}:`, komisErr);
+        return callback(komisErr);
+      }
+
+      db.run(
+        'UPDATE invoices SET klient_nazwa = ? WHERE client_id = ?',
+        [trimmedNew, clientId],
+        (invoicesErr) => {
+          if (invoicesErr) {
+            console.error(`❌ Error updating invoices.klient_nazwa for client ${clientId}:`, invoicesErr);
+            return callback(invoicesErr);
+          }
+          console.log(`✅ Cascaded client rename to orders/komis/invoices for client ${clientId}`);
+          callback(null);
+        }
+      );
+    });
+  });
+}
+
 function parseOrderDateFromNumber(orderNumber) {
   if (!orderNumber) return null;
   const datePattern = /(\d{1,2})_(\d{1,2})_(\d{4})$/;
@@ -2062,7 +2210,9 @@ async function generateOrderPDF(order, products, res) {
 // Orders API
 app.get('/api/orders', (req, res) => {
   console.log('📋 GET /api/orders - Fetching all orders');
-  db.all('SELECT * FROM orders ORDER BY data_utworzenia DESC', (err, orderRows) => {
+  db.all(
+    `SELECT o.*, COALESCE(c.nazwa, o.klient) AS klient_resolved ${ORDER_WITH_CLIENT_JOIN} ORDER BY o.data_utworzenia DESC`,
+    (err, orderRows) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -2080,20 +2230,21 @@ app.get('/api/orders', (req, res) => {
     const ordersWithProducts = [];
     
     orderRows.forEach((order) => {
-      console.log(`🔍 Fetching products for order ${order.id} (${order.numer_zamowienia})`);
-      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [order.id], (err, productRows) => {
+      const resolvedOrder = withResolvedOrderKlient(order);
+      console.log(`🔍 Fetching products for order ${resolvedOrder.id} (${resolvedOrder.numer_zamowienia})`);
+      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [resolvedOrder.id], (err, productRows) => {
         if (err) {
-          console.error(`❌ Error fetching products for order ${order.id}:`, err);
+          console.error(`❌ Error fetching products for order ${resolvedOrder.id}:`, err);
           console.error(`❌ Error details:`, err.message);
           // Добавляем заказ без продуктов в случае ошибки
           ordersWithProducts.push({
-            ...order,
+            ...resolvedOrder,
             products: []
           });
         } else {
-          console.log(`✅ Found ${productRows?.length || 0} products for order ${order.id}`);
+          console.log(`✅ Found ${productRows?.length || 0} products for order ${resolvedOrder.id}`);
           ordersWithProducts.push({
-            ...order,
+            ...resolvedOrder,
             products: productRows || []
           });
         }
@@ -2122,7 +2273,10 @@ app.get('/api/orders/search', (req, res) => {
   
   // Поиск заказов по частичному совпадению номера
   const searchPattern = `%${numer_zamowienia}%`;
-  db.all('SELECT * FROM orders WHERE numer_zamowienia LIKE ? ORDER BY data_utworzenia DESC LIMIT 10', [searchPattern], (err, orderRows) => {
+  db.all(
+    `SELECT o.*, COALESCE(c.nazwa, o.klient) AS klient_resolved ${ORDER_WITH_CLIENT_JOIN} WHERE o.numer_zamowienia LIKE ? ORDER BY o.data_utworzenia DESC LIMIT 10`,
+    [searchPattern],
+    (err, orderRows) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -2141,30 +2295,31 @@ app.get('/api/orders/search', (req, res) => {
     const ordersWithProducts = [];
     
     orderRows.forEach((order) => {
-      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [order.id], (err, productRows) => {
+      const resolvedOrder = withResolvedOrderKlient(order);
+      db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [resolvedOrder.id], (err, productRows) => {
         if (err) {
-          console.error(`❌ Error fetching products for order ${order.id}:`, err);
+          console.error(`❌ Error fetching products for order ${resolvedOrder.id}:`, err);
           ordersWithProducts.push({
-            id: order.id,
-            numer_zamowienia: order.numer_zamowienia,
-            klient: order.klient,
-            klient_id: order.id,
+            id: resolvedOrder.id,
+            numer_zamowienia: resolvedOrder.numer_zamowienia,
+            klient: resolvedOrder.klient,
+            client_id: resolvedOrder.client_id || null,
             klient_firma: '',
             klient_adres: '',
             klient_kontakt: '',
-            data_utworzenia: order.data_utworzenia,
+            data_utworzenia: resolvedOrder.data_utworzenia,
             products: []
           });
         } else {
           ordersWithProducts.push({
-            id: order.id,
-            numer_zamowienia: order.numer_zamowienia,
-            klient: order.klient,
-            klient_id: order.id,
+            id: resolvedOrder.id,
+            numer_zamowienia: resolvedOrder.numer_zamowienia,
+            klient: resolvedOrder.klient,
+            client_id: resolvedOrder.client_id || null,
             klient_firma: '',
             klient_adres: '',
             klient_kontakt: '',
-            data_utworzenia: order.data_utworzenia,
+            data_utworzenia: resolvedOrder.data_utworzenia,
             products: productRows || []
           });
         }
@@ -2931,9 +3086,11 @@ app.get('/api/orders/:id/pdf', async (req, res) => {
   try {
     // Получаем данные заказа с продуктами
     const orderQuery = `
-      SELECT o.*, c.firma, c.nazwa as client_name, c.adres, c.kontakt, c.czas_dostawy
+      SELECT o.*,
+        COALESCE(c.nazwa, o.klient) AS client_name,
+        c.firma, c.adres, c.kontakt, c.czas_dostawy
       FROM orders o
-      LEFT JOIN clients c ON o.klient = c.nazwa
+      LEFT JOIN clients c ON c.id = o.client_id
       WHERE o.id = ?
     `;
     
@@ -2975,7 +3132,10 @@ app.get('/api/orders/:id', (req, res) => {
   console.log(`📋 GET /api/orders/${id} - Fetching order by ID`);
   
   // Получаем основную информацию о заказе
-  db.get('SELECT * FROM orders WHERE id = ?', [id], (err, orderRow) => {
+  db.get(
+    `SELECT o.*, COALESCE(c.nazwa, o.klient) AS klient_resolved ${ORDER_WITH_CLIENT_JOIN} WHERE o.id = ?`,
+    [id],
+    (err, orderRow) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -2986,7 +3146,8 @@ app.get('/api/orders/:id', (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
     
-    console.log(`✅ Found order: ${orderRow.numer_zamowienia}`);
+    const resolvedOrder = withResolvedOrderKlient(orderRow);
+    console.log(`✅ Found order: ${resolvedOrder.numer_zamowienia}`);
     
     // Теперь получаем продукты для этого заказа
     db.all('SELECT * FROM order_products WHERE orderId = ? ORDER BY id', [id], (err, productRows) => {
@@ -3000,7 +3161,7 @@ app.get('/api/orders/:id', (req, res) => {
       
       // Возвращаем заказ с продуктами
       const orderWithProducts = {
-        ...orderRow,
+        ...resolvedOrder,
         products: productRows || []
       };
       
@@ -3010,12 +3171,12 @@ app.get('/api/orders/:id', (req, res) => {
 });
 
 app.post('/api/orders', (req, res) => {
-  const { clientName, order_number, products } = req.body;
-  console.log('📋 POST /api/orders - Creating new order:', { clientName, order_number, productsCount: products?.length || 0 });
+  const { client_id, order_number, products } = req.body;
+  console.log('📋 POST /api/orders - Creating new order:', { client_id, order_number, productsCount: products?.length || 0 });
   
-  if (!clientName || !order_number) {
-    console.log('❌ Validation failed: clientName and order_number are required');
-    return res.status(400).json({ error: 'Client name and order number are required' });
+  if (!client_id || !order_number) {
+    console.log('❌ Validation failed: client_id and order_number are required');
+    return res.status(400).json({ error: 'Client ID and order number are required' });
   }
   
   if (!products || !Array.isArray(products) || products.length === 0) {
@@ -3026,15 +3187,17 @@ app.post('/api/orders', (req, res) => {
   // Вычисляем общее количество всех продуктов
   const laczna_ilosc = products.reduce((total, product) => total + (product.ilosc || 0), 0);
   
-  // Получаем client_id по имени клиента
-  db.get('SELECT id FROM clients WHERE nazwa = ? LIMIT 1', [clientName], (err, clientRow) => {
-    if (err) {
-      console.error('❌ Database error finding client:', err);
-      return res.status(500).json({ error: err.message });
+  resolveClientById(client_id, (lookupErr, clientResult) => {
+    if (lookupErr) {
+      console.error('❌ Database error finding client:', lookupErr);
+      return res.status(500).json({ error: lookupErr.message });
     }
-    
-    const clientId = clientRow ? clientRow.id : null;
-    console.log(`🔍 Client ID for "${clientName}": ${clientId || 'not found'}`);
+    if (clientResult?.error) {
+      return res.status(clientResult.status || 400).json({ error: clientResult.error });
+    }
+
+    const { clientId, klientName } = clientResult;
+    console.log(`🔍 Resolved client_id ${clientId} -> "${klientName}"`);
   
   // Проверяем доступность товаров перед созданием заказа
   console.log('🔍 Checking product availability...');
@@ -3165,8 +3328,8 @@ app.post('/api/orders', (req, res) => {
       
       // Создаем заказ
       db.run(
-        'INSERT INTO orders (klient, numer_zamowienia, laczna_ilosc) VALUES (?, ?, ?)',
-        [clientName, order_number, laczna_ilosc],
+        'INSERT INTO orders (client_id, klient, numer_zamowienia, laczna_ilosc) VALUES (?, ?, ?, ?)',
+        [clientId, klientName, order_number, laczna_ilosc],
         function(err) {
           if (err) {
             console.error('❌ Database error creating order:', err);
@@ -3226,7 +3389,7 @@ app.post('/api/orders', (req, res) => {
 
                   // Синхронизация с таблицей komis
                   if ((typ || 'sprzedaz') === 'komis') {
-                    syncKomisProduct(clientName, kod, nazwa, ilosc);
+                    syncKomisProduct(klientName, kod, nazwa, ilosc);
                   }
                   
                   // Функция для продолжения после обновления резерваций
@@ -3960,10 +4123,10 @@ app.post('/api/returns', (req, res) => {
     // Вычисляем общее количество всех продуктов
     const laczna_ilosc = products.reduce((total, product) => total + (product.ilosc || 0), 0);
     
-    // Создаем запись о возврате
+    const createReturnOrder = (clientId, klientName) => {
     db.run(
-      'INSERT INTO orders (klient, numer_zamowienia, laczna_ilosc, typ, numer_zwrotu, data_utworzenia) VALUES (?, ?, ?, ?, ?, ?)',
-      [klient, returnNumber, laczna_ilosc, 'zwrot', numer_zwrotu, data_zwrotu],
+      'INSERT INTO orders (client_id, klient, numer_zamowienia, laczna_ilosc, typ, numer_zwrotu, data_utworzenia) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [clientId, klientName, returnNumber, laczna_ilosc, 'zwrot', numer_zwrotu, data_zwrotu],
       function(err) {
         if (err) {
           console.error('❌ Database error creating return:', err);
@@ -4035,6 +4198,38 @@ app.post('/api/returns', (req, res) => {
         }
       }
     );
+    };
+
+    if (originalOrderId) {
+      db.get(
+        `SELECT o.client_id, COALESCE(c.nazwa, o.klient) AS klient_name
+         FROM orders o
+         LEFT JOIN clients c ON c.id = o.client_id
+         WHERE o.id = ?`,
+        [originalOrderId],
+        (orderErr, orderRow) => {
+          if (orderErr) {
+            console.error('❌ Database error fetching original order:', orderErr);
+            return res.status(500).json({ error: orderErr.message });
+          }
+          if (!orderRow?.client_id) {
+            return res.status(400).json({ error: 'Original order has no client_id' });
+          }
+          createReturnOrder(orderRow.client_id, orderRow.klient_name || klient);
+        }
+      );
+    } else {
+      resolveClientById(req.body.client_id, (clientLookupErr, clientResult) => {
+        if (clientLookupErr) {
+          console.error('❌ Database error finding client for return:', clientLookupErr);
+          return res.status(500).json({ error: clientLookupErr.message });
+        }
+        if (clientResult?.error) {
+          return res.status(clientResult.status || 400).json({ error: clientResult.error });
+        }
+        createReturnOrder(clientResult.clientId, clientResult.klientName);
+      });
+    }
   });
 });
 
@@ -4369,13 +4564,21 @@ app.post('/api/invoices', (req, res) => {
     return res.status(400).json({ error: 'suma_netto, suma_vat i total muszą być liczbami' });
   }
 
-  db.get('SELECT id, firma FROM clients WHERE nazwa = ?', [klient], (err, clientRow) => {
-    if (err) {
-      console.error('❌ Error looking up client:', err);
-      return res.status(500).json({ error: err.message });
+  resolveInvoiceClient({ order_id, klient }, (lookupErr, clientResult) => {
+    if (lookupErr) {
+      console.error('❌ Error resolving invoice client:', lookupErr);
+      return res.status(500).json({ error: lookupErr.message });
     }
-    const client_id = clientRow ? clientRow.id : null;
-    const klient_firma = clientRow ? (clientRow.firma || null) : null;
+    if (clientResult?.error) {
+      return res.status(clientResult.status || 400).json({ error: clientResult.error });
+    }
+
+    const client_id = clientResult.clientId;
+    const klient_nazwa = clientResult.klientName;
+    const klient_firma = clientResult.klientFirma;
+    console.log(
+      `🔍 Invoice client resolved${order_id ? ` from order ${order_id}` : ' by name'}: client_id=${client_id}, klient="${klient_nazwa}"`
+    );
 
     db.run(
       `INSERT INTO invoices (
@@ -4389,7 +4592,7 @@ app.post('/api/invoices', (req, res) => {
         numer_zamowienia || null,
         termin_platnosci || null,
         client_id,
-        klient,
+        klient_nazwa,
         klient_firma,
         totalNetto,
         totalVat,
@@ -4448,7 +4651,7 @@ app.post('/api/invoices', (req, res) => {
               pending -= 1;
               if (pending === 0) {
                 console.log(`✅ Invoice created: id=${invoiceId} ${numer_faktury}, ${products.length} positions`);
-                applyKomisDeductionsThenFinish(invoiceId);
+                applyKomisDeductionsThenFinish(invoiceId, client_id, klient_nazwa);
               }
             }
           );
@@ -4457,10 +4660,10 @@ app.post('/api/invoices', (req, res) => {
     );
   });
 
-  function applyKomisDeductionsThenFinish(invoiceId) {
+  function applyKomisDeductionsThenFinish(invoiceId, resolvedClientId, resolvedKlient) {
     const deductions = Array.isArray(komis_deductions) ? komis_deductions : [];
     if (deductions.length === 0) {
-      return createPrzesuniecieIfNeeded(invoiceId);
+      return createPrzesuniecieIfNeeded(invoiceId, resolvedClientId, resolvedKlient);
     }
 
     let pending = deductions.length;
@@ -4468,20 +4671,20 @@ app.post('/api/invoices', (req, res) => {
       const qty = Math.round(parseFloat(d.ilosc) || 0);
       if (qty <= 0 || !d.kod) {
         pending -= 1;
-        if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+        if (pending === 0) createPrzesuniecieIfNeeded(invoiceId, resolvedClientId, resolvedKlient);
         return;
       }
 
-      db.get('SELECT ilosc FROM komis WHERE klient = ? AND kod = ?', [klient, d.kod], (getErr, row) => {
+      db.get('SELECT ilosc FROM komis WHERE klient = ? AND kod = ?', [resolvedKlient, d.kod], (getErr, row) => {
         if (getErr) {
           console.error(`❌ Error reading komis for ${d.kod}:`, getErr);
           pending -= 1;
-          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId, resolvedClientId, resolvedKlient);
           return;
         }
         if (!row) {
           pending -= 1;
-          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId, resolvedClientId, resolvedKlient);
           return;
         }
 
@@ -4490,16 +4693,16 @@ app.post('/api/invoices', (req, res) => {
           if (dedErr) {
             console.error(`❌ Error ${action} komis for ${d.kod}:`, dedErr);
           } else {
-            console.log(`✅ Komis ${action}: klient=${klient}, kod=${d.kod}, ilosc=${qty}`);
+            console.log(`✅ Komis ${action}: klient=${resolvedKlient}, kod=${d.kod}, ilosc=${qty}`);
           }
           pending -= 1;
-          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId);
+          if (pending === 0) createPrzesuniecieIfNeeded(invoiceId, resolvedClientId, resolvedKlient);
         };
 
         if (qty >= currentIlosc) {
           db.run(
             'DELETE FROM komis WHERE klient = ? AND kod = ?',
-            [klient, d.kod],
+            [resolvedKlient, d.kod],
             (delErr) => finishDeduction(delErr, 'deleted')
           );
         } else {
@@ -4508,7 +4711,7 @@ app.post('/api/invoices', (req, res) => {
                ilosc = ilosc - ?,
                updated_at = CURRENT_TIMESTAMP
              WHERE klient = ? AND kod = ?`,
-            [qty, klient, d.kod],
+            [qty, resolvedKlient, d.kod],
             (updErr) => finishDeduction(updErr, 'deducted')
           );
         }
@@ -4516,7 +4719,7 @@ app.post('/api/invoices', (req, res) => {
     });
   }
 
-  function createPrzesuniecieIfNeeded(invoiceId) {
+  function createPrzesuniecieIfNeeded(invoiceId, resolvedClientId, resolvedKlient) {
     const items = Array.isArray(przesuniecie_products) ? przesuniecie_products : [];
     if (items.length === 0) {
       return res.json({ id: invoiceId, numer_faktury });
@@ -4545,8 +4748,8 @@ app.post('/api/invoices', (req, res) => {
         const laczna = items.reduce((s, p) => s + Math.round(parseFloat(p.ilosc) || 0), 0);
         const dataUtworzenia = (data_faktury || '').trim() ? `${data_faktury} 00:00:00` : null;
         db.run(
-          `INSERT INTO orders (klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, COALESCE(?, datetime('now')), ?, 'przesuniecie')`,
-          [klient, numer_ps, dataUtworzenia, laczna],
+          `INSERT INTO orders (client_id, klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, ?, COALESCE(?, datetime('now')), ?, 'przesuniecie')`,
+          [resolvedClientId, resolvedKlient, numer_ps, dataUtworzenia, laczna],
           function (runOrderErr) {
             if (runOrderErr) {
               console.error('❌ Error inserting Przesunięcie order:', runOrderErr);
@@ -4617,15 +4820,27 @@ app.put('/api/invoices/:id', (req, res) => {
     return res.status(400).json({ error: 'suma_netto, suma_vat i suma_brutto muszą być liczbami' });
   }
 
-  // Обновляем данные фактуры
-  db.get('SELECT id, firma FROM clients WHERE nazwa = ?', [klient], (err, clientRow) => {
-    if (err) {
-      console.error('❌ Error looking up client:', err);
-      return res.status(500).json({ error: err.message });
+  db.get('SELECT order_id FROM invoices WHERE id = ?', [id], (invoiceErr, invoiceRow) => {
+    if (invoiceErr) {
+      console.error('❌ Error fetching invoice for update:', invoiceErr);
+      return res.status(500).json({ error: invoiceErr.message });
     }
-    
-    const client_id = clientRow ? clientRow.id : null;
-    const klient_firma = clientRow ? (clientRow.firma || null) : null;
+    if (!invoiceRow) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    resolveInvoiceClient({ order_id: invoiceRow.order_id, klient }, (lookupErr, clientResult) => {
+      if (lookupErr) {
+        console.error('❌ Error resolving invoice client:', lookupErr);
+        return res.status(500).json({ error: lookupErr.message });
+      }
+      if (clientResult?.error) {
+        return res.status(clientResult.status || 400).json({ error: clientResult.error });
+      }
+
+      const client_id = clientResult.clientId;
+      const klient_nazwa = clientResult.klientName;
+      const klient_firma = clientResult.klientFirma;
 
     db.run(
       `UPDATE invoices 
@@ -4637,7 +4852,7 @@ app.put('/api/invoices/:id', (req, res) => {
         data_faktury,
         termin_platnosci || null,
         client_id,
-        klient,
+        klient_nazwa,
         klient_firma,
         totalNetto,
         totalVat,
@@ -4707,6 +4922,7 @@ app.put('/api/invoices/:id', (req, res) => {
         });
       }
     );
+    });
   });
 });
 
@@ -4787,9 +5003,15 @@ app.post('/api/przychod', (req, res) => {
   }
 
   // Создаем запись в таблице orders с типом 'przychod'
+  resolveClientIdByKlient('VEIS', (clientLookupErr, veisClientId) => {
+    if (clientLookupErr) {
+      console.error('❌ Database error finding VEIS client for przychód:', clientLookupErr);
+      return res.status(500).json({ error: clientLookupErr.message });
+    }
+
   db.run(
-    `INSERT INTO orders (klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
-    ['VEIS', numer_przychodu, dataUtworzenia, laczna_ilosc, 'przychod'],
+    `INSERT INTO orders (client_id, klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, ?, ?, ?, ?)`,
+    [veisClientId, 'VEIS', numer_przychodu, dataUtworzenia, laczna_ilosc, 'przychod'],
     function(err) {
       if (err) {
         console.error('❌ Database error creating przychód:', err);
@@ -4870,6 +5092,7 @@ app.post('/api/przychod', (req, res) => {
       }
     }
   );
+  });
 });
 
 // Endpoint для создания списаний товаров (добавляем как заказ с типом 'odpisanie')
@@ -4957,9 +5180,15 @@ app.post('/api/writeoffs', (req, res) => {
       console.log('✅ All products are available for write-off');
       
       // 2. Создаем запись в таблице orders с типом 'odpisanie'
+      resolveClientIdByKlient('VEIS', (clientLookupErr, veisClientId) => {
+        if (clientLookupErr) {
+          console.error('❌ Database error finding VEIS client for write-off:', clientLookupErr);
+          return res.status(500).json({ error: clientLookupErr.message });
+        }
+
       db.run(
-        `INSERT INTO orders (klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
-        ['VEIS', numer_odpisania, dataUtworzenia, laczna_ilosc, 'odpisanie'],
+        `INSERT INTO orders (client_id, klient, numer_zamowienia, data_utworzenia, laczna_ilosc, typ) VALUES (?, ?, ?, ?, ?, ?)`,
+        [veisClientId, 'VEIS', numer_odpisania, dataUtworzenia, laczna_ilosc, 'odpisanie'],
         function(err) {
           if (err) {
             console.error('❌ Database error creating write-off:', err);
@@ -5077,6 +5306,7 @@ app.post('/api/writeoffs', (req, res) => {
           }
         }
       );
+      });
     })
     .catch((failedProduct) => {
       console.log(`❌ Product availability check failed:`, failedProduct);
@@ -5092,13 +5322,44 @@ app.post('/api/writeoffs', (req, res) => {
 
 app.put('/api/orders/:id', (req, res) => {
   const { id } = req.params;
-  let { klient, numer_zamowienia, products } = req.body;
-  console.log(`📋 PUT /api/orders/${id} - Updating order:`, { klient, numer_zamowienia, productsCount: products?.length || 0 });
+  let { client_id, klient, numer_zamowienia, products } = req.body;
+  console.log(`📋 PUT /api/orders/${id} - Updating order:`, { client_id, klient, numer_zamowienia, productsCount: products?.length || 0 });
   
-  if (!klient || !numer_zamowienia) {
-    console.log('❌ Validation failed: klient and numer_zamowienia are required');
-    return res.status(400).json({ error: 'Client name and order number are required' });
+  if (!numer_zamowienia) {
+    console.log('❌ Validation failed: numer_zamowienia is required');
+    return res.status(400).json({ error: 'Order number is required' });
   }
+
+  const applyOrderUpdate = (clientId, klientName, orderType) => {
+    klient = klientName;
+    db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, oldOrderProducts) => {
+      if (err) {
+        console.error('❌ Database error fetching old order products:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      
+      console.log(`🔄 Found ${oldOrderProducts.length} old products to restore in working_sheets`);
+      console.log(`🔍 Old order products:`, JSON.stringify(oldOrderProducts, null, 2));
+      
+      const laczna_ilosc = products ? products.reduce((total, product) => total + (product.ilosc || 0), 0) : 0;
+      
+      db.run(
+        'UPDATE orders SET client_id = ?, klient = ?, numer_zamowienia = ?, laczna_ilosc = ? WHERE id = ?',
+        [clientId, klientName, numer_zamowienia, laczna_ilosc, id],
+        function(err) {
+          if (err) {
+            console.error('❌ Database error updating order:', err);
+            res.status(500).json({ error: err.message });
+            return;
+          }
+          
+          console.log(`✅ Order ${id} updated successfully`);
+          smartUpdateOrderProducts(oldOrderProducts, clientId, orderType);
+        }
+      );
+    });
+  };
 
   // Запрещаем редактирование заявки, если на её основе уже создана фактура
   db.get('SELECT id, numer_faktury FROM invoices WHERE order_id = ?', [id], (err, invoice) => {
@@ -5128,56 +5389,30 @@ app.put('/api/orders/:id', (req, res) => {
     
     // Для списаний и przychodów принудительно устанавливаем клиента VEIS
     if (orderRow.typ === 'odpisanie' || orderRow.typ === 'przychod') {
-      klient = 'VEIS';
-      console.log(`📝 ${orderRow.typ === 'przychod' ? 'Przychód' : 'Write-off'} detected, forcing client to VEIS`);
-    }
-    
-    const orderType = orderRow.typ; // Сохраняем тип заказа для дальнейшего использования
-    
-    // Получаем clientId по имени клиента для обработки резерваций
-    const clientName = klient.trim();
-    db.get('SELECT id FROM clients WHERE LOWER(TRIM(nazwa)) = LOWER(?)', [clientName], (err, clientRow) => {
-      if (err) {
-        console.error('❌ Database error fetching client:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-      
-      const clientId = clientRow ? clientRow.id : null;
-      console.log(`🔍 Client ID for "${clientName}": ${clientId || 'not found'}`);
-    
-      // Получаем старые продукты заказа для восстановления количества в working_sheets
-      db.all('SELECT * FROM order_products WHERE orderId = ?', [id], (err, oldOrderProducts) => {
-        if (err) {
-          console.error('❌ Database error fetching old order products:', err);
-          res.status(500).json({ error: err.message });
-          return;
+      resolveClientIdByKlient('VEIS', (veisErr, veisClientId) => {
+        if (veisErr) {
+          console.error('❌ Database error finding VEIS client:', veisErr);
+          return res.status(500).json({ error: veisErr.message });
         }
-        
-        console.log(`🔄 Found ${oldOrderProducts.length} old products to restore in working_sheets`);
-        console.log(`🔍 Old order products:`, JSON.stringify(oldOrderProducts, null, 2));
-        
-        // Вычисляем общее количество всех продуктов
-        const laczna_ilosc = products ? products.reduce((total, product) => total + (product.ilosc || 0), 0) : 0;
-        
-        // Обновляем основную информацию о заказе
-        db.run(
-          'UPDATE orders SET klient = ?, numer_zamowienia = ?, laczna_ilosc = ? WHERE id = ?',
-          [klient, numer_zamowienia, laczna_ilosc, id],
-          function(err) {
-            if (err) {
-              console.error('❌ Database error updating order:', err);
-              res.status(500).json({ error: err.message });
-              return;
-            }
-            
-            console.log(`✅ Order ${id} updated successfully`);
-
-            // Умное обновление продуктов заказа
-            smartUpdateOrderProducts(oldOrderProducts, clientId, orderType);
-          }
-        );
+        applyOrderUpdate(veisClientId, 'VEIS', orderRow.typ);
       });
+      return;
+    }
+
+    if (!client_id) {
+      console.log('❌ Validation failed: client_id is required');
+      return res.status(400).json({ error: 'Client ID is required' });
+    }
+
+    resolveClientById(client_id, (lookupErr, clientResult) => {
+      if (lookupErr) {
+        console.error('❌ Database error fetching client:', lookupErr);
+        return res.status(500).json({ error: lookupErr.message });
+      }
+      if (clientResult?.error) {
+        return res.status(clientResult.status || 400).json({ error: clientResult.error });
+      }
+      applyOrderUpdate(clientResult.clientId, clientResult.klientName, orderRow.typ);
     });
   });
 
@@ -6573,11 +6808,12 @@ app.get('/api/order-consumptions', (req, res) => {
     SELECT 
       oc.*,
       o.numer_zamowienia,
-      o.klient,
+      COALESCE(c.nazwa, o.klient) AS klient,
       p.nazwa as product_name,
       p.cena as batch_price
     FROM order_consumptions oc
     LEFT JOIN orders o ON oc.order_id = o.id
+    LEFT JOIN clients c ON c.id = o.client_id
     LEFT JOIN products p ON oc.batch_id = p.id
     ORDER BY oc.created_at DESC
   `;
@@ -6602,11 +6838,12 @@ app.get('/api/order-consumptions/search', (req, res) => {
     SELECT 
       oc.*,
       o.numer_zamowienia,
-      o.klient,
+      COALESCE(c.nazwa, o.klient) AS klient,
       p.nazwa as product_name,
       p.cena as batch_price
     FROM order_consumptions oc
     LEFT JOIN orders o ON oc.order_id = o.id
+    LEFT JOIN clients c ON c.id = o.client_id
     LEFT JOIN products p ON oc.batch_id = p.id
     WHERE 1=1
   `;
@@ -6642,7 +6879,9 @@ app.get('/api/orders-with-products', (req, res) => {
   console.log('📋 GET /api/orders-with-products - Fetching orders with products');
   
   // Сначала получаем все заказы
-  db.all('SELECT * FROM orders ORDER BY data_utworzenia DESC', (err, orders) => {
+  db.all(
+    `SELECT o.*, COALESCE(c.nazwa, o.klient) AS klient_resolved ${ORDER_WITH_CLIENT_JOIN} ORDER BY o.data_utworzenia DESC`,
+    (err, orders) => {
     if (err) {
       console.error('❌ Database error fetching orders:', err);
       res.status(500).json({ error: err.message });
@@ -6661,24 +6900,25 @@ app.get('/api/orders-with-products', (req, res) => {
     const result = [];
     
     orders.forEach((order) => {
-      db.all('SELECT * FROM order_products WHERE orderId = ?', [order.id], (err, products) => {
+      const resolvedOrder = withResolvedOrderKlient(order);
+      db.all('SELECT * FROM order_products WHERE orderId = ?', [resolvedOrder.id], (err, products) => {
         if (err) {
-          console.error(`❌ Database error fetching products for order ${order.id}:`, err);
+          console.error(`❌ Database error fetching products for order ${resolvedOrder.id}:`, err);
         } else {
-          console.log(`✅ Found ${products.length} products for order ${order.id}`);
+          console.log(`✅ Found ${products.length} products for order ${resolvedOrder.id}`);
         }
         
         // Проверяем, есть ли фактура по этому заказу
-        db.get('SELECT numer_faktury FROM invoices WHERE order_id = ? LIMIT 1', [order.id], (errInv, invRow) => {
-          if (errInv) console.error(`❌ Error fetching invoice for order ${order.id}:`, errInv);
+        db.get('SELECT numer_faktury FROM invoices WHERE order_id = ? LIMIT 1', [resolvedOrder.id], (errInv, invRow) => {
+          if (errInv) console.error(`❌ Error fetching invoice for order ${resolvedOrder.id}:`, errInv);
           const orderWithProducts = {
-            id: order.id,
-            klient: order.klient,
-            numer_zamowienia: order.numer_zamowienia,
-            data_utworzenia: order.data_utworzenia,
-            laczna_ilosc: order.laczna_ilosc,
-            typ: order.typ || 'zamowienie',
-            numer_zwrotu: order.numer_zwrotu || null,
+            id: resolvedOrder.id,
+            klient: resolvedOrder.klient,
+            numer_zamowienia: resolvedOrder.numer_zamowienia,
+            data_utworzenia: resolvedOrder.data_utworzenia,
+            laczna_ilosc: resolvedOrder.laczna_ilosc,
+            typ: resolvedOrder.typ || 'zamowienie',
+            numer_zwrotu: resolvedOrder.numer_zwrotu || null,
             numer_faktury: (errInv || !invRow) ? null : invRow.numer_faktury,
             products: products || []
           };
@@ -6890,19 +7130,26 @@ app.put('/api/clients/:id', (req, res) => {
     }
     
     // Обновляем клиента
-  db.run(
-    'UPDATE clients SET nazwa = ?, firma = ?, adres = ?, kontakt = ?, czas_dostawy = ? WHERE id = ?',
-    [nazwa, firma, adres, kontakt, czas_dostawy, id],
-    function(err) {
-      if (err) {
+    db.run(
+      'UPDATE clients SET nazwa = ?, firma = ?, adres = ?, kontakt = ?, czas_dostawy = ? WHERE id = ?',
+      [nazwa, firma, adres, kontakt, czas_dostawy, id],
+      function(err) {
+        if (err) {
           console.error('❌ Database error updating client:', err);
-        res.status(500).json({ error: err.message });
-        return;
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        cascadeClientRename(id, oldClient.nazwa, nazwa, (cascadeErr) => {
+          if (cascadeErr) {
+            res.status(500).json({ error: cascadeErr.message });
+            return;
+          }
+          console.log(`✅ Client ${id} updated successfully`);
+          res.json({ message: 'Client updated successfully' });
+        });
       }
-      console.log(`✅ Client ${id} updated successfully`);
-      res.json({ message: 'Client updated successfully' });
-    }
-  );
+    );
   });
 });
 
@@ -10071,9 +10318,11 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
   console.log('🚀 Production mode - test endpoints disabled');
 }
 
-// Favicon lives in server/assets (URL /server/assets/favicon.svg)
+// Favicon lives in server/assets
 const faviconSvgPath = path.join(__dirname, 'assets', 'favicon.svg');
-const sendFavicon = (req, res) => {
+const faviconIcoPath = path.join(__dirname, 'assets', 'favicon.ico');
+
+const sendFaviconSvg = (req, res) => {
   if (!fs.existsSync(faviconSvgPath)) {
     return res.status(404).end();
   }
@@ -10081,9 +10330,20 @@ const sendFavicon = (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.sendFile(faviconSvgPath);
 };
-app.get('/server/assets/favicon.svg', sendFavicon);
-app.get('/favicon.svg', sendFavicon);
-app.get('/favicon.ico', sendFavicon);
+
+const sendFaviconIco = (req, res) => {
+  if (!fs.existsSync(faviconIcoPath)) {
+    return res.status(404).end();
+  }
+  res.type('image/x-icon');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(faviconIcoPath);
+};
+
+app.get('/server/assets/favicon.svg', sendFaviconSvg);
+app.get('/server/assets/favicon.ico', sendFaviconIco);
+app.get('/favicon.svg', sendFaviconSvg);
+app.get('/favicon.ico', sendFaviconIco);
 
 // Serve static files from parent directory (frontend)
 // В dev режиме фронт работает на Vite (порт 3000), поэтому сервер на 3001 не должен обслуживать статику
@@ -10484,10 +10744,11 @@ db.run(`CREATE TABLE IF NOT EXISTS komis (
     console.error('❌ Error creating komis table:', err);
   } else {
     console.log('✅ Komis table ready');
+    ensureKomisClientIdColumn();
     // Инициализация: заполнить строки которых ещё нет из существующих заказов
     db.run(`
-      INSERT OR IGNORE INTO komis (klient, kod, nazwa, ilosc, updated_at)
-      SELECT o.klient, op.kod, op.nazwa, SUM(op.ilosc), CURRENT_TIMESTAMP
+      INSERT OR IGNORE INTO komis (client_id, klient, kod, nazwa, ilosc, updated_at)
+      SELECT o.client_id, o.klient, op.kod, op.nazwa, SUM(op.ilosc), CURRENT_TIMESTAMP
       FROM orders o
       JOIN order_products op ON o.id = op.orderId
       WHERE op.typ = 'komis'
@@ -10502,27 +10763,35 @@ db.run(`CREATE TABLE IF NOT EXISTS komis (
 // Вспомогательная функция синхронизации komis (fire-and-forget)
 function syncKomisProduct(klient, kod, nazwa, deltaIlosc) {
   if (!klient || !kod) return;
-  if (deltaIlosc > 0) {
-    db.run(
-      `INSERT INTO komis (klient, kod, nazwa, ilosc, updated_at)
-       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-       ON CONFLICT(klient, kod) DO UPDATE SET
-         ilosc = ilosc + excluded.ilosc,
-         nazwa = excluded.nazwa,
-         updated_at = CURRENT_TIMESTAMP`,
-      [klient, kod, nazwa || '', deltaIlosc],
-      (e) => { if (e) console.error('❌ syncKomisProduct(+):', e.message); }
-    );
-  } else if (deltaIlosc < 0) {
-    db.run(
-      `UPDATE komis SET
-         ilosc = MAX(0, ilosc + ?),
-         updated_at = CURRENT_TIMESTAMP
-       WHERE klient = ? AND kod = ?`,
-      [deltaIlosc, klient, kod],
-      (e) => { if (e) console.error('❌ syncKomisProduct(-):', e.message); }
-    );
-  }
+
+  resolveClientIdByKlient(klient, (lookupErr, clientId) => {
+    if (lookupErr) {
+      console.error('❌ syncKomisProduct client lookup:', lookupErr.message);
+    }
+
+    if (deltaIlosc > 0) {
+      db.run(
+        `INSERT INTO komis (client_id, klient, kod, nazwa, ilosc, updated_at)
+         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(klient, kod) DO UPDATE SET
+           ilosc = ilosc + excluded.ilosc,
+           nazwa = excluded.nazwa,
+           client_id = COALESCE(excluded.client_id, komis.client_id),
+           updated_at = CURRENT_TIMESTAMP`,
+        [clientId, klient, kod, nazwa || '', deltaIlosc],
+        (e) => { if (e) console.error('❌ syncKomisProduct(+):', e.message); }
+      );
+    } else if (deltaIlosc < 0) {
+      db.run(
+        `UPDATE komis SET
+           ilosc = MAX(0, ilosc + ?),
+           updated_at = CURRENT_TIMESTAMP
+         WHERE klient = ? AND kod = ?`,
+        [deltaIlosc, klient, kod],
+        (e) => { if (e) console.error('❌ syncKomisProduct(-):', e.message); }
+      );
+    }
+  });
 }
 
 // GET /api/komis/summary — сводка из таблицы komis
@@ -10585,14 +10854,21 @@ app.put('/api/komis', (req, res) => {
     return res.status(400).json({ error: 'klient, kod i ilosc są wymagane' });
   }
 
+  resolveClientIdByKlient(klient, (lookupErr, clientId) => {
+    if (lookupErr) {
+      console.error('❌ Error looking up client for komis:', lookupErr);
+      return res.status(500).json({ error: lookupErr.message });
+    }
+
   db.run(
-    `INSERT INTO komis (klient, kod, nazwa, ilosc, updated_at)
-     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `INSERT INTO komis (client_id, klient, kod, nazwa, ilosc, updated_at)
+     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
      ON CONFLICT(klient, kod) DO UPDATE SET
        ilosc = excluded.ilosc,
        nazwa = excluded.nazwa,
+       client_id = COALESCE(excluded.client_id, komis.client_id),
        updated_at = CURRENT_TIMESTAMP`,
-    [klient, kod, nazwa || '', ilosc],
+    [clientId, klient, kod, nazwa || '', ilosc],
     function(err) {
       if (err) {
         console.error('❌ Error updating komis:', err);
@@ -10602,6 +10878,7 @@ app.put('/api/komis', (req, res) => {
       res.json({ success: true });
     }
   );
+  });
 });
 
 // DELETE /api/komis — сбросить корректировку (вернуть к расчётному значению)
@@ -10619,12 +10896,6 @@ app.delete('/api/komis', (req, res) => {
   });
 });
 
-// ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
-app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, '../index.html');
-  console.log('Serving SPA fallback:', indexPath);
-  res.sendFile(indexPath);
-});
 
 // Serve static files from parent directory (frontend)
 app.use(express.static(path.join(__dirname, '..')));
