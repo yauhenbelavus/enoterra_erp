@@ -258,6 +258,30 @@ function parseClientId(value) {
   return id;
 }
 
+function resolveOrderClientFromBody({ client_id, clientName, klient }, callback) {
+  const parsed = parseClientId(client_id);
+  if (parsed) {
+    return resolveClientById(parsed, callback);
+  }
+
+  const name = String(clientName || klient || '').trim();
+  if (!name) {
+    return callback(null, { error: 'client_id is required', status: 400 });
+  }
+
+  db.get(
+    'SELECT id, nazwa FROM clients WHERE LOWER(TRIM(nazwa)) = LOWER(TRIM(?)) LIMIT 1',
+    [name],
+    (err, row) => {
+      if (err) return callback(err);
+      if (!row) {
+        return callback(null, { error: 'Client not found', status: 404 });
+      }
+      callback(null, { clientId: row.id, klientName: row.nazwa });
+    }
+  );
+}
+
 function resolveClientById(clientId, callback) {
   const id = parseClientId(clientId);
   if (!id) {
@@ -3176,12 +3200,12 @@ app.get('/api/orders/:id', (req, res) => {
 });
 
 app.post('/api/orders', (req, res) => {
-  const { client_id, order_number, products } = req.body;
-  console.log('📋 POST /api/orders - Creating new order:', { client_id, order_number, productsCount: products?.length || 0 });
+  const { client_id, clientName, order_number, products } = req.body;
+  console.log('📋 POST /api/orders - Creating new order:', { client_id, clientName, order_number, productsCount: products?.length || 0 });
   
-  if (!client_id || !order_number) {
-    console.log('❌ Validation failed: client_id and order_number are required');
-    return res.status(400).json({ error: 'Client ID and order number are required' });
+  if (!order_number) {
+    console.log('❌ Validation failed: order_number is required');
+    return res.status(400).json({ error: 'Order number is required' });
   }
   
   if (!products || !Array.isArray(products) || products.length === 0) {
@@ -3192,7 +3216,7 @@ app.post('/api/orders', (req, res) => {
   // Вычисляем общее количество всех продуктов
   const laczna_ilosc = products.reduce((total, product) => total + (product.ilosc || 0), 0);
   
-  resolveClientById(client_id, (lookupErr, clientResult) => {
+  resolveOrderClientFromBody({ client_id, clientName }, (lookupErr, clientResult) => {
     if (lookupErr) {
       console.error('❌ Database error finding client:', lookupErr);
       return res.status(500).json({ error: lookupErr.message });
@@ -5404,12 +5428,12 @@ app.put('/api/orders/:id', (req, res) => {
       return;
     }
 
-    if (!client_id) {
+    if (!client_id && !klient) {
       console.log('❌ Validation failed: client_id is required');
       return res.status(400).json({ error: 'Client ID is required' });
     }
 
-    resolveClientById(client_id, (lookupErr, clientResult) => {
+    resolveOrderClientFromBody({ client_id, klient }, (lookupErr, clientResult) => {
       if (lookupErr) {
         console.error('❌ Database error fetching client:', lookupErr);
         return res.status(500).json({ error: lookupErr.message });
