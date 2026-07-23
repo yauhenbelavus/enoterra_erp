@@ -6942,6 +6942,7 @@ app.get('/api/orders-with-products', (req, res) => {
           if (errInv) console.error(`❌ Error fetching invoice for order ${resolvedOrder.id}:`, errInv);
           const orderWithProducts = {
             id: resolvedOrder.id,
+            client_id: resolvedOrder.client_id || null,
             klient: resolvedOrder.klient,
             numer_zamowienia: resolvedOrder.numer_zamowienia,
             data_utworzenia: resolvedOrder.data_utworzenia,
