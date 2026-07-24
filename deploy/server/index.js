@@ -93,6 +93,86 @@ function normalizeReceiptProducts(products) {
   }));
 }
 
+// Dokumenty, które blokują zmianę/usunięcie kodu w przyjęciu:
+// zamówienie, rozchód (odpisanie), zwrot, przychód.
+const KOD_CHANGE_BLOCKING_ORDER_TYPES = ['zamowienie', 'odpisanie', 'zwrot', 'przychod'];
+
+/**
+ * Sprawdza dokumenty blokujące usunięcie/zmianę kodu w przyjęciu.
+ * A) były wydania z partii tej przyjemki (order_consumptions → products.receipt_id)
+ * B) dokument utworzony w dniu przyjęcia lub później i zawiera ten kod
+ */
+function findDocumentsBlockingKodChange(receiptId, removedKod, receiptDate) {
+  return new Promise((resolve, reject) => {
+    const types = KOD_CHANGE_BLOCKING_ORDER_TYPES;
+    const typePlaceholders = types.map(() => '?').join(',');
+    const receiptDateOnly = String(receiptDate || '').substring(0, 10);
+
+    const sql = `
+      SELECT
+        o.id AS order_id,
+        o.numer_zamowienia,
+        o.typ,
+        COALESCE(
+          (SELECT op.nazwa FROM order_products op
+           WHERE op.orderId = o.id AND op.kod = ? LIMIT 1),
+          ''
+        ) AS nazwa,
+        COALESCE(
+          (SELECT SUM(op.ilosc) FROM order_products op
+           WHERE op.orderId = o.id AND op.kod = ?),
+          (SELECT SUM(oc.quantity) FROM order_consumptions oc
+           WHERE oc.order_id = o.id AND oc.product_kod = ?),
+          0
+        ) AS ilosc
+      FROM orders o
+      WHERE o.typ IN (${typePlaceholders})
+        AND (
+          (
+            date(o.data_utworzenia) >= date(?)
+            AND EXISTS (
+              SELECT 1 FROM order_products op
+              WHERE op.orderId = o.id AND op.kod = ?
+            )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM order_consumptions oc
+            JOIN products p ON p.id = oc.batch_id
+            WHERE oc.order_id = o.id
+              AND oc.product_kod = ?
+              AND p.receipt_id = ?
+          )
+        )
+      ORDER BY o.data_utworzenia ASC, o.id ASC
+    `;
+
+    const params = [
+      removedKod,
+      removedKod,
+      removedKod,
+      ...types,
+      receiptDateOnly,
+      removedKod,
+      removedKod,
+      receiptId,
+    ];
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(
+        (rows || []).map((r) => ({
+          id: r.order_id,
+          numer_zamowienia: r.numer_zamowienia,
+          typ: r.typ,
+          nazwa: r.nazwa || '',
+          ilosc: Number(r.ilosc) || 0,
+        }))
+      );
+    });
+  });
+}
+
 // ===== Мультивалютность фактур =====
 // Код валюты фактуры в верхнем регистре, по умолчанию EUR.
 function normalizeWalutaFaktury(waluta) {
@@ -7871,6 +7951,56 @@ app.put('/api/product-receipts/:id', upload.fields([
       console.log(`💰 Kurs EUR/PLN: old=${oldKursEurPln}, new=${newKursEurPln}, changed=${kursChanged}`);
       console.log(`🚚 Koszt dostawy: old=${oldKosztDostawy}, new=${newKosztDostawy}, changed=${kosztDostawyChanged}`);
       console.log('📋 Products array received from frontend:', JSON.stringify(products, null, 2));
+
+      // Blokada zmiany/usunięcia kodu, jeśli istnieją dokumenty z tym kodem
+      // (zamówienie / rozchód / zwrot / przychód) — A: wydania z partii przyjęcia, B: dokumenty po dacie przyjęcia
+      {
+        const oldKodSet = new Set(
+          oldProducts.map((p) => normalizeProductKod(p.kod)).filter(Boolean)
+        );
+        const newKodSet = new Set(
+          products.map((p) => normalizeProductKod(p.kod)).filter(Boolean)
+        );
+        const removedKods = [...oldKodSet].filter((k) => !newKodSet.has(k));
+        const addedKods = [...newKodSet].filter((k) => !oldKodSet.has(k));
+        const singleRenameNewKod =
+          removedKods.length === 1 && addedKods.length === 1 ? addedKods[0] : null;
+
+        if (removedKods.length > 0) {
+          const conflicts = [];
+          for (const oldKod of removedKods) {
+            const documents = await findDocumentsBlockingKodChange(
+              id,
+              oldKod,
+              oldReceipt.dataPrzyjecia
+            );
+            if (documents.length > 0) {
+              const oldItem = oldProducts.find(
+                (p) => normalizeProductKod(p.kod) === oldKod
+              );
+              conflicts.push({
+                oldKod,
+                newKod: singleRenameNewKod,
+                nazwa: oldItem?.nazwa || documents[0]?.nazwa || '',
+                documents,
+              });
+            }
+          }
+
+          if (conflicts.length > 0) {
+            console.log(`⛔ Kod change blocked for receipt ${id}:`, JSON.stringify(conflicts));
+            throw Object.assign(new Error('Kod change blocked by existing documents'), {
+              statusCode: 409,
+              payload: {
+                error: 'kod_change_blocked',
+                message:
+                  'Nie można zmienić lub usunąć kodu: istnieją dokumenty (zamówienia / rozchody / zwroty / przychody) z tym kodem',
+                conflicts,
+              },
+            });
+          }
+        }
+      }
       
       // Сохраняем существующие файлы, если новые не загружены
       const finalProductInvoice = productInvoice || oldReceipt.productInvoice;
@@ -8730,9 +8860,13 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       if (!res.headersSent) {
         const statusCode = error.statusCode || 500;
-        res.status(statusCode).json({
-          error: statusCode === 404 ? 'Product receipt not found' : 'Failed to update working sheets: ' + error.message
-        });
+        if (statusCode === 409 && error.payload) {
+          res.status(409).json(error.payload);
+        } else {
+          res.status(statusCode).json({
+            error: statusCode === 404 ? 'Product receipt not found' : 'Failed to update working sheets: ' + error.message
+          });
+        }
       }
     }
   };
