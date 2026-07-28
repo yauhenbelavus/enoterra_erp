@@ -9457,7 +9457,7 @@ app.get('/api/working-sheets/search', (req, res) => {
 
   const wsPromise = new Promise((resolve, reject) => {
     db.all(
-      `SELECT w.kod, MAX(w.nazwa) as nazwa, SUM(w.ilosc) as ilosc_main
+      `SELECT w.kod, MAX(w.nazwa) as nazwa, MAX(w.sprzedawca) as sprzedawca, SUM(w.ilosc) as ilosc_main
        FROM working_sheets w
        WHERE (w.kod LIKE ? OR w.nazwa LIKE ? OR w.kod_kreskowy LIKE ?)
        GROUP BY w.kod`,
@@ -9511,6 +9511,7 @@ app.get('/api/working-sheets/search', (req, res) => {
       const wsCodes = new Set(wsRows.map(r => r.kod));
       // Карта: kod → ilosc_main (для проверки остатка при отображении семплов)
       const wsMainByKod = new Map(wsRows.map(r => [r.kod, r.ilosc_main || 0]));
+      const sprzedawcaByKod = new Map(wsRows.map(r => [r.kod, r.sprzedawca || '']));
 
       // Сортировка: точное/префиксное совпадение по kod в начале, далее по nazwa
       const matchPriority = (kod, nazwa) => {
@@ -9533,6 +9534,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         const row = {
           kod: ws.kod,
           nazwa: ws.nazwa,
+          sprzedawca: ws.sprzedawca || '',
           ilosc: mainOnly,
           ilosc_reserved: reserved.ilosc_reserved,
           status: null,
@@ -9569,6 +9571,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         const row = {
           kod: sp.kod,
           nazwa: `${sp.nazwa} (samples)`,
+          sprzedawca: sprzedawcaByKod.get(sp.kod) || '',
           ilosc: effectiveSampleQty,
           ilosc_reserved: reserved.ilosc_reserved,
           status: 'samples',
