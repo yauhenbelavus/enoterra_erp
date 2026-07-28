@@ -463,6 +463,45 @@ function attachReservationAmountsToProducts(orderId, products, callback) {
   });
 }
 
+function enrichSearchRowsWithOrderReservation(orderId, rows, callback) {
+  if (!orderId || !rows || rows.length === 0) {
+    callback(null, rows || []);
+    return;
+  }
+
+  db.all(`
+    SELECT rp.product_kod as kod, SUM(rof.quantity) as ilosc_from_reservation
+    FROM reservation_order_fulfillments rof
+    INNER JOIN reservation_products rp ON rof.reservation_product_id = rp.id
+    WHERE rof.order_id = ?
+    GROUP BY rp.product_kod
+  `, [orderId], (err, fulfillmentRows) => {
+    if (err) {
+      callback(err);
+      return;
+    }
+
+    const fromReservationByKod = new Map(
+      (fulfillmentRows || []).map((row) => [row.kod, row.ilosc_from_reservation || 0])
+    );
+
+    callback(null, rows.map((row) => {
+      const fromReservation = fromReservationByKod.get(row.kod) || 0;
+      const freeClientReservation = row.ilosc_client_reserved || 0;
+      const enriched = {
+        ...row,
+        ilosc_from_reservation: fromReservation
+      };
+
+      if (row.ilosc_client_reserved !== undefined) {
+        enriched.ilosc_client_reserved_effective = freeClientReservation + fromReservation;
+      }
+
+      return enriched;
+    }));
+  });
+}
+
 function cascadeClientRename(clientId, oldNazwa, newNazwa, callback) {
   const trimmedNew = String(newNazwa || '').trim();
   const trimmedOld = String(oldNazwa || '').trim();
@@ -9318,8 +9357,8 @@ app.get('/api/working-sheets/search-simple', (req, res) => {
 
 // Search working sheets
 app.get('/api/working-sheets/search', (req, res) => {
-  const { query, client_id, include_zero_stock, for_reservation } = req.query;
-  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}${include_zero_stock ? ', include_zero_stock: true' : ''}${for_reservation ? ', for_reservation: true' : ''}`);
+  const { query, client_id, include_zero_stock, for_reservation, order_id } = req.query;
+  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}${order_id ? `, order_id: ${order_id}` : ''}${include_zero_stock ? ', include_zero_stock: true' : ''}${for_reservation ? ', for_reservation: true' : ''}`);
   
   if (query === undefined || query === null) {
     console.log('❌ Validation failed: query parameter is required');
@@ -9554,8 +9593,15 @@ app.get('/api/working-sheets/search', (req, res) => {
       // Удаляем служебное поле и применяем лимит
       const finalRows = result.slice(0, limitRows).map(({ _sort_priority, ...rest }) => rest);
 
-      console.log(`✅ Found ${finalRows.length} products matching "${query}"`);
-      res.json(finalRows);
+      enrichSearchRowsWithOrderReservation(order_id, finalRows, (enrichErr, enrichedRows) => {
+        if (enrichErr) {
+          console.error('❌ Error enriching search rows with order reservation:', enrichErr);
+          return res.status(500).json({ error: enrichErr.message });
+        }
+
+        console.log(`✅ Found ${enrichedRows.length} products matching "${query}"`);
+        res.json(enrichedRows);
+      });
     })
     .catch(err => {
       console.error('❌ Database error:', err);
