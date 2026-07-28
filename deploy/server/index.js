@@ -437,6 +437,32 @@ function withResolvedOrderKlient(orderRow) {
   return { ...rest, klient: klient_resolved };
 }
 
+function attachReservationAmountsToProducts(orderId, products, callback) {
+  if (!products || products.length === 0) {
+    callback(null, products || []);
+    return;
+  }
+
+  db.all(`
+    SELECT rp.product_kod as kod, SUM(rof.quantity) as ilosc_from_reservation
+    FROM reservation_order_fulfillments rof
+    INNER JOIN reservation_products rp ON rof.reservation_product_id = rp.id
+    WHERE rof.order_id = ?
+    GROUP BY rp.product_kod
+  `, [orderId], (err, rows) => {
+    if (err) {
+      callback(err);
+      return;
+    }
+
+    const byKod = new Map((rows || []).map((row) => [row.kod, row.ilosc_from_reservation || 0]));
+    callback(null, products.map((product) => ({
+      ...product,
+      ilosc_from_reservation: byKod.get(product.kod) || 0
+    })));
+  });
+}
+
 function cascadeClientRename(clientId, oldNazwa, newNazwa, callback) {
   const trimmedNew = String(newNazwa || '').trim();
   const trimmedOld = String(oldNazwa || '').trim();
@@ -2345,17 +2371,33 @@ app.get('/api/orders', (req, res) => {
         if (err) {
           console.error(`❌ Error fetching products for order ${resolvedOrder.id}:`, err);
           console.error(`❌ Error details:`, err.message);
-          // Добавляем заказ без продуктов в случае ошибки
           ordersWithProducts.push({
             ...resolvedOrder,
             products: []
           });
         } else {
-          console.log(`✅ Found ${productRows?.length || 0} products for order ${resolvedOrder.id}`);
-          ordersWithProducts.push({
-            ...resolvedOrder,
-            products: productRows || []
+          attachReservationAmountsToProducts(resolvedOrder.id, productRows || [], (attachErr, productsWithReservation) => {
+            if (attachErr) {
+              console.error(`❌ Error fetching reservation fulfillments for order ${resolvedOrder.id}:`, attachErr);
+              ordersWithProducts.push({
+                ...resolvedOrder,
+                products: productRows || []
+              });
+            } else {
+              console.log(`✅ Found ${productsWithReservation.length} products for order ${resolvedOrder.id}`);
+              ordersWithProducts.push({
+                ...resolvedOrder,
+                products: productsWithReservation
+              });
+            }
+
+            ordersProcessed++;
+            if (ordersProcessed === orderRows.length) {
+              console.log(`✅ All ${ordersProcessed} orders processed with products`);
+              res.json(ordersWithProducts);
+            }
           });
+          return;
         }
         
         ordersProcessed++;
@@ -2420,17 +2462,26 @@ app.get('/api/orders/search', (req, res) => {
             products: []
           });
         } else {
-          ordersWithProducts.push({
-            id: resolvedOrder.id,
-            numer_zamowienia: resolvedOrder.numer_zamowienia,
-            klient: resolvedOrder.klient,
-            client_id: resolvedOrder.client_id || null,
-            klient_firma: '',
-            klient_adres: '',
-            klient_kontakt: '',
-            data_utworzenia: resolvedOrder.data_utworzenia,
-            products: productRows || []
+          attachReservationAmountsToProducts(resolvedOrder.id, productRows || [], (attachErr, productsWithReservation) => {
+            ordersWithProducts.push({
+              id: resolvedOrder.id,
+              numer_zamowienia: resolvedOrder.numer_zamowienia,
+              klient: resolvedOrder.klient,
+              client_id: resolvedOrder.client_id || null,
+              klient_firma: '',
+              klient_adres: '',
+              klient_kontakt: '',
+              data_utworzenia: resolvedOrder.data_utworzenia,
+              products: attachErr ? (productRows || []) : productsWithReservation
+            });
+
+            ordersProcessed++;
+            if (ordersProcessed === orderRows.length) {
+              console.log(`✅ All ${ordersProcessed} orders processed with products`);
+              res.json(ordersWithProducts);
+            }
           });
+          return;
         }
         
         ordersProcessed++;
@@ -3266,15 +3317,22 @@ app.get('/api/orders/:id', (req, res) => {
         return;
       }
       
-      console.log(`✅ Found ${productRows.length} products for order ${id}`);
-      
-      // Возвращаем заказ с продуктами
-      const orderWithProducts = {
-        ...resolvedOrder,
-        products: productRows || []
-      };
-      
-      res.json(orderWithProducts);
+      attachReservationAmountsToProducts(id, productRows || [], (attachErr, productsWithReservation) => {
+        if (attachErr) {
+          console.error('❌ Database error fetching reservation fulfillments:', attachErr);
+          res.status(500).json({ error: attachErr.message });
+          return;
+        }
+
+        console.log(`✅ Found ${productsWithReservation.length} products for order ${id}`);
+        
+        const orderWithProducts = {
+          ...resolvedOrder,
+          products: productsWithReservation
+        };
+        
+        res.json(orderWithProducts);
+      });
     });
   });
 });
