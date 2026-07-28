@@ -3384,20 +3384,18 @@ app.post('/api/orders', (req, res) => {
               }
               
               const availableInReservation = reservationRow ? (reservationRow.available_in_reservation || 0) : 0;
+              const maxOrderable = availableOnWarehouse + availableInReservation;
               
-              // Если у клиента есть резервация, проверяем её
               if (availableInReservation > 0) {
-                // Проверяем, не превышает ли СУММАРНОЕ запрашиваемое количество резервацию
-                if (totalIlosc > availableInReservation) {
-                  // ОТКЛОНЯЕМ заказ, если суммарное количество превышает резервацию
-                  console.log(`❌ Order exceeds client reservation for ${kod}: requested ${totalIlosc}, available in reservation ${availableInReservation}`);
-                  reject({ 
-                    kod, 
-                    nazwa, 
-                    ilosc: totalIlosc, 
-                    available: availableInReservation, 
+                if (totalIlosc > maxOrderable) {
+                  console.log(`❌ Insufficient stock for ${kod}: requested ${totalIlosc}, max available ${maxOrderable} (reservation: ${availableInReservation}, warehouse: ${availableOnWarehouse})`);
+                  reject({
+                    kod,
+                    nazwa,
+                    ilosc: totalIlosc,
+                    available: maxOrderable,
                     error: 'Insufficient quantity',
-                    message: `Przekroczona ilość w rezerwacji dla produktu "${nazwa}" (kod: ${kod}). Zamówiono: ${totalIlosc}, dostępne w rezerwacji: ${availableInReservation}`
+                    message: `Insufficient quantity for product ${kod}. Available: ${maxOrderable}, Requested: ${totalIlosc}`
                   });
                   return;
                 }
@@ -3449,6 +3447,13 @@ app.post('/api/orders', (req, res) => {
           const orderId = this.lastID;
           console.log(`✅ Order created with ID: ${orderId}`);
           
+          const remainingReservationByKod = new Map();
+          results.forEach((r) => {
+            if (r.fromReservation) {
+              remainingReservationByKod.set(r.kod, r.available || 0);
+            }
+          });
+          
           // Создаем записи для каждого продукта и обновляем working_sheets
           let productsCreated = 0;
           let productsFailed = 0;
@@ -3457,22 +3462,17 @@ app.post('/api/orders', (req, res) => {
           products.forEach((product, index) => {
             const { kod, nazwa, ilosc, typ, kod_kreskowy } = product;
             
-            // Находим информацию о доступности из результатов проверки
             const availabilityInfo = results.find(r => r.kod === kod);
             const fromReservation = availabilityInfo?.fromReservation || false;
             const availableOnWarehouse = availabilityInfo?.availableOnWarehouse || 0;
             
-            // Определяем, сколько брать из резервации и сколько со склада
-            // В ПЕРВУЮ ОЧЕРЕДЬ берем из резервации, затем со склада
             let quantityFromWarehouse = 0;
             let quantityFromReservation = 0;
             
             if (fromReservation) {
-              // Товар из резервации клиента
-              // Сначала берем из резервации: минимум из доступного в резервации и запрашиваемого
-              const availableInReservation = availabilityInfo?.available || 0;
-              quantityFromReservation = Math.min(availableInReservation, ilosc);
-              // Остальное со склада
+              const remainingInReservation = remainingReservationByKod.get(kod) || 0;
+              quantityFromReservation = Math.min(remainingInReservation, ilosc);
+              remainingReservationByKod.set(kod, remainingInReservation - quantityFromReservation);
               quantityFromWarehouse = ilosc - quantityFromReservation;
             } else {
               // Товар полностью со склада
@@ -5688,7 +5688,7 @@ app.put('/api/orders/:id', (req, res) => {
               });
             } else {
               // Для обычных заказов и rozchodu - используем стандартную логику
-              handleQuantityDecrease(kod, Math.abs(quantityDiff), orderProductId, nazwa, () => {
+              handleQuantityDecrease(kod, Math.abs(quantityDiff), orderProductId, nazwa, newQuantity, () => {
                 operationCompleted();
               });
             }
@@ -5843,11 +5843,9 @@ app.put('/api/orders/:id', (req, res) => {
     }
     
     // Новая функция для уменьшения количества
-    function handleQuantityDecrease(kod, quantity, orderProductId, nazwa, callback) {
-      console.log(`🔄 handleQuantityDecrease: ${kod} -${quantity} (nazwa: ${nazwa})`);
-
-      // Вызываем существующую функцию processQuantityDecrease, прокидывая nazwa
-      processQuantityDecrease(kod, quantity, callback, nazwa);
+    function handleQuantityDecrease(kod, quantity, orderProductId, nazwa, newQuantityInOrder, callback) {
+      console.log(`🔄 handleQuantityDecrease: ${kod} -${quantity} (new qty: ${newQuantityInOrder}, nazwa: ${nazwa})`);
+      processQuantityDecrease(kod, quantity, callback, nazwa, newQuantityInOrder);
     }
 
     // Специальные функции для przychod (обратная логика)
@@ -5980,7 +5978,7 @@ app.put('/api/orders/:id', (req, res) => {
                   } else {
                     processQuantityDecrease(kod, Number(ilosc), () => {
                       operationCompleted();
-                    }, oldProduct.nazwa);
+                    }, oldProduct.nazwa, 0);
                   }
                 }
               }
@@ -6013,7 +6011,7 @@ app.put('/api/orders/:id', (req, res) => {
               } else {
                 processQuantityDecrease(kod, Number(ilosc), () => {
                   operationCompleted();
-                }, oldProduct.nazwa);
+                }, oldProduct.nazwa, 0);
               }
             }
       }
@@ -6117,7 +6115,7 @@ app.put('/api/orders/:id', (req, res) => {
                   processQuantityDecrease(kod, oldTypeQuantity, () => {
                     productsProcessed++;
                     checkCompletion();
-                  }, sameCodeProduct.nazwa);
+                  }, sameCodeProduct.nazwa, 0);
                 } else {
                   // Замена типа с новым количеством
                   const quantityDiff = newTypeQuantity - oldTypeQuantity;
@@ -6134,7 +6132,7 @@ app.put('/api/orders/:id', (req, res) => {
                     processQuantityDecrease(kod, Math.abs(quantityDiff), () => {
                       productsProcessed++;
                       checkCompletion();
-                    }, nazwa);
+                    }, nazwa, newTypeQuantity);
                   } else {
                     // Количество одинаковое - только замена типа
                     console.log(`🔄 Type changed, quantity unchanged`);
@@ -6165,7 +6163,7 @@ app.put('/api/orders/:id', (req, res) => {
                 processQuantityDecrease(kod, restoreQuantity, () => {
                   productsProcessed++;
                   checkCompletion();
-                }, nazwa);
+                }, nazwa, newQuantity);
               }
             } else {
               // Количество не изменилось - проверяем синхронизацию с working_sheets
@@ -6435,12 +6433,11 @@ app.put('/api/orders/:id', (req, res) => {
   }
   
   // Функция для обработки уменьшения количества продукта
-  function processQuantityDecrease(productKod, quantityDiff, callback, nazwa = null) {
+  function processQuantityDecrease(productKod, quantityDiff, callback, nazwa = null, newQuantityInOrder = 0) {
     const isSamples = (nazwa || '').includes('(samples)');
-    console.log(`🔄 Processing quantity decrease for ${productKod}: -${quantityDiff} (nazwa: ${nazwa}, samples: ${isSamples})`);
+    console.log(`🔄 Processing quantity decrease for ${productKod}: -${quantityDiff} (new qty in order: ${newQuantityInOrder}, samples: ${isSamples})`);
     console.log(`🔍 processQuantityDecrease: starting restoration process...`);
     
-    // Сначала восстанавливаем ilosc_wydane в резервациях, если они были использованы
     db.all(`
       SELECT rof.*, rp.product_kod, rp.reservation_id
       FROM reservation_order_fulfillments rof
@@ -6450,21 +6447,23 @@ app.put('/api/orders/:id', (req, res) => {
     `, [id, productKod], (err, fulfillments) => {
       if (err) {
         console.error(`❌ Error fetching fulfillments for ${productKod}:`, err);
-        // Продолжаем даже при ошибке
         proceedWithConsumptions();
         return;
       }
       
-      if (fulfillments.length === 0) {
-        console.log(`💡 No reservation fulfillments found for ${productKod}`);
+      const R_old = (fulfillments || []).reduce((sum, f) => sum + f.quantity, 0);
+      const R_new = Math.min(newQuantityInOrder, R_old);
+      const R_restore = R_old - R_new;
+      
+      console.log(`📊 Reservation-first decrease: R_old=${R_old}, R_new=${R_new}, R_restore=${R_restore}, warehouse_restore=${quantityDiff}`);
+      
+      if (R_restore <= 0 || fulfillments.length === 0) {
+        console.log(`💡 Keeping ${R_new} szt. from reservation in order for ${productKod}`);
         proceedWithConsumptions();
         return;
       }
       
-      console.log(`📊 Found ${fulfillments.length} reservation fulfillments for ${productKod}`);
-      
-      // Восстанавливаем ilosc_wydane в резервациях (LIFO - сначала последние выдачи)
-      let remainingToRestoreFromReservation = quantityDiff;
+      let remainingToRestoreFromReservation = R_restore;
       let fulfillmentsProcessed = 0;
       
       fulfillments.forEach((fulfillment) => {
@@ -6479,9 +6478,6 @@ app.put('/api/orders/:id', (req, res) => {
         const toRestore = Math.min(remainingToRestoreFromReservation, fulfillment.quantity);
         const newFulfillmentQuantity = fulfillment.quantity - toRestore;
         
-        console.log(`🔍 Restoring reservation fulfillment ${fulfillment.id}: quantity=${fulfillment.quantity}, to_restore=${toRestore}, new_quantity=${newFulfillmentQuantity}`);
-        
-        // Уменьшаем ilosc_wydane в reservation_products
         db.run(
           'UPDATE reservation_products SET ilosc_wydane = COALESCE(ilosc_wydane, 0) - ? WHERE id = ?',
           [toRestore, fulfillment.reservation_product_id],
@@ -6490,12 +6486,9 @@ app.put('/api/orders/:id', (req, res) => {
               console.error(`❌ Error restoring ilosc_wydane for reservation_product ${fulfillment.reservation_product_id}:`, updateErr);
             } else {
               console.log(`✅ Restored ilosc_wydane for reservation_product ${fulfillment.reservation_product_id}: -${toRestore}`);
-              
-              // Проверяем и обновляем статус резервации (может вернуться на 'aktywna')
               checkAndUpdateReservationStatus(fulfillment.reservation_id);
             }
             
-            // Удаляем или обновляем запись fulfillment
             if (newFulfillmentQuantity <= 0) {
               db.run(
                 'DELETE FROM reservation_order_fulfillments WHERE id = ?',
@@ -6503,8 +6496,6 @@ app.put('/api/orders/:id', (req, res) => {
                 function(deleteErr) {
                   if (deleteErr) {
                     console.error(`❌ Error deleting fulfillment ${fulfillment.id}:`, deleteErr);
-                  } else {
-                    console.log(`🗑️ Deleted fulfillment ${fulfillment.id}`);
                   }
                   fulfillmentsProcessed++;
                   if (fulfillmentsProcessed === fulfillments.length) {
@@ -6519,8 +6510,6 @@ app.put('/api/orders/:id', (req, res) => {
                 function(updateFulfillErr) {
                   if (updateFulfillErr) {
                     console.error(`❌ Error updating fulfillment ${fulfillment.id}:`, updateFulfillErr);
-                  } else {
-                    console.log(`✅ Updated fulfillment ${fulfillment.id}: ${fulfillment.quantity} → ${newFulfillmentQuantity}`);
                   }
                   fulfillmentsProcessed++;
                   if (fulfillmentsProcessed === fulfillments.length) {
@@ -9397,12 +9386,13 @@ app.get('/api/working-sheets/search', (req, res) => {
     db.all(
       `SELECT rp.product_kod as kod,
               SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved,
-              SUM(CASE WHEN r.client_id = ? THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0) ELSE 0 END) as ilosc_client_reserved
+              SUM(CASE WHEN r.client_id = ? THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0) ELSE 0 END) as ilosc_client_reserved,
+              SUM(CASE WHEN r.client_id = ? THEN rp.ilosc ELSE 0 END) as ilosc_client_reserved_total
        FROM reservation_products rp
        INNER JOIN reservations r ON rp.reservation_id = r.id
        WHERE r.status = 'aktywna'
        GROUP BY rp.product_kod`,
-      [client_id || 0],
+      [client_id || 0, client_id || 0],
       (err, rows) => err ? reject(err) : resolve(rows || [])
     );
   });
@@ -9416,7 +9406,8 @@ app.get('/api/working-sheets/search', (req, res) => {
       const reservationsByKod = new Map();
       reservationsRows.forEach(r => reservationsByKod.set(r.kod, {
         ilosc_reserved: r.ilosc_reserved || 0,
-        ilosc_client_reserved: r.ilosc_client_reserved || 0
+        ilosc_client_reserved: r.ilosc_client_reserved || 0,
+        ilosc_client_reserved_total: r.ilosc_client_reserved_total || 0
       }));
 
       // Все коды товаров, которые есть в working_sheets
@@ -9441,7 +9432,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         const mainOnly = (ws.ilosc_main || 0) - samplesQty;
         if (!includeZero && mainOnly <= 0) return;
 
-        const reserved = reservationsByKod.get(ws.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0 };
+        const reserved = reservationsByKod.get(ws.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0, ilosc_client_reserved_total: 0 };
         const row = {
           kod: ws.kod,
           nazwa: ws.nazwa,
@@ -9450,7 +9441,10 @@ app.get('/api/working-sheets/search', (req, res) => {
           status: null,
           _sort_priority: matchPriority(ws.kod, ws.nazwa)
         };
-        if (client_id) row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+        if (client_id) {
+          row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+          row.ilosc_client_reserved_total = reserved.ilosc_client_reserved_total;
+        }
         result.push(row);
       });
 
@@ -9474,7 +9468,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         // Показываем семплы, если есть основная строка по kod ИЛИ если они подходят под поиск
         if (!wsCodes.has(sp.kod) && !matchesSearch) return;
 
-        const reserved = reservationsByKod.get(sp.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0 };
+        const reserved = reservationsByKod.get(sp.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0, ilosc_client_reserved_total: 0 };
         const row = {
           kod: sp.kod,
           nazwa: `${sp.nazwa} (samples)`,
@@ -9483,7 +9477,10 @@ app.get('/api/working-sheets/search', (req, res) => {
           status: 'samples',
           _sort_priority: matchPriority(sp.kod, sp.nazwa)
         };
-        if (client_id) row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+        if (client_id) {
+          row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+          row.ilosc_client_reserved_total = reserved.ilosc_client_reserved_total;
+        }
         result.push(row);
       });
 
