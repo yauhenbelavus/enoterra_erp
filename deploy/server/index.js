@@ -3384,19 +3384,20 @@ app.post('/api/orders', (req, res) => {
               }
               
               const availableInReservation = reservationRow ? (reservationRow.available_in_reservation || 0) : 0;
-              const maxOrderable = availableOnWarehouse + availableInReservation;
               
-              // Если у клиента есть резервация — сначала берём из неё, остаток со склада
+              // Если у клиента есть резервация, проверяем её
               if (availableInReservation > 0) {
-                if (totalIlosc > maxOrderable) {
-                  console.log(`❌ Insufficient stock for ${kod}: requested ${totalIlosc}, max available ${maxOrderable} (reservation: ${availableInReservation}, warehouse: ${availableOnWarehouse})`);
-                  reject({
-                    kod,
-                    nazwa,
-                    ilosc: totalIlosc,
-                    available: maxOrderable,
+                // Проверяем, не превышает ли СУММАРНОЕ запрашиваемое количество резервацию
+                if (totalIlosc > availableInReservation) {
+                  // ОТКЛОНЯЕМ заказ, если суммарное количество превышает резервацию
+                  console.log(`❌ Order exceeds client reservation for ${kod}: requested ${totalIlosc}, available in reservation ${availableInReservation}`);
+                  reject({ 
+                    kod, 
+                    nazwa, 
+                    ilosc: totalIlosc, 
+                    available: availableInReservation, 
                     error: 'Insufficient quantity',
-                    message: `Insufficient quantity for product ${kod}. Available: ${maxOrderable}, Requested: ${totalIlosc}`
+                    message: `Przekroczona ilość w rezerwacji dla produktu "${nazwa}" (kod: ${kod}). Zamówiono: ${totalIlosc}, dostępne w rezerwacji: ${availableInReservation}`
                   });
                   return;
                 }
@@ -3448,14 +3449,6 @@ app.post('/api/orders', (req, res) => {
           const orderId = this.lastID;
           console.log(`✅ Order created with ID: ${orderId}`);
           
-          // Остаток резервации по kod (для нескольких строк с одним товаром)
-          const remainingReservationByKod = new Map();
-          results.forEach((r) => {
-            if (r.fromReservation) {
-              remainingReservationByKod.set(r.kod, r.available || 0);
-            }
-          });
-          
           // Создаем записи для каждого продукта и обновляем working_sheets
           let productsCreated = 0;
           let productsFailed = 0;
@@ -3475,9 +3468,11 @@ app.post('/api/orders', (req, res) => {
             let quantityFromReservation = 0;
             
             if (fromReservation) {
-              const remainingInReservation = remainingReservationByKod.get(kod) || 0;
-              quantityFromReservation = Math.min(remainingInReservation, ilosc);
-              remainingReservationByKod.set(kod, remainingInReservation - quantityFromReservation);
+              // Товар из резервации клиента
+              // Сначала берем из резервации: минимум из доступного в резервации и запрашиваемого
+              const availableInReservation = availabilityInfo?.available || 0;
+              quantityFromReservation = Math.min(availableInReservation, ilosc);
+              // Остальное со склада
               quantityFromWarehouse = ilosc - quantityFromReservation;
             } else {
               // Товар полностью со склада
@@ -9402,13 +9397,12 @@ app.get('/api/working-sheets/search', (req, res) => {
     db.all(
       `SELECT rp.product_kod as kod,
               SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved,
-              SUM(CASE WHEN r.client_id = ? THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0) ELSE 0 END) as ilosc_client_reserved,
-              SUM(CASE WHEN r.client_id = ? THEN rp.ilosc ELSE 0 END) as ilosc_client_reserved_total
+              SUM(CASE WHEN r.client_id = ? THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0) ELSE 0 END) as ilosc_client_reserved
        FROM reservation_products rp
        INNER JOIN reservations r ON rp.reservation_id = r.id
        WHERE r.status = 'aktywna'
        GROUP BY rp.product_kod`,
-      [client_id || 0, client_id || 0],
+      [client_id || 0],
       (err, rows) => err ? reject(err) : resolve(rows || [])
     );
   });
@@ -9422,8 +9416,7 @@ app.get('/api/working-sheets/search', (req, res) => {
       const reservationsByKod = new Map();
       reservationsRows.forEach(r => reservationsByKod.set(r.kod, {
         ilosc_reserved: r.ilosc_reserved || 0,
-        ilosc_client_reserved: r.ilosc_client_reserved || 0,
-        ilosc_client_reserved_total: r.ilosc_client_reserved_total || 0
+        ilosc_client_reserved: r.ilosc_client_reserved || 0
       }));
 
       // Все коды товаров, которые есть в working_sheets
@@ -9448,7 +9441,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         const mainOnly = (ws.ilosc_main || 0) - samplesQty;
         if (!includeZero && mainOnly <= 0) return;
 
-        const reserved = reservationsByKod.get(ws.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0, ilosc_client_reserved_total: 0 };
+        const reserved = reservationsByKod.get(ws.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0 };
         const row = {
           kod: ws.kod,
           nazwa: ws.nazwa,
@@ -9457,10 +9450,7 @@ app.get('/api/working-sheets/search', (req, res) => {
           status: null,
           _sort_priority: matchPriority(ws.kod, ws.nazwa)
         };
-        if (client_id) {
-          row.ilosc_client_reserved = reserved.ilosc_client_reserved;
-          row.ilosc_client_reserved_total = reserved.ilosc_client_reserved_total;
-        }
+        if (client_id) row.ilosc_client_reserved = reserved.ilosc_client_reserved;
         result.push(row);
       });
 
@@ -9484,7 +9474,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         // Показываем семплы, если есть основная строка по kod ИЛИ если они подходят под поиск
         if (!wsCodes.has(sp.kod) && !matchesSearch) return;
 
-        const reserved = reservationsByKod.get(sp.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0, ilosc_client_reserved_total: 0 };
+        const reserved = reservationsByKod.get(sp.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0 };
         const row = {
           kod: sp.kod,
           nazwa: `${sp.nazwa} (samples)`,
@@ -9493,10 +9483,7 @@ app.get('/api/working-sheets/search', (req, res) => {
           status: 'samples',
           _sort_priority: matchPriority(sp.kod, sp.nazwa)
         };
-        if (client_id) {
-          row.ilosc_client_reserved = reserved.ilosc_client_reserved;
-          row.ilosc_client_reserved_total = reserved.ilosc_client_reserved_total;
-        }
+        if (client_id) row.ilosc_client_reserved = reserved.ilosc_client_reserved;
         result.push(row);
       });
 
