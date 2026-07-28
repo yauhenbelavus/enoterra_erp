@@ -488,9 +488,11 @@ function enrichSearchRowsWithOrderReservation(orderId, rows, callback) {
     callback(null, rows.map((row) => {
       const fromReservation = fromReservationByKod.get(row.kod) || 0;
       const freeClientReservation = row.ilosc_client_reserved || 0;
+      const globalReserved = row.ilosc_reserved || 0;
       const enriched = {
         ...row,
-        ilosc_from_reservation: fromReservation
+        ilosc_from_reservation: fromReservation,
+        ilosc_reserved_effective: globalReserved + fromReservation
       };
 
       if (row.ilosc_client_reserved !== undefined) {
