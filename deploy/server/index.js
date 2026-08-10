@@ -188,6 +188,33 @@ function parseKursValue(value, fallback = 1) {
   return Math.round(n * 100) / 100;
 }
 
+function isKursValueFilled(value) {
+  if (value == null) return false;
+  const raw = String(value).trim();
+  if (!raw || raw === ',' || raw === '.') return false;
+  const n = parseFloat(raw.replace(',', '.'));
+  return Number.isFinite(n) && n > 0;
+}
+
+// Обязательные курсы: EUR → PLN/EUR; PLN → PLN/EUR; DKK → DKK/EUR + PLN/EUR.
+function validateRequiredKurs(waluta, aktualnyKurs, kursFaktury) {
+  const normalized = normalizeWalutaFaktury(waluta);
+  if (normalized === 'EUR') {
+    if (!isKursValueFilled(aktualnyKurs)) return 'Wprowadź kurs PLN/EUR';
+    return null;
+  }
+  if (normalized === 'PLN') {
+    if (!isKursValueFilled(kursFaktury)) return 'Wprowadź kurs PLN/EUR';
+    return null;
+  }
+  if (normalized === 'DKK') {
+    if (!isKursValueFilled(kursFaktury)) return 'Wprowadź kurs DKK/EUR';
+    if (!isKursValueFilled(aktualnyKurs)) return 'Wprowadź kurs PLN/EUR';
+    return null;
+  }
+  return 'Wybierz walutę faktury';
+}
+
 // Пересчёт цены одной позиции из валюты фактуры в EUR.
 //  - EUR: цена как есть
 //  - PLN / DKK: делим на kursFaktury (курс EUR→валюта фактуры)
@@ -1013,6 +1040,30 @@ db.serialize(() => {
           }
         } else {
           console.log('✅ Column kurs_faktury added to product_receipts');
+        }
+      });
+
+      db.run(`ALTER TABLE product_receipts ADD COLUMN suma_vat REAL DEFAULT 0`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column suma_vat already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding suma_vat column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column suma_vat added to product_receipts');
+        }
+      });
+
+      db.run(`ALTER TABLE product_receipts ADD COLUMN suma_brutto REAL DEFAULT 0`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column suma_brutto already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding suma_brutto column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column suma_brutto added to product_receipts');
         }
       });
     }
@@ -7435,7 +7486,7 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, sumaVat, sumaBrutto;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -7452,6 +7503,8 @@ app.post('/api/product-receipts', upload.fields([
       rabat = jsonData.rabat;
       walutaFaktury = jsonData.walutaFaktury;
       kursFaktury = jsonData.kursFaktury;
+      sumaVat = jsonData.suma_vat ?? jsonData.sumaVat;
+      sumaBrutto = jsonData.suma_brutto ?? jsonData.sumaBrutto;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed:', { productInvoice, transportInvoice });
@@ -7471,12 +7524,19 @@ app.post('/api/product-receipts', upload.fields([
     rabat = req.body.rabat;
     walutaFaktury = req.body.walutaFaktury;
     kursFaktury = req.body.kursFaktury;
+    sumaVat = req.body.suma_vat ?? req.body.sumaVat;
+    sumaBrutto = req.body.suma_brutto ?? req.body.sumaBrutto;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
 
   // Нормализуем валюту фактуры и курс EUR→валюта (для EUR/PLN курс фактуры не нужен).
   walutaFaktury = normalizeWalutaFaktury(walutaFaktury);
+  const kursValidationError = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+  if (kursValidationError) {
+    console.log(`❌ Validation failed: ${kursValidationError}`);
+    return res.status(400).json({ error: kursValidationError });
+  }
   kursFaktury = parseKursValue(kursFaktury);
   
   // Парсим kosztDostawy с заменой запятой на точку
@@ -7556,9 +7616,11 @@ app.post('/api/product-receipts', upload.fields([
 
     try {
       const receiptId = await new Promise((resolve, reject) => {
+        const sumaVatParsed = parseFloat(String(sumaVat ?? '0').replace(',', '.')) || 0;
+        const sumaBruttoParsed = parseFloat(String(sumaBrutto ?? '0').replace(',', '.')) || 0;
         db.run(
-          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, suma_vat, suma_brutto, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, sumaVatParsed, sumaBruttoParsed, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -7913,7 +7975,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoiceFile: req.files?.transportInvoice
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, sumaVat, sumaBrutto;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -7930,6 +7992,8 @@ app.put('/api/product-receipts/:id', upload.fields([
       rabat = jsonData.rabat;
       walutaFaktury = jsonData.walutaFaktury;
       kursFaktury = jsonData.kursFaktury;
+      sumaVat = jsonData.suma_vat ?? jsonData.sumaVat;
+      sumaBrutto = jsonData.suma_brutto ?? jsonData.sumaBrutto;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed (PUT):', { productInvoice, transportInvoice });
@@ -7949,6 +8013,8 @@ app.put('/api/product-receipts/:id', upload.fields([
     rabat = req.body.rabat;
     walutaFaktury = req.body.walutaFaktury;
     kursFaktury = req.body.kursFaktury;
+    sumaVat = req.body.suma_vat ?? req.body.sumaVat;
+    sumaBrutto = req.body.suma_brutto ?? req.body.sumaBrutto;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
@@ -7956,6 +8022,11 @@ app.put('/api/product-receipts/:id', upload.fields([
   // Парсим kosztDostawy с заменой запятой на точку
   kosztDostawy = parseFloat(String(kosztDostawy || '0').replace(',', '.')) || 0;
   walutaFaktury = normalizeWalutaFaktury(walutaFaktury);
+  const kursValidationErrorPut = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+  if (kursValidationErrorPut) {
+    console.log(`❌ Validation failed (PUT): ${kursValidationErrorPut}`);
+    return res.status(400).json({ error: kursValidationErrorPut });
+  }
   kursFaktury = parseKursValue(kursFaktury);
   
   console.log(`📦 PUT /api/product-receipts/${id} - Updating product receipt:`, { 
@@ -8106,11 +8177,13 @@ app.put('/api/product-receipts/:id', upload.fields([
       // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
       const podatekAkcyzowyParsed = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
       const rabatParsed = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
+      const sumaVatParsed = parseFloat(String(sumaVat ?? '0').replace(',', '.')) || 0;
+      const sumaBruttoParsed = parseFloat(String(sumaBrutto ?? '0').replace(',', '.')) || 0;
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
+          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, suma_vat = ?, suma_brutto = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, sumaVatParsed, sumaBruttoParsed, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
           function(err) {
             if (err) reject(err);
             else resolve();

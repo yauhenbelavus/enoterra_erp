@@ -30,6 +30,9 @@ Return ONLY valid JSON (no markdown, no explanation):
 {
   "sprzedawca": "supplier company name",
   "waluta": "EUR",
+  "suma_netto": "1150,50",
+  "suma_vat": "264,62",
+  "suma_brutto": "1415,12",
   "products": [
     {"nazwa": "Ambijus Act Naturally 750ml", "ilosc": 30, "cena_katalogowa": "38,35", "rabat_procent": 0, "wartosc_netto": "1150,50", "vat_procent": 23, "wartosc_brutto": "1415,12"}
   ]
@@ -47,6 +50,18 @@ How to detect:
 - Default to EUR only if no currency indicator is found
 
 Prices in products must stay in the detected invoice currency — do NOT convert to EUR.
+
+=== INVOICE TOTALS (document footer) ===
+Extract the DOCUMENT TOTALS from the invoice summary (not a sum you invent):
+- suma_netto: total net amount (PL: "Razem netto" / "Wartość netto", IT: "Totale imponibile", EN: "Net total")
+- suma_vat: total VAT amount (PL: "Kwota VAT" / "VAT", IT: "Totale IVA", EN: "VAT total")
+- suma_brutto: total gross / payable (PL: "Razem brutto" / "Do zapłaty", IT: "Totale documento", EN: "Gross total")
+
+Rules:
+- Prefer printed footer totals over summing line items yourself
+- If a total is missing on the invoice, return "0"
+- Values as strings with comma decimals, same currency as waluta
+- For PLN invoices these totals are especially important (unit line cena stays NETTO, totals show VAT + brutto)
 
 === SPRZEDAWCA (supplier) ===
 Extract the company that ISSUED the invoice (seller), NOT the buyer.
@@ -118,12 +133,27 @@ NEVER confuse unit price with line total:
 
 NEVER apply discount or VAT yourself — extract raw column values only.
 
-Server calculation (same logic for discount and VAT):
+=== PLN INVOICES (zł) — CRITICAL ===
+When waluta is PLN, server final unit price uses NET only:
+1. Prefer unit "Cena netto" (cena_katalogowa) — after discount if rabat_procent > 0
+2. If Cena netto is missing/0 → server uses wartosc_netto / ilosc
+3. NEVER use Cena brutto, Wartość brutto, or VAT markup for PLN
+4. Still extract wartosc_brutto / vat_procent if present on the PDF (raw), but they are ignored for PLN cena
+
+PLN example:
+  Cena netto 31,70 | Ilość 30 | Wartość netto 951,00 | VAT 5% | Wartość brutto 998,55
+  → server cena = 31,70 (NOT 998,55/30, NOT 31,70×1,05)
+
+PLN without unit price:
+  Ilość 30 | Wartość netto 951,00 (no Cena netto column)
+  → server cena = 951,00 / 30 = 31,70
+
+=== EUR / DKK — server calculation ===
 - Net after discount: wartosc_netto / ilosc  (or cena_katalogowa × (1 − rabat/100) if no line net)
 - Brutto with VAT:    wartosc_brutto / ilosc  (when Wartość brutto column is present)
 - Fallback VAT only if wartosc_brutto missing: net × (1 + vat_procent/100)
 
-SC row 1 example:
+EUR/DKK SC row example:
   wartosc_brutto 1415,12 / ilosc 30 → server cena = 47,17 (do NOT multiply 38,35 × 1,23 yourself)
 
 === MULTI-LINE ROWS (critical — read before parsing) ===
@@ -137,10 +167,11 @@ Algorithm — when you see a line starting with "N." (Lp. number, e.g. "8."):
 4. Treat the joined block as ONE product row — extract nazwa, ilosc, prices, vat from it.
 5. Do NOT output separate products for the continuation lines.
 
-Example (Polish invoice):
+Example (Polish invoice — NET only for PLN cena):
   Line 1: "8. Domaine D'Grottes L'."
   Line 2: "Antidote  30 szt.  31,70  951,00  ..."
 → ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena_katalogowa": "31,70", "rabat_procent": 0, "wartosc_netto": "951,00", "vat_procent": 5, "wartosc_brutto": "998,55"}
+→ server PLN cena = 31,70 (from Cena netto; ignore brutto 998,55)
 
 Bortolomiol example — extract RAW columns, do NOT calculate discount:
   PREZZO UNIT. 5,400 | % SCONTO 30 | QUANTITA' 624 | IMPORTO NETTO 2.358,72
@@ -367,7 +398,7 @@ function resolveUnitNet(product, ilosc) {
 }
 
 /** Final unit price + line value — all math on server */
-function computeProductPricing(product) {
+function computeProductPricing(product, waluta = 'EUR') {
   const ilosc = resolveQuantity(product);
   if (ilosc <= 0) {
     return { cena: '0', cenaPelna: 0, wartosc: '0' };
@@ -376,6 +407,34 @@ function computeProductPricing(product) {
   const lineBrutto = parseNumber(product.wartosc_brutto);
   const lineNet = parseNumber(product.wartosc_netto);
   const catalog = parseNumber(product.cena_katalogowa ?? product.cena_netto ?? product.cena);
+
+  // PLN: только cena netto; brutto / VAT не используем.
+  // 1) Cena netto (с учётом rabatu, если есть)
+  // 2) иначе wartosc_netto / ilosc
+  if (waluta === 'PLN') {
+    if (catalog === 0 && lineNet === 0) {
+      return { cena: '0', cenaPelna: 0, wartosc: '0' };
+    }
+
+    let cenaPelna = 0;
+    if (catalog > 0) {
+      const discount = inferDiscountPercent(product, ilosc);
+      cenaPelna = unitNetFromCatalog(product, discount);
+    } else if (lineNet > 0) {
+      cenaPelna = lineNet / ilosc;
+    }
+
+    if (cenaPelna === 0) {
+      return { cena: '0', cenaPelna: 0, wartosc: '0' };
+    }
+
+    const lineValue = lineNet > 0 ? lineNet : cenaPelna * ilosc;
+    return {
+      cena: formatPrice(cenaPelna),
+      cenaPelna,
+      wartosc: formatPrice(lineValue),
+    };
+  }
 
   if (catalog === 0 && lineNet === 0 && lineBrutto === 0) {
     return { cena: '0', cenaPelna: 0, wartosc: '0' };
@@ -416,9 +475,9 @@ function normalizeWaluta(waluta) {
   return 'EUR';
 }
 
-function mapProduct(product) {
+function mapProduct(product, waluta = 'EUR') {
   const ilosc = resolveQuantity(product);
-  const pricing = computeProductPricing(product);
+  const pricing = computeProductPricing(product, waluta);
   return {
     nazwa: String(product.nazwa || '').trim().slice(0, 200),
     ilosc: String(ilosc),
@@ -449,12 +508,17 @@ async function parsePurchaseInvoicePdf(buffer) {
       return { success: false, error: 'Nie udało się rozpoznać danych faktury.', data: null };
     }
 
+    const waluta = normalizeWaluta(parsed.waluta);
+
     return {
       success: true,
       data: {
         sprzedawca: cleanSupplierName(parsed.sprzedawca),
-        waluta: normalizeWaluta(parsed.waluta),
-        products: (parsed.products || []).map(mapProduct),
+        waluta,
+        suma_netto: formatPrice(parseNumber(parsed.suma_netto)),
+        suma_vat: formatPrice(parseNumber(parsed.suma_vat)),
+        suma_brutto: formatPrice(parseNumber(parsed.suma_brutto)),
+        products: (parsed.products || []).map((product) => mapProduct(product, waluta)),
       },
     };
   } catch (err) {
