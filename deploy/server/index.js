@@ -1042,30 +1042,6 @@ db.serialize(() => {
           console.log('✅ Column kurs_faktury added to product_receipts');
         }
       });
-
-      db.run(`ALTER TABLE product_receipts ADD COLUMN suma_vat REAL DEFAULT 0`, (alterErr) => {
-        if (alterErr) {
-          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
-            console.log('✅ Column suma_vat already exists in product_receipts');
-          } else {
-            console.error('❌ Error adding suma_vat column:', alterErr);
-          }
-        } else {
-          console.log('✅ Column suma_vat added to product_receipts');
-        }
-      });
-
-      db.run(`ALTER TABLE product_receipts ADD COLUMN suma_brutto REAL DEFAULT 0`, (alterErr) => {
-        if (alterErr) {
-          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
-            console.log('✅ Column suma_brutto already exists in product_receipts');
-          } else {
-            console.error('❌ Error adding suma_brutto column:', alterErr);
-          }
-        } else {
-          console.log('✅ Column suma_brutto added to product_receipts');
-        }
-      });
     }
   });
 
@@ -7486,7 +7462,7 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, sumaVat, sumaBrutto;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -7503,8 +7479,6 @@ app.post('/api/product-receipts', upload.fields([
       rabat = jsonData.rabat;
       walutaFaktury = jsonData.walutaFaktury;
       kursFaktury = jsonData.kursFaktury;
-      sumaVat = jsonData.suma_vat ?? jsonData.sumaVat;
-      sumaBrutto = jsonData.suma_brutto ?? jsonData.sumaBrutto;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed:', { productInvoice, transportInvoice });
@@ -7524,8 +7498,6 @@ app.post('/api/product-receipts', upload.fields([
     rabat = req.body.rabat;
     walutaFaktury = req.body.walutaFaktury;
     kursFaktury = req.body.kursFaktury;
-    sumaVat = req.body.suma_vat ?? req.body.sumaVat;
-    sumaBrutto = req.body.suma_brutto ?? req.body.sumaBrutto;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
@@ -7573,14 +7545,12 @@ app.post('/api/product-receipts', upload.fields([
   
   console.log(`🔄 Processing ${productsInternal.length} products for receipt (waluta: ${walutaFaktury})`);
 
-  // wartosc в валюте фактуры
+  // wartosc = Razem z formularza (brutto). Netto z pozycji tylko do logów / fallback.
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
   const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
-  const calculatedWartosc = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
-  if (Math.abs((parseFloat(wartosc) || 0) - calculatedWartosc) > 0.01) {
-    console.warn(`⚠️ POST /api/product-receipts: wartosc mismatch — client sent ${wartosc}, server calculated ${calculatedWartosc}. Using server-calculated value.`);
-  }
-  wartosc = calculatedWartosc;
+  const calculatedNetto = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
+  const clientRazem = parseFloat(String(wartosc ?? '0').replace(',', '.')) || 0;
+  wartosc = clientRazem > 0 ? clientRazem : calculatedNetto;
   
   // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
   // Исключаем aksesoria из расчета транспорта
@@ -7592,7 +7562,7 @@ app.post('/api/product-receipts', upload.fields([
   
   console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kursEurPln} kurs EUR/PLN = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
   console.log(`📊 Podatek akcyzowy input: ${podatekAkcyzowy}`);
-  console.log(`📊 Kurs EUR/PLN: ${kursEurPln}, kurs faktury: ${kursFaktury}`);
+  console.log(`📊 Kurs EUR/PLN: ${kursEurPln}, kurs faktury: ${kursFaktury}, netto: ${calculatedNetto}, Razem(wartosc): ${wartosc}`);
   
   // Вся операция (создание документа приёмки + партии products + working_sheets)
   // выполняется в ОДНОЙ транзакции, чтобы при любом сбое откатывался и сам
@@ -7616,11 +7586,9 @@ app.post('/api/product-receipts', upload.fields([
 
     try {
       const receiptId = await new Promise((resolve, reject) => {
-        const sumaVatParsed = parseFloat(String(sumaVat ?? '0').replace(',', '.')) || 0;
-        const sumaBruttoParsed = parseFloat(String(sumaBrutto ?? '0').replace(',', '.')) || 0;
         db.run(
-          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, suma_vat, suma_brutto, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, sumaVatParsed, sumaBruttoParsed, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -7975,7 +7943,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoiceFile: req.files?.transportInvoice
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, sumaVat, sumaBrutto;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -7992,8 +7960,6 @@ app.put('/api/product-receipts/:id', upload.fields([
       rabat = jsonData.rabat;
       walutaFaktury = jsonData.walutaFaktury;
       kursFaktury = jsonData.kursFaktury;
-      sumaVat = jsonData.suma_vat ?? jsonData.sumaVat;
-      sumaBrutto = jsonData.suma_brutto ?? jsonData.sumaBrutto;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed (PUT):', { productInvoice, transportInvoice });
@@ -8013,8 +7979,6 @@ app.put('/api/product-receipts/:id', upload.fields([
     rabat = req.body.rabat;
     walutaFaktury = req.body.walutaFaktury;
     kursFaktury = req.body.kursFaktury;
-    sumaVat = req.body.suma_vat ?? req.body.sumaVat;
-    sumaBrutto = req.body.suma_brutto ?? req.body.sumaBrutto;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
@@ -8052,15 +8016,12 @@ app.put('/api/product-receipts/:id', upload.fields([
   const { productsForJson, productsInternal } = prepareReceiptProducts(products, walutaFaktury, aktualnyKursForDb, kursFaktury);
   products = productsInternal;
 
-  // Пересчитываем wartosc на сервере из фактического состава products + rabat,
-  // а не доверяем значению, посчитанному на клиенте — см. аналогичную логику в POST.
+  // wartosc = Razem z formularza (brutto). Netto z pozycji tylko do logów / fallback.
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
   const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
-  const calculatedWartosc = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
-  if (Math.abs((parseFloat(wartosc) || 0) - calculatedWartosc) > 0.01) {
-    console.warn(`⚠️ PUT /api/product-receipts/${id}: wartosc mismatch — client sent ${wartosc}, server calculated ${calculatedWartosc}. Using server-calculated value.`);
-  }
-  wartosc = calculatedWartosc;
+  const calculatedNetto = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
+  const clientRazem = parseFloat(String(wartosc ?? '0').replace(',', '.')) || 0;
+  wartosc = clientRazem > 0 ? clientRazem : calculatedNetto;
   
   // Вся операция обновления приёмки (документ product_receipts + партии products +
   // working_sheets) выполняется в ОДНОЙ транзакции, чтобы документ и склад не могли
@@ -8177,13 +8138,11 @@ app.put('/api/product-receipts/:id', upload.fields([
       // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
       const podatekAkcyzowyParsed = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
       const rabatParsed = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
-      const sumaVatParsed = parseFloat(String(sumaVat ?? '0').replace(',', '.')) || 0;
-      const sumaBruttoParsed = parseFloat(String(sumaBrutto ?? '0').replace(',', '.')) || 0;
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, suma_vat = ?, suma_brutto = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, sumaVatParsed, sumaBruttoParsed, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
+          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
+          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
           function(err) {
             if (err) reject(err);
             else resolve();
