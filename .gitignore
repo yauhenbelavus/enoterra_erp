@@ -1,12 +1,28 @@
-# Исключаем ВСЕ файлы и папки в корне
-/*
-!/deploy/
-!/.gitignore
+# Dependencies
+node_modules/
+server/node_modules/
 
-# Исключаем папку scripts (локальные скрипты)
-/scripts/
+# Build output
+dist/
 
-# Исключаем зависимости и базу данных из deploy
-/deploy/server/node_modules/
-/deploy/server/*.db
-/deploy/server/*.sqlite
+# Environment and secrets
+.env
+.env.*
+
+# Cursor (local only)
+.cursor/
+
+# Database and uploads
+*.db
+*.sqlite
+server/uploads/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.bolt/
+
+# Logs
+*.log
+npm-debug.log*
