@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload backend
         run: |
-          rsync -avz --delete \
+          rsync -avz \
             --exclude 'uploads/' \
             --exclude '*.db' \
             --exclude '*.sqlite' \
