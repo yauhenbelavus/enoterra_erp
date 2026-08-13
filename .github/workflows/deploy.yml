@@ -28,15 +28,15 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
 
       - name: Upload frontend
         run: |
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/deploy_key" \
-            dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+            dist/ "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/var/www/erp-enoterra/enoterra_erp/deploy/"
 
       - name: Upload backend
         run: |
@@ -46,16 +46,16 @@ jobs:
             --exclude '*.sqlite' \
             --exclude 'node_modules/' \
             -e "ssh -i ~/.ssh/deploy_key" \
-            server/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/server/"
+            server/ "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/var/www/erp-enoterra/enoterra_erp/deploy/server/"
 
       - name: Install server deps and restart
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
+          username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd "${{ secrets.DEPLOY_PATH }}/server"
+            cd /var/www/erp-enoterra/enoterra_erp/deploy/server
             npm install --omit=dev
             export NODE_ENV=production
             if command -v pm2 >/dev/null 2>&1; then
