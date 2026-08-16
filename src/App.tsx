@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { X, Plus, Minus, ArrowDownCircle } from 'lucide-react';
 import { ProductSearch } from './components/ProductSearch';
 import { OrderModal } from './components/OrderModal';
@@ -103,14 +104,32 @@ interface AppState {
 // В продакшене используем относительные пути, в разработке - localhost
 const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
+const ZAKUP_PATH = '/zakup';
+const PRE_ZAKUP_TAB_KEY = 'preZakupTab';
+
+const isZakupPath = (pathname: string) =>
+  pathname === ZAKUP_PATH || pathname.startsWith(`${ZAKUP_PATH}/`);
+
+const getDefaultSubTab = (tab: AppState['activeTab']): AppState['activeSubTab'] => {
+  if (tab === 'orders') return 'wydanie';
+  if (tab === 'clients') return 'baza_klientow';
+  if (tab === 'inventory') return 'przyjecie';
+  return null;
+};
+
 console.log('API_URL configured as:', API_URL);
 
 function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isCreateReservationModalOpen, setIsCreateReservationModalOpen] = useState(false);
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
   const [tabOrder, setTabOrder] = useState<string[]>(['inventory', 'clients', 'orders', 'inventoryStatus']);
   const [appState, setAppState] = useState<AppState>(() => {
+    const pathname = window.location.pathname;
+    const onZakupPath = isZakupPath(pathname);
+
     // Загружаем сохранённую вкладку из localStorage
     const savedActiveTab = localStorage.getItem('activeTab') || 'inventory';
     const savedActiveSubTab = localStorage.getItem('activeSubTab');
@@ -118,17 +137,17 @@ function App() {
     // Валидация и приведение типов
     const validTabs = ['inventory', 'clients', 'orders', 'inventoryStatus'] as const;
     const validSubTabs = ['przyjecie', 'analiza', 'kalendarz', 'wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis', 'baza_klientow', 'sprzedaz_klientom'] as const;
-    const activeTab = (validTabs.includes(savedActiveTab as typeof validTabs[number]) 
-      ? savedActiveTab 
-      : 'inventory') as AppState['activeTab'];
-    
-    // Определяем подвкладку по умолчанию в зависимости от активной вкладки
-    let defaultSubTab: AppState['activeSubTab'] = 'przyjecie';
-    if (activeTab === 'orders') {
-      defaultSubTab = 'wydanie';
-    } else if (activeTab === 'clients') {
-      defaultSubTab = 'baza_klientow';
+
+    let activeTab: AppState['activeTab'];
+    if (onZakupPath) {
+      activeTab = 'inventory';
+    } else {
+      activeTab = (validTabs.includes(savedActiveTab as typeof validTabs[number])
+        ? savedActiveTab
+        : 'inventory') as AppState['activeTab'];
     }
+    
+    const defaultSubTab = getDefaultSubTab(activeTab);
     
     const savedSubTabValid =
       savedActiveSubTab &&
@@ -170,6 +189,56 @@ function App() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [lastUpdatedClientId, setLastUpdatedClientId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (isZakupPath(location.pathname)) {
+      if (appState.activeTab !== 'inventory') {
+        const savedActiveSubTab = localStorage.getItem('activeSubTab');
+        const validInventorySubTabs = ['przyjecie', 'analiza', 'kalendarz'] as const;
+        const activeSubTab = (
+          savedActiveSubTab &&
+          validInventorySubTabs.includes(savedActiveSubTab as typeof validInventorySubTabs[number])
+            ? savedActiveSubTab
+            : 'przyjecie'
+        ) as AppState['activeSubTab'];
+
+        localStorage.setItem('activeTab', 'inventory');
+        setAppState(prev => ({
+          ...prev,
+          activeTab: 'inventory',
+          activeSubTab,
+        }));
+      }
+      return;
+    }
+
+    if (appState.activeTab !== 'inventory') return;
+
+    const restoreTab = sessionStorage.getItem(PRE_ZAKUP_TAB_KEY);
+    if (!restoreTab) return;
+
+    const activeSubTab = getDefaultSubTab(restoreTab as AppState['activeTab']);
+
+    localStorage.setItem('activeTab', restoreTab);
+    if (activeSubTab) {
+      localStorage.setItem('activeSubTab', activeSubTab);
+    }
+
+    setAppState(prev => ({
+      ...prev,
+      activeTab: restoreTab as AppState['activeTab'],
+      activeSubTab,
+    }));
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (isZakupPath(location.pathname)) return;
+
+    const savedActiveTab = localStorage.getItem('activeTab') || 'inventory';
+    if (savedActiveTab === 'inventory') {
+      navigate(ZAKUP_PATH, { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   // Загружаем данные из IndexedDB при инициализации
   useEffect(() => {
@@ -343,21 +412,26 @@ function App() {
 
   const setActiveTab = (tab: string) => {
     if (tab === 'inventory' || tab === 'clients' || tab === 'orders' || tab === 'inventoryStatus') {
-      const newSubTab =
-        tab === 'inventory' ? 'przyjecie'
-        : tab === 'orders' ? 'wydanie'
-        : tab === 'clients' ? 'baza_klientow'
-        : null;
+      const newSubTab = getDefaultSubTab(tab as AppState['activeTab']);
       
       // Сохраняем в localStorage
       localStorage.setItem('activeTab', tab);
       if (newSubTab) {
         localStorage.setItem('activeSubTab', newSubTab);
       }
+
+      if (tab === 'inventory') {
+        if (appState.activeTab !== 'inventory') {
+          sessionStorage.setItem(PRE_ZAKUP_TAB_KEY, appState.activeTab);
+        }
+        navigate(ZAKUP_PATH);
+      } else {
+        navigate('/');
+      }
       
       setAppState(prev => ({ 
         ...prev, 
-        activeTab: tab,
+        activeTab: tab as AppState['activeTab'],
         activeSubTab: newSubTab
       }));
     }
