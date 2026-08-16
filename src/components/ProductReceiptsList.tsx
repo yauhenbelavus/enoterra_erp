@@ -274,7 +274,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
 
   return (
     <div className="space-y-4">
-      <div className="w-full overflow-y-scroll max-h-96 relative">
+      <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
         <table className="w-full">
           <thead className="sticky top-0 z-10">
             <tr>

@@ -1309,7 +1309,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
 
       {/* Таблица */}
       <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-        <div className="w-full overflow-x-auto overflow-y-scroll max-h-[500px] relative" style={{ zIndex: 1 }}>
+        <div className="w-full overflow-x-auto overflow-y-scroll max-h-[calc(100dvh-280px)] relative" style={{ zIndex: 1 }}>
           <table className="w-full resizable-table" ref={resizeRef}>
             <thead className="sticky top-0 z-10">
               <tr>

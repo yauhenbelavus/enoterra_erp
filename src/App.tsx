@@ -818,7 +818,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-white">
       <Toaster position="top-right" containerStyle={{ zIndex: 99999 }} />
       
       <ProductDetailsModal
@@ -892,8 +892,8 @@ function App() {
         }}
       />
       
-      <div className="bg-white shadow-sm">
-        <div className="container mx-auto px-4 py-3">
+      <div className="bg-white border-b border-gray-200">
+        <div className="w-full px-4 py-3">
           <img
             src={logo}
             alt="Enoterra Logo"
@@ -902,8 +902,8 @@ function App() {
         </div>
       </div>
 
-      <div className="bg-gray-100">
-        <div className="container mx-auto px-4">
+      <div className="bg-gray-100 border-b border-gray-200">
+        <div className="w-full px-4">
           <div className="flex items-center h-14">
             <div className="flex space-x-4">
               {tabOrder.map((tab) => (
@@ -932,8 +932,8 @@ function App() {
         </div>
       </div>
 
-      <div className="bg-white shadow-sm min-h-screen">
-        <div className="container mx-auto px-4 py-6">
+      <div className="bg-white min-h-screen">
+        <div className="w-full px-4 py-6">
           <div className="flex items-start -mt-2">
             {appState.activeTab === 'inventory' && (
               <ZakupTowarowPage
@@ -1068,7 +1068,7 @@ function App() {
                 {appState.activeSubTab === 'wydanie' && (
                   <div className="flex flex-col gap-4 mt-6">
                     <div className="mb-4">
-                      <div className="w-1/2 mx-auto">
+                      <div className="w-full">
                         <ProductSearch onSearch={handleProductSearch} />
                       </div>
                     </div>
@@ -1185,7 +1185,7 @@ function App() {
                     )}
 
                     {!analysisLoading && !analysisError && (
-                      <div className="w-full overflow-y-scroll max-h-96 relative">
+                      <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
                         <table className="w-full">
                           <thead className="sticky top-0 z-10">
                             <tr>
