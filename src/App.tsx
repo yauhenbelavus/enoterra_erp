@@ -12,12 +12,8 @@ import Modal from 'react-modal';
 import { Tooltip } from 'react-tooltip';
 import logo from './assets/entr logo copy 2@4x.png';
 import './index.css';
-import { ClientModal } from './components/ClientModal';
 import { ProductDetailsModal } from './components/ProductDetailsModal';
 import { Product } from './types/Product';
-import { ClientsList } from './components/ClientsList';
-import { ClientSalesList } from './components/ClientSalesList';
-import { EditClientModal } from './components/EditClientModal';
 import { InventoryStatus } from './components/InventoryStatus';
 import { ReturnModal } from './components/ReturnModal';
 import { WriteOffModal } from './components/WriteOffModal';
@@ -25,6 +21,14 @@ import { PrzychodModal } from './components/PrzychodModal';
 import { CreateReservationModal } from './components/CreateReservationModal';
 import { KomisList } from './components/KomisList';
 import { ZakupTowarowPage } from './pages/ZakupTowarowPage';
+import { KlienciPage } from './pages/KlienciPage';
+import {
+  getDefaultSubTab,
+  getPathForTab,
+  getTabFromPathname,
+  PRE_ROUTED_TAB_KEY,
+  resolveSubTabForTab,
+} from './routes';
 
 // Set the app element for react-modal
 Modal.setAppElement('#root');
@@ -104,31 +108,17 @@ interface AppState {
 // В продакшене используем относительные пути, в разработке - localhost
 const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
-const ZAKUP_PATH = '/zakup';
-const PRE_ZAKUP_TAB_KEY = 'preZakupTab';
-
-const isZakupPath = (pathname: string) =>
-  pathname === ZAKUP_PATH || pathname.startsWith(`${ZAKUP_PATH}/`);
-
-const getDefaultSubTab = (tab: AppState['activeTab']): AppState['activeSubTab'] => {
-  if (tab === 'orders') return 'wydanie';
-  if (tab === 'clients') return 'baza_klientow';
-  if (tab === 'inventory') return 'przyjecie';
-  return null;
-};
-
 console.log('API_URL configured as:', API_URL);
 
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isCreateReservationModalOpen, setIsCreateReservationModalOpen] = useState(false);
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
   const [tabOrder, setTabOrder] = useState<string[]>(['inventory', 'clients', 'orders', 'inventoryStatus']);
   const [appState, setAppState] = useState<AppState>(() => {
     const pathname = window.location.pathname;
-    const onZakupPath = isZakupPath(pathname);
+    const tabFromPath = getTabFromPathname(pathname);
 
     // Загружаем сохранённую вкладку из localStorage
     const savedActiveTab = localStorage.getItem('activeTab') || 'inventory';
@@ -139,8 +129,8 @@ function App() {
     const validSubTabs = ['przyjecie', 'analiza', 'kalendarz', 'wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis', 'baza_klientow', 'sprzedaz_klientom'] as const;
 
     let activeTab: AppState['activeTab'];
-    if (onZakupPath) {
-      activeTab = 'inventory';
+    if (tabFromPath) {
+      activeTab = tabFromPath;
     } else {
       activeTab = (validTabs.includes(savedActiveTab as typeof validTabs[number])
         ? savedActiveTab
@@ -178,43 +168,36 @@ function App() {
   const [showWriteOffModal, setShowWriteOffModal] = useState(false);
   const [showPrzychodModal, setShowPrzychodModal] = useState(false);
   const [isProductDetailsOpen, setIsProductDetailsOpen] = useState(false);
-  const [isEditClientModalOpen, setIsEditClientModalOpen] = useState(false);
-  const [clientToEdit, setClientToEdit] = useState<Client | null>(null);
   const [ordersRefreshTrigger, setOrdersRefreshTrigger] = useState(0);
-  const [clientsRefreshTrigger, setClientsRefreshTrigger] = useState(0);
   const [reservationsRefreshTrigger, setReservationsRefreshTrigger] = useState(0);
   const [invoicesRefreshTrigger, setInvoicesRefreshTrigger] = useState(0);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [analysisProducts, setAnalysisProducts] = useState<any[]>([]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [lastUpdatedClientId, setLastUpdatedClientId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (isZakupPath(location.pathname)) {
-      if (appState.activeTab !== 'inventory') {
-        const savedActiveSubTab = localStorage.getItem('activeSubTab');
-        const validInventorySubTabs = ['przyjecie', 'analiza', 'kalendarz'] as const;
-        const activeSubTab = (
-          savedActiveSubTab &&
-          validInventorySubTabs.includes(savedActiveSubTab as typeof validInventorySubTabs[number])
-            ? savedActiveSubTab
-            : 'przyjecie'
-        ) as AppState['activeSubTab'];
+    const tabFromPath = getTabFromPathname(location.pathname);
 
-        localStorage.setItem('activeTab', 'inventory');
+    if (tabFromPath) {
+      if (appState.activeTab !== tabFromPath) {
+        const savedActiveSubTab = localStorage.getItem('activeSubTab');
+        const activeSubTab = resolveSubTabForTab(tabFromPath, savedActiveSubTab);
+
+        localStorage.setItem('activeTab', tabFromPath);
         setAppState(prev => ({
           ...prev,
-          activeTab: 'inventory',
+          activeTab: tabFromPath,
           activeSubTab,
         }));
       }
       return;
     }
 
-    if (appState.activeTab !== 'inventory') return;
+    const routedTabPath = getPathForTab(appState.activeTab);
+    if (routedTabPath === '/') return;
 
-    const restoreTab = sessionStorage.getItem(PRE_ZAKUP_TAB_KEY);
+    const restoreTab = sessionStorage.getItem(PRE_ROUTED_TAB_KEY);
     if (!restoreTab) return;
 
     const activeSubTab = getDefaultSubTab(restoreTab as AppState['activeTab']);
@@ -232,11 +215,12 @@ function App() {
   }, [location.pathname]);
 
   useEffect(() => {
-    if (isZakupPath(location.pathname)) return;
+    if (getTabFromPathname(location.pathname)) return;
 
     const savedActiveTab = localStorage.getItem('activeTab') || 'inventory';
-    if (savedActiveTab === 'inventory') {
-      navigate(ZAKUP_PATH, { replace: true });
+    const savedPath = getPathForTab(savedActiveTab as AppState['activeTab']);
+    if (savedPath !== '/') {
+      navigate(savedPath, { replace: true });
     }
   }, [location.pathname, navigate]);
 
@@ -420,11 +404,12 @@ function App() {
         localStorage.setItem('activeSubTab', newSubTab);
       }
 
-      if (tab === 'inventory') {
-        if (appState.activeTab !== 'inventory') {
-          sessionStorage.setItem(PRE_ZAKUP_TAB_KEY, appState.activeTab);
+      const tabPath = getPathForTab(tab as AppState['activeTab']);
+      if (tabPath !== '/') {
+        if (appState.activeTab !== tab) {
+          sessionStorage.setItem(PRE_ROUTED_TAB_KEY, appState.activeTab);
         }
-        navigate(ZAKUP_PATH);
+        navigate(tabPath);
       } else {
         navigate('/');
       }
@@ -461,163 +446,6 @@ function App() {
     }
   };
 
-
-  const handleAddClient = async (clientData: { 
-    firma: string; 
-    nazwa: string; 
-    adres: string; 
-    czas_dostawy: string; 
-    kontakt: string 
-  }) => {
-    try {
-      const response = await fetch(`${API_URL}/api/clients`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(clientData)
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to add client');
-      }
-
-      const result = await response.json();
-      const newClient = { ...clientData, id: result.id };
-
-            setAppState(prev => ({
-        ...prev,
-        clients: [...prev.clients, newClient]
-      }));
-      
-      // Увеличиваем триггер для принудительного обновления ClientsList
-      setClientsRefreshTrigger(prev => prev + 1);
-      
-      toast.success('Klient został dodany');
-    } catch (error) {
-      console.error('Error adding client:', error);
-      toast.error('Błąd podczas dodawania klienta');
-    }
-  };
-
-  const handleDeleteClient = async (id: number) => {
-    try {
-      const response = await fetch(`${API_URL}/api/clients/${id}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete client');
-      }
-
-            setAppState(prev => ({
-        ...prev,
-        clients: prev.clients.filter(client => client.id !== id)
-      }));
-      
-      // Увеличиваем триггер для принудительного обновления ClientsList
-      setClientsRefreshTrigger(prev => prev + 1);
-      
-      toast.success('Klient został usunięty');
-    } catch (error) {
-      console.error('Error deleting client:', error);
-      toast.error('Błąd podczas usuwania klienta');
-    }
-  };
-
-  const handleUpdateClient = async (data: {
-    id: number;
-    firma: string;
-    nazwa: string;
-    adres: string;
-    czas_dostawy: string;
-    kontakt: string;
-  }) => {
-    try {
-      console.log('🔍 handleUpdateClient called with data:', data);
-      
-      const response = await fetch(`${API_URL}/api/clients/${data.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update client');
-      }
-
-      const updatedClient = await response.json();
-      console.log('✅ Client updated in database:', updatedClient);
-      console.log('✅ Updated client fields:', {
-        id: updatedClient.id,
-        firma: updatedClient.firma,
-        nazwa: updatedClient.nazwa,
-        adres: updatedClient.adres,
-        czas_dostawy: updatedClient.czas_dostawy,
-        kontakt: updatedClient.kontakt
-      });
-
-      setAppState(prev => {
-        console.log('🔄 Updating app state...');
-        console.log('📋 Previous clients:', prev.clients);
-        console.log('📋 Updated client data:', updatedClient);
-        
-        // Сохраняем исходный порядок клиентов, обновляя только нужного
-        const newClients = prev.clients.map(client => {
-          if (client.id === data.id) {
-            console.log('🔄 Updating client:', client.id, 'from:', client, 'to:', { ...client, ...updatedClient });
-            // Создаем полностью новый объект клиента
-            return {
-              id: client.id,
-              firma: updatedClient.firma || client.firma,
-              nazwa: updatedClient.nazwa || client.nazwa,
-              adres: updatedClient.adres || client.adres,
-              czas_dostawy: updatedClient.czas_dostawy || client.czas_dostawy,
-              kontakt: updatedClient.kontakt || client.kontakt
-            };
-          }
-          return { ...client }; // Создаем копию каждого клиента
-        });
-        
-        console.log('📋 New clients array:', newClients);
-        
-        const newState = {
-          ...prev,
-          clients: newClients
-        };
-        
-        console.log('🔄 New app state:', newState);
-        return newState;
-      });
-
-      toast.success('Klient został zaktualizowany');
-      
-      // Принудительно обновляем состояние через setTimeout
-      setTimeout(() => {
-        setAppState(prev => {
-          console.log('🔄 Force update after timeout');
-          return { ...prev };
-        });
-        // Увеличиваем триггер для принудительного обновления ClientsList
-        setClientsRefreshTrigger(prev => prev + 1);
-        
-        // Принудительно перезагружаем клиентов из базы данных
-        setLastUpdatedClientId(data.id);
-        loadClientsFromDb().then(freshClients => {
-          setAppState(prev => ({
-            ...prev,
-            clients: freshClients
-          }));
-          setClientsRefreshTrigger(prev => prev + 1);
-        });
-      }, 100);
-    } catch (error) {
-      console.error('Error updating client:', error);
-      toast.error('Błąd podczas aktualizacji klienta');
-    }
-  };
 
   // Загрузка товаров из активных резерваций для анализа
   const loadAnalysisProducts = async () => {
@@ -827,22 +655,6 @@ function App() {
         product={null}
       />
 
-      <ClientModal
-        isOpen={isClientModalOpen}
-        onClose={() => setIsClientModalOpen(false)}
-        onAdd={handleAddClient}
-      />
-
-      <EditClientModal
-        isOpen={isEditClientModalOpen}
-        onClose={() => {
-          setIsEditClientModalOpen(false);
-          setClientToEdit(null);
-        }}
-        onSubmit={handleUpdateClient}
-        client={clientToEdit}
-      />
-
       <OrderModal
         isOpen={showOrderModal}
         onClose={() => setShowOrderModal(false)}
@@ -949,64 +761,13 @@ function App() {
               />
             )}
             {appState.activeTab === 'clients' && (
-              <div className="flex flex-col gap-4 mt-4 w-full relative">
-                <div className="flex">
-                  <button
-                    onClick={() => setActiveSubTab('baza_klientow')}
-                    className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
-                      appState.activeSubTab === 'baza_klientow'
-                        ? 'text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Baza klientów
-                  </button>
-                  <button
-                    onClick={() => setActiveSubTab('sprzedaz_klientom')}
-                    className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
-                      appState.activeSubTab === 'sprzedaz_klientom'
-                        ? 'text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Sprzedaż klientom
-                  </button>
-                </div>
-
-                {appState.activeSubTab === 'baza_klientow' && (
-                  <div className="flex flex-col gap-4 mt-6">
-                    <div className="flex items-center gap-4">
-                      <div 
-                        className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit" 
-                        onClick={() => setIsClientModalOpen(true)}
-                      >
-                        <button
-                          type="button"
-                          className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white"
-                          title="Dodaj"
-                        >
-                          <Plus size={16} />
-                        </button>
-                        <div className="px-2">
-                          <span className="text-gray-900 font-sora text-[13px]">Dodaj klienta</span>
-                        </div>
-                      </div>
-                    </div>
-                    <ClientsList 
-                      key={`clients-${clientsRefreshTrigger}-${lastUpdatedClientId || 'none'}`}
-                      clients={appState.clients}
-                      onDelete={handleDeleteClient}
-                      onUpdate={handleUpdateClient}
-                    />
-                  </div>
-                )}
-
-                {appState.activeSubTab === 'sprzedaz_klientom' && (
-                  <div className="flex flex-col gap-4 mt-6">
-                    <ClientSalesList refreshTrigger={invoicesRefreshTrigger} />
-                  </div>
-                )}
-              </div>
+              <KlienciPage
+                activeSubTab={appState.activeSubTab}
+                setActiveSubTab={setActiveSubTab as (tab: 'baza_klientow' | 'sprzedaz_klientom') => void}
+                clients={appState.clients}
+                onClientsChange={(clients) => setAppState(prev => ({ ...prev, clients }))}
+                invoicesRefreshTrigger={invoicesRefreshTrigger}
+              />
             )}
             {appState.activeTab === 'orders' && (
               <div className="flex flex-col gap-4 mt-4 w-full relative">
