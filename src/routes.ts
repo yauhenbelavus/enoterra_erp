@@ -13,13 +13,17 @@ export type AppSubTab =
   | 'sprzedaz_klientom'
   | null;
 
+export const HOME_PATH = '/';
 export const ZAKUP_PATH = '/zakup';
 export const KLIENCI_PATH = '/klienci';
+export const STANY_PATH = '/stany';
 export const PRE_ROUTED_TAB_KEY = 'preRoutedTab';
 
-const TAB_PATHS: Partial<Record<AppTab, string>> = {
+const TAB_PATHS: Record<AppTab, string> = {
+  orders: HOME_PATH,
   inventory: ZAKUP_PATH,
   clients: KLIENCI_PATH,
+  inventoryStatus: STANY_PATH,
 };
 
 const SUB_TABS_BY_TAB: Partial<Record<AppTab, readonly AppSubTab[]>> = {
@@ -42,10 +46,16 @@ export const getTabFromPathname = (pathname: string): AppTab | null => {
   if (pathname === KLIENCI_PATH || pathname.startsWith(`${KLIENCI_PATH}/`)) {
     return 'clients';
   }
+  if (pathname === STANY_PATH || pathname.startsWith(`${STANY_PATH}/`)) {
+    return 'inventoryStatus';
+  }
+  if (pathname === HOME_PATH) {
+    return 'orders';
+  }
   return null;
 };
 
-export const getPathForTab = (tab: AppTab): string => TAB_PATHS[tab] ?? '/';
+export const getPathForTab = (tab: AppTab): string => TAB_PATHS[tab];
 
 export const resolveSubTabForTab = (tab: AppTab, savedSubTab: string | null): AppSubTab => {
   const defaultSubTab = getDefaultSubTab(tab);

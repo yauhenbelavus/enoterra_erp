@@ -1,27 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { X, Plus, Minus, ArrowDownCircle } from 'lucide-react';
-import { ProductSearch } from './components/ProductSearch';
-import { OrderModal } from './components/OrderModal';
-import { OrdersList } from './components/OrdersList';
-import { InvoicesList } from './components/InvoicesList';
-import { InvoiceModal } from './components/InvoiceModal';
-import { ReservationsList } from './components/ReservationsList';
 import toast, { Toaster } from 'react-hot-toast';
 import Modal from 'react-modal';
-import { Tooltip } from 'react-tooltip';
 import logo from './assets/entr logo copy 2@4x.png';
 import './index.css';
 import { ProductDetailsModal } from './components/ProductDetailsModal';
 import { Product } from './types/Product';
-import { InventoryStatus } from './components/InventoryStatus';
-import { ReturnModal } from './components/ReturnModal';
-import { WriteOffModal } from './components/WriteOffModal';
-import { PrzychodModal } from './components/PrzychodModal';
-import { CreateReservationModal } from './components/CreateReservationModal';
-import { KomisList } from './components/KomisList';
 import { ZakupTowarowPage } from './pages/ZakupTowarowPage';
 import { KlienciPage } from './pages/KlienciPage';
+import { SprzedazPage } from './pages/SprzedazPage';
+import { StanyMagazynowePage } from './pages/StanyMagazynowePage';
 import {
   getDefaultSubTab,
   getPathForTab,
@@ -113,18 +101,15 @@ console.log('API_URL configured as:', API_URL);
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [isCreateReservationModalOpen, setIsCreateReservationModalOpen] = useState(false);
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
-  const [tabOrder, setTabOrder] = useState<string[]>(['inventory', 'clients', 'orders', 'inventoryStatus']);
+  const [tabOrder, setTabOrder] = useState<string[]>(['orders', 'inventory', 'clients', 'inventoryStatus']);
   const [appState, setAppState] = useState<AppState>(() => {
     const pathname = window.location.pathname;
     const tabFromPath = getTabFromPathname(pathname);
 
-    // Загружаем сохранённую вкладку из localStorage
-    const savedActiveTab = localStorage.getItem('activeTab') || 'inventory';
+    const savedActiveTab = localStorage.getItem('activeTab') || 'orders';
     const savedActiveSubTab = localStorage.getItem('activeSubTab');
     
-    // Валидация и приведение типов
     const validTabs = ['inventory', 'clients', 'orders', 'inventoryStatus'] as const;
     const validSubTabs = ['przyjecie', 'analiza', 'kalendarz', 'wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis', 'baza_klientow', 'sprzedaz_klientom'] as const;
 
@@ -134,7 +119,7 @@ function App() {
     } else {
       activeTab = (validTabs.includes(savedActiveTab as typeof validTabs[number])
         ? savedActiveTab
-        : 'inventory') as AppState['activeTab'];
+        : 'orders') as AppState['activeTab'];
     }
     
     const defaultSubTab = getDefaultSubTab(activeTab);
@@ -151,78 +136,44 @@ function App() {
       : defaultSubTab) as AppState['activeSubTab'];
     
     return {
-    sheetsData: [],
-    sheets: [],
-    activeSheet: null,
-    showTable: false,
-    clients: [],
-    products: [],
-    productReceipts: [],
-      activeTab: activeTab,
-      activeSubTab: activeSubTab,
-    isDbInitialized: false
+      sheetsData: [],
+      sheets: [],
+      activeSheet: null,
+      showTable: false,
+      clients: [],
+      products: [],
+      productReceipts: [],
+      activeTab,
+      activeSubTab,
+      isDbInitialized: false,
     };
   });
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [showReturnModal, setShowReturnModal] = useState(false);
-  const [showWriteOffModal, setShowWriteOffModal] = useState(false);
-  const [showPrzychodModal, setShowPrzychodModal] = useState(false);
   const [isProductDetailsOpen, setIsProductDetailsOpen] = useState(false);
   const [ordersRefreshTrigger, setOrdersRefreshTrigger] = useState(0);
   const [reservationsRefreshTrigger, setReservationsRefreshTrigger] = useState(0);
   const [invoicesRefreshTrigger, setInvoicesRefreshTrigger] = useState(0);
-  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
-  const [analysisProducts, setAnalysisProducts] = useState<any[]>([]);
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   useEffect(() => {
     const tabFromPath = getTabFromPathname(location.pathname);
 
-    if (tabFromPath) {
-      if (appState.activeTab !== tabFromPath) {
-        const savedActiveSubTab = localStorage.getItem('activeSubTab');
-        const activeSubTab = resolveSubTabForTab(tabFromPath, savedActiveSubTab);
-
-        localStorage.setItem('activeTab', tabFromPath);
-        setAppState(prev => ({
-          ...prev,
-          activeTab: tabFromPath,
-          activeSubTab,
-        }));
-      }
+    if (!tabFromPath) {
+      const savedActiveTab = (localStorage.getItem('activeTab') || 'orders') as AppState['activeTab'];
+      navigate(getPathForTab(savedActiveTab), { replace: true });
       return;
     }
 
-    const routedTabPath = getPathForTab(appState.activeTab);
-    if (routedTabPath === '/') return;
+    if (appState.activeTab !== tabFromPath) {
+      const savedActiveSubTab = localStorage.getItem('activeSubTab');
+      const activeSubTab = resolveSubTabForTab(tabFromPath, savedActiveSubTab);
 
-    const restoreTab = sessionStorage.getItem(PRE_ROUTED_TAB_KEY);
-    if (!restoreTab) return;
-
-    const activeSubTab = getDefaultSubTab(restoreTab as AppState['activeTab']);
-
-    localStorage.setItem('activeTab', restoreTab);
-    if (activeSubTab) {
-      localStorage.setItem('activeSubTab', activeSubTab);
+      localStorage.setItem('activeTab', tabFromPath);
+      setAppState(prev => ({
+        ...prev,
+        activeTab: tabFromPath,
+        activeSubTab,
+      }));
     }
-
-    setAppState(prev => ({
-      ...prev,
-      activeTab: restoreTab as AppState['activeTab'],
-      activeSubTab,
-    }));
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (getTabFromPathname(location.pathname)) return;
-
-    const savedActiveTab = localStorage.getItem('activeTab') || 'inventory';
-    const savedPath = getPathForTab(savedActiveTab as AppState['activeTab']);
-    if (savedPath !== '/') {
-      navigate(savedPath, { replace: true });
-    }
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, appState.activeTab]);
 
   // Загружаем данные из IndexedDB при инициализации
   useEffect(() => {
@@ -405,14 +356,10 @@ function App() {
       }
 
       const tabPath = getPathForTab(tab as AppState['activeTab']);
-      if (tabPath !== '/') {
-        if (appState.activeTab !== tab) {
-          sessionStorage.setItem(PRE_ROUTED_TAB_KEY, appState.activeTab);
-        }
-        navigate(tabPath);
-      } else {
-        navigate('/');
+      if (appState.activeTab !== tab) {
+        sessionStorage.setItem(PRE_ROUTED_TAB_KEY, appState.activeTab);
       }
+      navigate(tabPath);
       
       setAppState(prev => ({ 
         ...prev, 
@@ -423,18 +370,9 @@ function App() {
   };
 
   const setActiveSubTab = (subTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom') => {
-    // Сохраняем в localStorage
     localStorage.setItem('activeSubTab', subTab);
-    
     setAppState(prev => ({ ...prev, activeSubTab: subTab }));
   };
-
-  // Подгружаем данные для анализа товаров при переходе на вкладку
-  useEffect(() => {
-    if (appState.activeSubTab === 'analiza_towarow') {
-      loadAnalysisProducts();
-    }
-  }, [appState.activeSubTab, reservationsRefreshTrigger]);
 
   const getTabTitle = (tab: string) => {
     switch (tab) {
@@ -446,68 +384,6 @@ function App() {
     }
   };
 
-
-  // Загрузка товаров из активных резерваций для анализа
-  const loadAnalysisProducts = async () => {
-    try {
-      setAnalysisLoading(true);
-      setAnalysisError(null);
-      const response = await fetch(`${API_URL}/api/reservations/active-products`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = await response.json();
-      console.log('📊 Active reservation products loaded:', data.length);
-      setAnalysisProducts(data);
-    } catch (err: any) {
-      console.error('❌ Error loading analysis products:', err);
-      setAnalysisError(err.message || 'Błąd ładowania danych');
-    } finally {
-      setAnalysisLoading(false);
-    }
-  };
-
-  const handleUpdateOrder = async (data: {
-    id: number;
-    klient: string;
-    numer_zamowienia: string;
-    products: Array<{
-      kod: string;
-      kod_kreskowy?: string;
-      nazwa: string;
-      ilosc: number;
-      typ: string;
-    }>;
-  }) => {
-    console.log('=== HANDLE UPDATE ORDER DEBUG ===');
-    console.log('Received data:', data);
-    console.log('Products data:', JSON.stringify(data.products, null, 2));
-    
-    try {
-      const response = await fetch(`${API_URL}/api/orders/${data.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update order');
-      }
-
-      const result = await response.json();
-      console.log('Updated order result:', result);
-
-      toast.success('Zamówienie zostało zaktualizowane');
-      
-      // Обновляем refreshTrigger для перезагрузки списка заказов
-      setOrdersRefreshTrigger(prev => prev + 1);
-    } catch (error) {
-      console.error('Error updating order:', error);
-      toast.error('Błąd podczas aktualizacji zamówienia');
-    }
-  };
 
   const loadClientsFromDb = async (): Promise<Client[]> => {
     try {
@@ -607,44 +483,6 @@ function App() {
     }
   };
 
-  const handleProductSearch = async (query: string) => {
-    try {
-      console.log('🔍 Searching working_sheets with query:', query);
-      console.log('📡 Making request to:', `${API_URL}/api/working-sheets/search?query=${encodeURIComponent(query)}`);
-      
-      const response = await fetch(`${API_URL}/api/working-sheets/search?query=${encodeURIComponent(query)}`);
-      console.log('📡 Search response status:', response.status);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('✅ Search results:', data.length, 'items found');
-      
-      // Преобразуем данные из working_sheets в формат Product для ProductSearch
-      const transformedData = data.map((item: any) => ({
-        kod: item.kod,
-        nazwa: item.nazwa,
-        ilosc: item.ilosc.toString(),
-        kodKreskowy: item.kod_kreskowy || ''
-      }));
-      
-      return transformedData;
-    } catch (error) {
-      console.error('❌ Error searching working_sheets:', error);
-      return [];
-    }
-  };
-
-  const handleOrderCreated = () => {
-    setOrdersRefreshTrigger(prev => prev + 1);
-  };
-
-  const handleReturnCreated = () => {
-    setOrdersRefreshTrigger(prev => prev + 1);
-  };
-
   return (
     <div className="min-h-screen bg-white">
       <Toaster position="top-right" containerStyle={{ zIndex: 99999 }} />
@@ -653,55 +491,6 @@ function App() {
         isOpen={isProductDetailsOpen}
         onClose={() => setIsProductDetailsOpen(false)}
         product={null}
-      />
-
-      <OrderModal
-        isOpen={showOrderModal}
-        onClose={() => setShowOrderModal(false)}
-        onOrderCreated={handleOrderCreated}
-      />
-      
-      <ReturnModal
-        isOpen={showReturnModal}
-        onClose={() => setShowReturnModal(false)}
-        onSubmit={handleReturnCreated}
-      />
-
-      <WriteOffModal
-        isOpen={showWriteOffModal}
-        onClose={() => setShowWriteOffModal(false)}
-        onSubmit={() => {
-          setShowWriteOffModal(false);
-          setOrdersRefreshTrigger(prev => prev + 1);
-        }}
-      />
-
-      <PrzychodModal
-        isOpen={showPrzychodModal}
-        onClose={() => setShowPrzychodModal(false)}
-        onSubmit={() => {
-          setShowPrzychodModal(false);
-          setOrdersRefreshTrigger(prev => prev + 1);
-        }}
-      />
-
-      <CreateReservationModal
-        isOpen={isCreateReservationModalOpen}
-        onClose={() => setIsCreateReservationModalOpen(false)}
-        onReservationCreated={() => {
-          setReservationsRefreshTrigger(prev => prev + 1);
-          setIsCreateReservationModalOpen(false);
-        }}
-        apiUrl={API_URL}
-      />
-
-      <InvoiceModal
-        isOpen={isInvoiceModalOpen}
-        onClose={() => setIsInvoiceModalOpen(false)}
-        onSuccess={() => {
-          setInvoicesRefreshTrigger(prev => prev + 1);
-          setIsInvoiceModalOpen(false);
-        }}
       />
       
       <div className="bg-white border-b border-gray-200">
@@ -770,341 +559,19 @@ function App() {
               />
             )}
             {appState.activeTab === 'orders' && (
-              <div className="flex flex-col gap-4 mt-4 w-full relative">
-                {/* Подвкладки */}
-                <div className="flex">
-                  <button
-                    onClick={() => setActiveSubTab('wydanie')}
-                    className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
-                      appState.activeSubTab === 'wydanie'
-                        ? 'text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Wydanie towarów
-                  </button>
-                  <button
-                    onClick={() => setActiveSubTab('rezerwacje')}
-                    className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
-                      appState.activeSubTab === 'rezerwacje'
-                        ? 'text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Rezerwacje
-                  </button>
-                  <button
-                    onClick={() => setActiveSubTab('analiza_towarow')}
-                    className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
-                      appState.activeSubTab === 'analiza_towarow'
-                        ? 'text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Analiza towarów
-                  </button>
-                  <button
-                    onClick={() => setActiveSubTab('faktury')}
-                    className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
-                      appState.activeSubTab === 'faktury'
-                        ? 'text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Faktury
-                  </button>
-                  <button
-                    onClick={() => setActiveSubTab('komis')}
-                    className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
-                      appState.activeSubTab === 'komis'
-                        ? 'text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    Komis
-                  </button>
-                </div>
-
-                {/* Контент для подвкладки "Wydanie towarów" */}
-                {appState.activeSubTab === 'wydanie' && (
-                  <div className="flex flex-col gap-4 mt-6">
-                    <div className="mb-4">
-                      <div className="w-full">
-                        <ProductSearch onSearch={handleProductSearch} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 mb-4">
-                      <div 
-                        className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit" 
-                        onClick={() => setShowOrderModal(true)}
-                      >
-                        <button
-                          type="button"
-                          className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white"
-                          title="Dodaj"
-                        >
-                          <Plus size={16} />
-                        </button>
-                        <div className="px-2">
-                          <span className="text-gray-900 font-sora text-[13px]">Dodaj zamowienie</span>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit" 
-                        onClick={() => setShowReturnModal(true)}
-                      >
-                        <button
-                          type="button"
-                          className="w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white"
-                          title="Zwrot"
-                        >
-                          <X size={16} />
-                        </button>
-                        <div className="px-2">
-                          <span className="text-gray-900 font-sora text-[13px]">Zwrot towaru</span>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit" 
-                        onClick={() => setShowWriteOffModal(true)}
-                      >
-                        <button
-                          type="button"
-                          className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white"
-                          title="Rozchód"
-                        >
-                          <Minus size={16} />
-                        </button>
-                        <div className="px-2">
-                          <span className="text-gray-900 font-sora text-[13px]">Rozchód towaru</span>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit" 
-                        onClick={() => setShowPrzychodModal(true)}
-                      >
-                        <button
-                          type="button"
-                          className="w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center text-white"
-                          title="Przychód"
-                        >
-                          <ArrowDownCircle size={16} />
-                        </button>
-                        <div className="px-2">
-                          <span className="text-gray-900 font-sora text-[13px]">Przychód towaru</span>
-                        </div>
-                      </div>
-                    </div>
-                    <OrdersList 
-                      onDeleteOrder={(orderId) => {
-                        console.log('Delete order:', orderId);
-                        // Удаление обрабатывается внутри OrdersList
-                      }}
-                      onUpdateOrder={handleUpdateOrder}
-                      onInvoiceCreated={() => setInvoicesRefreshTrigger((t) => t + 1)}
-                      refreshTrigger={ordersRefreshTrigger}
-                    />
-                  </div>
-                )}
-
-                {/* Контент для подвкладки "Rezerwacje" */}
-                {appState.activeSubTab === 'rezerwacje' && (
-                  <div className="flex flex-col gap-4 mt-4 w-full">
-                    <div className="flex items-center gap-4">
-                      <div 
-                        className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit" 
-                        onClick={() => setIsCreateReservationModalOpen(true)}
-                      >
-                        <button
-                          type="button"
-                          className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white"
-                          title="Dodaj"
-                        >
-                          <Plus size={16} />
-                        </button>
-                        <div className="px-2">
-                          <span className="text-gray-900 font-sora text-[13px]">Dodaj rezerwację</span>
-                        </div>
-                      </div>
-                    </div>
-                    <ReservationsList refreshTrigger={reservationsRefreshTrigger} />
-                  </div>
-                )}
-
-                {/* Контент для подвкладки "Analiza towarów" */}
-                {appState.activeSubTab === 'analiza_towarow' && (
-                  <div className="space-y-4 mt-6">
-                    {analysisLoading && (
-                      <div className="text-gray-600 font-sora text-sm">Ładowanie danych...</div>
-                    )}
-
-                    {analysisError && (
-                      <div className="text-red-600 font-sora text-sm">{analysisError}</div>
-                    )}
-
-                    {!analysisLoading && !analysisError && (
-                      <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
-                        <table className="w-full">
-                          <thead className="sticky top-0 z-10">
-                            <tr>
-                              <th className="px-0 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                                Kod
-                              </th>
-                              <th className="px-10 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                                Nazwa
-                              </th>
-                              <th className="px-0 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                                Pozostało
-                              </th>
-                              <th className="px-0 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                                Wydane
-                              </th>
-                              <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                                Zarezerwowane
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {analysisProducts.filter(p => {
-                              const ilosc = p.ilosc ?? 0;
-                              const iloscWydane = p.ilosc_wydane ?? 0;
-                              return (ilosc - iloscWydane) > 0;
-                            }).length > 0 ? (
-                              analysisProducts.filter(p => {
-                                const ilosc = p.ilosc ?? 0;
-                                const iloscWydane = p.ilosc_wydane ?? 0;
-                                return (ilosc - iloscWydane) > 0;
-                              }).map((p, idx) => {
-                                const ilosc = p.ilosc ?? 0;
-                                const iloscWydane = p.ilosc_wydane ?? 0;
-                                const pozostalo = ilosc - iloscWydane;
-                                const kod = p.product_kod ?? '—';
-                                const nazwa = p.product_nazwa ?? '—';
-                                const klienci = p.klienci || [];
-                                return (
-                                  <tr key={`${p.product_kod}-${idx}`} className="hover:bg-gray-50">
-                                    <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
-                                      {kod}
-                                    </td>
-                                    <td className="px-10 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
-                                      {nazwa}
-                                    </td>
-                                    <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center">
-                                      <span className={pozostalo > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                                        {pozostalo}
-                                      </span>
-                                    </td>
-                                    <td 
-                                      className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center text-red-600 cursor-pointer"
-                                      data-tooltip-id={`wydane-tooltip-${p.product_kod}-${idx}`}
-                                    >
-                                      {iloscWydane}
-                                      {iloscWydane > 0 && (
-                                        <Tooltip
-                                          id={`wydane-tooltip-${p.product_kod}-${idx}`}
-                                          className="max-w-md"
-                                          place="top"
-                                          positionStrategy="fixed"
-                                          noArrow={true}
-                                        >
-                                          <div className="font-sora">
-                                            {p.zamowienia_z_iloscia && p.zamowienia_z_iloscia.length > 0 ? (
-                                              p.zamowienia_z_iloscia.map((zam: any, zIdx: number) => (
-                                                <div key={zIdx} className={zIdx === 0 ? '' : 'mt-0.5'}>
-                                                  <span className="font-medium">{zam.numer_zamowienia}</span>
-                                                  <span className="text-gray-500 ml-2">{zam.ilosc} szt</span>
-                                                </div>
-                                              ))
-                                            ) : (
-                                              <div>Brak danych o zamówieniach</div>
-                                            )}
-                                          </div>
-                                        </Tooltip>
-                                      )}
-                                    </td>
-                                    <td 
-                                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center cursor-pointer"
-                                      data-tooltip-id={`zarezerwowane-tooltip-${p.product_kod}-${idx}`}
-                                    >
-                                      {ilosc}
-                                      {klienci.length > 0 && (
-                                        <Tooltip
-                                          id={`zarezerwowane-tooltip-${p.product_kod}-${idx}`}
-                                          className="max-w-md"
-                                          place="top"
-                                          positionStrategy="fixed"
-                                          noArrow={true}
-                                        >
-                                          <div className="font-sora">
-                                            {klienci.map((klient: any, rIdx: number) => (
-                                              <div key={rIdx} className={rIdx === 0 ? '' : 'mt-0.5'}>
-                                                <span className="font-medium">{klient.klient || '—'}</span>
-                                                <span className="text-gray-500 ml-2">{klient.ilosc ?? 0} szt</span>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </Tooltip>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            ) : (
-                              <tr>
-                                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500">
-                                  Brak towarów w aktywnych rezerwacjach
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Контент для подвкладки "Faktury" */}
-                {appState.activeSubTab === 'faktury' && (
-                  <div className="flex flex-col gap-4 mt-6 w-full">
-                    <div className="flex items-center gap-4 mb-4">
-                      <div 
-                        className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit" 
-                        onClick={() => setIsInvoiceModalOpen(true)}
-                      >
-                        <button
-                          type="button"
-                          className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white"
-                          title="Dodaj"
-                        >
-                          <Plus size={16} />
-                        </button>
-                        <div className="px-2">
-                          <span className="text-gray-900 font-sora text-[13px]">Dodaj fakturę</span>
-                        </div>
-                      </div>
-                    </div>
-                    <InvoicesList
-                      refreshTrigger={invoicesRefreshTrigger}
-                      onInvoiceDeleted={() => setOrdersRefreshTrigger(prev => prev + 1)}
-                    />
-                  </div>
-                )}
-
-                {/* Контент для подвкладки "Komis" */}
-                {appState.activeSubTab === 'komis' && (
-                  <div className="flex flex-col gap-4 mt-6 w-full">
-                    <KomisList refreshTrigger={ordersRefreshTrigger} />
-                  </div>
-                )}
-              </div>
+              <SprzedazPage
+                activeSubTab={appState.activeSubTab}
+                setActiveSubTab={setActiveSubTab as (tab: 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis') => void}
+                ordersRefreshTrigger={ordersRefreshTrigger}
+                onOrdersRefresh={() => setOrdersRefreshTrigger(prev => prev + 1)}
+                reservationsRefreshTrigger={reservationsRefreshTrigger}
+                onReservationsRefresh={() => setReservationsRefreshTrigger(prev => prev + 1)}
+                invoicesRefreshTrigger={invoicesRefreshTrigger}
+                onInvoicesRefresh={() => setInvoicesRefreshTrigger(prev => prev + 1)}
+              />
             )}
             {appState.activeTab === 'inventoryStatus' && (
-              <div className="flex flex-col gap-4 mt-4 w-full">
-                <InventoryStatus productReceipts={appState.productReceipts} />
-              </div>
+              <StanyMagazynowePage productReceipts={appState.productReceipts} />
             )}
           </div>
         </div>
