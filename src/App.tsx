@@ -102,7 +102,7 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
-  const [tabOrder, setTabOrder] = useState<string[]>(['orders', 'inventory', 'clients', 'inventoryStatus']);
+  const [tabOrder, setTabOrder] = useState<string[]>(['inventory', 'clients', 'orders', 'inventoryStatus']);
   const [appState, setAppState] = useState<AppState>(() => {
     const pathname = window.location.pathname;
     const tabFromPath = getTabFromPathname(pathname);
