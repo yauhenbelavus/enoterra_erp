@@ -5,6 +5,9 @@ SERVER_DIR="/var/www/erp-enoterra/enoterra_erp/deploy/server"
 RUN_BACKUP_SH="${SERVER_DIR}/run-backup.sh"
 CRON_MARKER="run-backup.sh"
 
+# shellcheck source=/dev/null
+. "${SERVER_DIR}/load-node-env.sh"
+
 if ! command -v crontab >/dev/null 2>&1; then
   echo "crontab not found — install cron on the VPS first"
   exit 1

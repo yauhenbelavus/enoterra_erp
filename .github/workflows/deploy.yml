@@ -60,6 +60,17 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /var/www/erp-enoterra/enoterra_erp/deploy/server
+            chmod +x load-node-env.sh install-backup-cron.sh run-backup.sh
+            # shellcheck source=/dev/null
+            . ./load-node-env.sh
+            if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+              echo "node/npm not found after loading environment"
+              command -v node || true
+              command -v npm || true
+              exit 1
+            fi
+            echo "Using node: $(command -v node) ($(node -v))"
+            echo "Using npm: $(command -v npm) ($(npm -v))"
             npm install --omit=dev
             export NODE_ENV=production
             if command -v pm2 >/dev/null 2>&1; then
@@ -67,5 +78,4 @@ jobs:
             else
               echo "pm2 not found — restart Node.js app manually in Hostinger panel"
             fi
-            chmod +x install-backup-cron.sh run-backup.sh
             ./install-backup-cron.sh
