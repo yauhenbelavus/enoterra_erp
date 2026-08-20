@@ -74,7 +74,9 @@ jobs:
             npm install --omit=dev
             export NODE_ENV=production
             if command -v pm2 >/dev/null 2>&1; then
-              pm2 restart enoterra-erp --update-env || pm2 start index.js --name enoterra-erp
+              pm2 delete enoterra-erp 2>/dev/null || true
+              pm2 start index.js --name enoterra-erp --update-env
+              pm2 save 2>/dev/null || true
             else
               echo "pm2 not found — restart Node.js app manually in Hostinger panel"
             fi
