@@ -67,5 +67,5 @@ jobs:
             else
               echo "pm2 not found — restart Node.js app manually in Hostinger panel"
             fi
-            chmod +x install-backup-cron.sh
-            ./install-backup-cron.sh || echo "Could not install backup cron — run install-backup-cron.sh manually on the server"
+            chmod +x install-backup-cron.sh run-backup.sh
+            ./install-backup-cron.sh

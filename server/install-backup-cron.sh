@@ -2,10 +2,15 @@
 set -euo pipefail
 
 SERVER_DIR="/var/www/erp-enoterra/enoterra_erp/deploy/server"
-NODE_BIN="$(command -v node || true)"
-CRON_MARKER="backup-db.js"
+RUN_BACKUP_SH="${SERVER_DIR}/run-backup.sh"
+CRON_MARKER="run-backup.sh"
 
-if [ -z "$NODE_BIN" ]; then
+if ! command -v crontab >/dev/null 2>&1; then
+  echo "crontab not found — install cron on the VPS first"
+  exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
   echo "node not found in PATH"
   exit 1
 fi
@@ -15,7 +20,9 @@ if [ ! -f "${SERVER_DIR}/backup-db.js" ]; then
   exit 1
 fi
 
-CRON_JOB="0 2 * * * cd ${SERVER_DIR} && ${NODE_BIN} backup-db.js >> ${SERVER_DIR}/backup.log 2>&1"
+chmod +x "${RUN_BACKUP_SH}"
+
+CRON_JOB="0 2 * * * /bin/sh ${RUN_BACKUP_SH}"
 CRON_BLOCK=$(
   cat <<EOF
 CRON_TZ=Europe/Warsaw
