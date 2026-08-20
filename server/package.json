@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build": "echo \"No build step required\""
+    "build": "echo \"No build step required\"",
+    "backup-db": "node backup-db.js"
   },
   "keywords": [],
   "author": "",
