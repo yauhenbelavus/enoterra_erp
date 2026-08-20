@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eu
 
 SERVER_DIR="/var/www/erp-enoterra/enoterra_erp/deploy/server"
 cd "${SERVER_DIR}"

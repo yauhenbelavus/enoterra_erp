@@ -2,7 +2,7 @@
 
 SERVER_DIR="/var/www/erp-enoterra/enoterra_erp/deploy/server"
 RUN_BACKUP_SH="${SERVER_DIR}/run-backup.sh"
-CRON_MARKER="run-backup.sh"
+CRON_JOB="0 2 * * * /bin/bash ${RUN_BACKUP_SH}"
 
 # shellcheck source=/dev/null
 . "${SERVER_DIR}/load-node-env.sh"
@@ -26,27 +26,23 @@ fi
 
 chmod +x "${RUN_BACKUP_SH}"
 
-CRON_JOB="0 2 * * * /bin/sh ${RUN_BACKUP_SH}"
-CRON_BLOCK=$(
-  cat <<EOF
-CRON_TZ=Europe/Warsaw
-${CRON_JOB}
-EOF
-)
+CURRENT_CRON="$(crontab -l 2>/dev/null || true)"
 
-EXISTING_CRON="$(crontab -l 2>/dev/null || true)"
-
-if echo "$EXISTING_CRON" | grep -Fq "$CRON_MARKER"; then
-  echo "Backup cron job already installed"
+if echo "$CURRENT_CRON" | grep -Fq "/bin/bash ${RUN_BACKUP_SH}"; then
+  echo "Backup cron job already up to date"
   exit 0
 fi
+
+EXISTING_CRON="$(printf '%s\n' "$CURRENT_CRON" | grep -v 'run-backup.sh' | grep -v '^CRON_TZ=Europe/Warsaw$' || true)"
 
 {
   if [ -n "$EXISTING_CRON" ]; then
     printf '%s\n' "$EXISTING_CRON"
   fi
-  printf '%s\n' "$CRON_BLOCK"
+  printf '%s\n' "CRON_TZ=Europe/Warsaw"
+  printf '%s\n' "$CRON_JOB"
 } | crontab -
 
-echo "Backup cron job installed:"
-echo "$CRON_BLOCK"
+echo "Backup cron job installed/updated:"
+echo "CRON_TZ=Europe/Warsaw"
+echo "$CRON_JOB"
