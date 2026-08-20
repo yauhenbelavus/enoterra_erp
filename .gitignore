@@ -8,10 +8,6 @@ dist/
 # Environment and secrets
 .env
 .env.*
-google-drive-key.json
-*-service-account*.json
-enoterra-backup-*.json
-enottera-backup-*.json
 
 # Cursor (local only)
 .cursor/

@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3');
-const { uploadBackupToGoogleDrive } = require('./googleDriveBackup');
 
 const RETENTION_DAYS = 7;
 const DB_NAME = 'enoterra_erp.db';
@@ -101,15 +100,8 @@ function cleanupOldBackups() {
 
 async function runDbBackup() {
   log(`Starting backup of ${DB_NAME}`);
-  const backupPath = await createBackup();
+  await createBackup();
   cleanupOldBackups();
-
-  try {
-    await uploadBackupToGoogleDrive(backupPath);
-  } catch (err) {
-    log(`Google Drive upload failed: ${err.message}`);
-  }
-
   log('Backup finished successfully');
 }
 
