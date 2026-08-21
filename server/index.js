@@ -10880,6 +10880,141 @@ app.get('/server/assets/favicon.ico', sendFaviconIco);
 app.get('/favicon.svg', sendFaviconSvg);
 app.get('/favicon.ico', sendFaviconIco);
 
+// === KOMIS API routes ===
+// ВАЖНО: регистрируем ДО production SPA catch-all ниже, иначе /api/komis/* перехватывается
+// fallback-роутом app.get('*') и возвращает 404. Таблица komis и syncKomisProduct — ниже по файлу.
+
+// GET /api/komis/summary — сводка из таблицы komis
+app.get('/api/komis/summary', (req, res) => {
+  console.log('📦 GET /api/komis/summary - Fetching komis summary by client');
+
+  db.all(`
+    SELECT
+      k.client_id,
+      COALESCE(c.nazwa, k.klient) AS klient,
+      k.kod,
+      k.nazwa,
+      k.ilosc
+    FROM komis k
+    LEFT JOIN clients c ON c.id = k.client_id
+    ORDER BY klient, k.kod
+  `, [], (err, rows) => {
+    if (err) {
+      console.error('❌ Error fetching komis summary:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    const groupedByClient = {};
+    (rows || []).forEach(row => {
+      const groupKey = row.client_id ? `id:${row.client_id}` : `name:${row.klient}`;
+      if (!groupedByClient[groupKey]) {
+        groupedByClient[groupKey] = {
+          klient: row.klient,
+          client_id: row.client_id || null,
+          products: [],
+          total_ilosc: 0
+        };
+      }
+      groupedByClient[groupKey].products.push({ kod: row.kod, nazwa: row.nazwa, ilosc: row.ilosc });
+      groupedByClient[groupKey].total_ilosc += row.ilosc;
+    });
+
+    const result = Object.values(groupedByClient);
+    console.log(`✅ Found ${result.length} clients with komis products`);
+    res.json(result);
+  });
+});
+
+// GET /api/komis/client/:klient — данные по одному клиенту из таблицы komis (+ цена)
+app.get('/api/komis/client/:klient', (req, res) => {
+  const klient = decodeURIComponent(req.params.klient);
+  const includeZero = req.query.include_zero === '1';
+  console.log(`📦 GET /api/komis/client/${klient}`);
+
+  db.all(`
+    SELECT
+      k.client_id,
+      COALESCE(c.nazwa, k.klient) AS klient_resolved,
+      k.kod,
+      k.nazwa,
+      k.ilosc,
+      ws.cena_sprzedazy
+    FROM komis k
+    LEFT JOIN clients c ON c.id = k.client_id
+    LEFT JOIN working_sheets ws ON k.kod = ws.kod
+    WHERE LOWER(TRIM(COALESCE(c.nazwa, k.klient))) = LOWER(TRIM(?))
+       OR LOWER(TRIM(k.klient)) = LOWER(TRIM(?))
+    ORDER BY k.kod
+  `, [klient, klient], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const products = (rows || [])
+      .filter(row => includeZero || row.ilosc > 0)
+      .map(row => ({
+      kod: row.kod,
+      nazwa: row.nazwa,
+      ilosc: row.ilosc,
+      cena_sprzedazy: row.cena_sprzedazy || null
+    }));
+    const total_ilosc = products.reduce((sum, p) => sum + p.ilosc, 0);
+    const resolvedKlient = rows && rows.length > 0 ? rows[0].klient_resolved : klient;
+    const client_id = rows && rows.length > 0 ? rows[0].client_id : null;
+
+    res.json({ klient: resolvedKlient, client_id, products, total_ilosc });
+  });
+});
+
+// PUT /api/komis — сохранить ручную корректировку количества
+app.put('/api/komis', (req, res) => {
+  const { klient, kod, nazwa, ilosc } = req.body;
+  console.log(`✏️ PUT /api/komis - Updating komis: klient=${klient}, kod=${kod}, ilosc=${ilosc}`);
+
+  if (!klient || !kod || ilosc === undefined) {
+    return res.status(400).json({ error: 'klient, kod i ilosc są wymagane' });
+  }
+
+  resolveClientIdByKlient(klient, (lookupErr, clientId) => {
+    if (lookupErr) {
+      console.error('❌ Error looking up client for komis:', lookupErr);
+      return res.status(500).json({ error: lookupErr.message });
+    }
+
+  db.run(
+    `INSERT INTO komis (client_id, klient, kod, nazwa, ilosc, updated_at)
+     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(klient, kod) DO UPDATE SET
+       ilosc = excluded.ilosc,
+       nazwa = excluded.nazwa,
+       client_id = COALESCE(excluded.client_id, komis.client_id),
+       updated_at = CURRENT_TIMESTAMP`,
+    [clientId, klient, kod, nazwa || '', ilosc],
+    function(err) {
+      if (err) {
+        console.error('❌ Error updating komis:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      console.log(`✅ Komis updated: klient=${klient}, kod=${kod}, ilosc=${ilosc}`);
+      res.json({ success: true });
+    }
+  );
+  });
+});
+
+// DELETE /api/komis — сбросить корректировку (вернуть к расчётному значению)
+app.delete('/api/komis', (req, res) => {
+  const { klient, kod } = req.body;
+  console.log(`🗑️ DELETE /api/komis - Resetting override: klient=${klient}, kod=${kod}`);
+
+  db.run('DELETE FROM komis WHERE klient = ? AND kod = ?', [klient, kod], function(err) {
+    if (err) {
+      console.error('❌ Error deleting komis override:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    console.log(`✅ Komis override reset: klient=${klient}, kod=${kod}`);
+    res.json({ success: true });
+  });
+});
+
 // Serve static files from parent directory (frontend)
 // В dev режиме фронт работает на Vite (порт 3000), поэтому сервер на 3001 не должен обслуживать статику
 // В production режиме обслуживаем статические файлы из dist
@@ -11345,136 +11480,8 @@ function syncKomisProduct(klient, kod, nazwa, deltaIlosc, clientId = null) {
   });
 }
 
-// GET /api/komis/summary — сводка из таблицы komis
-app.get('/api/komis/summary', (req, res) => {
-  console.log('📦 GET /api/komis/summary - Fetching komis summary by client');
-
-  db.all(`
-    SELECT
-      k.client_id,
-      COALESCE(c.nazwa, k.klient) AS klient,
-      k.kod,
-      k.nazwa,
-      k.ilosc
-    FROM komis k
-    LEFT JOIN clients c ON c.id = k.client_id
-    ORDER BY klient, k.kod
-  `, [], (err, rows) => {
-    if (err) {
-      console.error('❌ Error fetching komis summary:', err);
-      return res.status(500).json({ error: err.message });
-    }
-
-    const groupedByClient = {};
-    (rows || []).forEach(row => {
-      const groupKey = row.client_id ? `id:${row.client_id}` : `name:${row.klient}`;
-      if (!groupedByClient[groupKey]) {
-        groupedByClient[groupKey] = {
-          klient: row.klient,
-          client_id: row.client_id || null,
-          products: [],
-          total_ilosc: 0
-        };
-      }
-      groupedByClient[groupKey].products.push({ kod: row.kod, nazwa: row.nazwa, ilosc: row.ilosc });
-      groupedByClient[groupKey].total_ilosc += row.ilosc;
-    });
-
-    const result = Object.values(groupedByClient);
-    console.log(`✅ Found ${result.length} clients with komis products`);
-    res.json(result);
-  });
-});
-
-// GET /api/komis/client/:klient — данные по одному клиенту из таблицы komis (+ цена)
-app.get('/api/komis/client/:klient', (req, res) => {
-  const klient = decodeURIComponent(req.params.klient);
-  const includeZero = req.query.include_zero === '1';
-  console.log(`📦 GET /api/komis/client/${klient}`);
-
-  db.all(`
-    SELECT
-      k.client_id,
-      COALESCE(c.nazwa, k.klient) AS klient_resolved,
-      k.kod,
-      k.nazwa,
-      k.ilosc,
-      ws.cena_sprzedazy
-    FROM komis k
-    LEFT JOIN clients c ON c.id = k.client_id
-    LEFT JOIN working_sheets ws ON k.kod = ws.kod
-    WHERE LOWER(TRIM(COALESCE(c.nazwa, k.klient))) = LOWER(TRIM(?))
-       OR LOWER(TRIM(k.klient)) = LOWER(TRIM(?))
-    ORDER BY k.kod
-  `, [klient, klient], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    const products = (rows || [])
-      .filter(row => includeZero || row.ilosc > 0)
-      .map(row => ({
-      kod: row.kod,
-      nazwa: row.nazwa,
-      ilosc: row.ilosc,
-      cena_sprzedazy: row.cena_sprzedazy || null
-    }));
-    const total_ilosc = products.reduce((sum, p) => sum + p.ilosc, 0);
-    const resolvedKlient = rows && rows.length > 0 ? rows[0].klient_resolved : klient;
-    const client_id = rows && rows.length > 0 ? rows[0].client_id : null;
-
-    res.json({ klient: resolvedKlient, client_id, products, total_ilosc });
-  });
-});
-
-// PUT /api/komis — сохранить ручную корректировку количества
-app.put('/api/komis', (req, res) => {
-  const { klient, kod, nazwa, ilosc } = req.body;
-  console.log(`✏️ PUT /api/komis - Updating komis: klient=${klient}, kod=${kod}, ilosc=${ilosc}`);
-
-  if (!klient || !kod || ilosc === undefined) {
-    return res.status(400).json({ error: 'klient, kod i ilosc są wymagane' });
-  }
-
-  resolveClientIdByKlient(klient, (lookupErr, clientId) => {
-    if (lookupErr) {
-      console.error('❌ Error looking up client for komis:', lookupErr);
-      return res.status(500).json({ error: lookupErr.message });
-    }
-
-  db.run(
-    `INSERT INTO komis (client_id, klient, kod, nazwa, ilosc, updated_at)
-     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-     ON CONFLICT(klient, kod) DO UPDATE SET
-       ilosc = excluded.ilosc,
-       nazwa = excluded.nazwa,
-       client_id = COALESCE(excluded.client_id, komis.client_id),
-       updated_at = CURRENT_TIMESTAMP`,
-    [clientId, klient, kod, nazwa || '', ilosc],
-    function(err) {
-      if (err) {
-        console.error('❌ Error updating komis:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      console.log(`✅ Komis updated: klient=${klient}, kod=${kod}, ilosc=${ilosc}`);
-      res.json({ success: true });
-    }
-  );
-  });
-});
-
-// DELETE /api/komis — сбросить корректировку (вернуть к расчётному значению)
-app.delete('/api/komis', (req, res) => {
-  const { klient, kod } = req.body;
-  console.log(`🗑️ DELETE /api/komis - Resetting override: klient=${klient}, kod=${kod}`);
-
-  db.run('DELETE FROM komis WHERE klient = ? AND kod = ?', [klient, kod], function(err) {
-    if (err) {
-      console.error('❌ Error deleting komis override:', err);
-      return res.status(500).json({ error: err.message });
-    }
-    console.log(`✅ Komis override reset: klient=${klient}, kod=${kod}`);
-    res.json({ success: true });
-  });
-});
+// Роуты /api/komis/* зарегистрированы выше — ДО production SPA catch-all,
+// иначе в production они перехватываются fallback-роутом и возвращают 404.
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '..')));
