@@ -237,8 +237,67 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
     }
   );
 
+  const hasActiveFilters = selectedYear || selectedMonth;
+
+  const filterSelectClass =
+    'block px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300 truncate';
+  const filterSelectStyle = {
+    fontFamily: 'Sora, sans-serif',
+    direction: 'ltr' as const,
+    width: '145px',
+    minWidth: '145px',
+    maxWidth: '145px',
+  };
+
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <div className="flex flex-col gap-1">
+          <div className="grid grid-cols-2 gap-1">
+            <div className="relative">
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className={filterSelectClass}
+                style={filterSelectStyle}
+              >
+                <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Rok</option>
+                {years.map(year => (
+                  <option key={year} value={year} style={{ fontFamily: 'Sora, sans-serif' }}>{year}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative">
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className={filterSelectClass}
+                style={filterSelectStyle}
+              >
+                <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Miesiąc</option>
+                {months.map(month => (
+                  <option key={month.value} value={month.value} style={{ fontFamily: 'Sora, sans-serif' }}>{month.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedYear('');
+                setSelectedMonth('');
+              }}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors"
+            >
+              Wyczyść filtry
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
         <table className="w-full">
           <thead className="sticky top-0 z-10">
@@ -279,32 +338,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   <SortIndicator field="kosztDostawy" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
-              <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                <div className="flex space-x-1 justify-end">
-                  <select
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(e.target.value)}
-                    className="block w-auto px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300"
-                    style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', minWidth: '145px' }}
-                  >
-                    <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Rok</option>
-                    {years.map(year => (
-                      <option key={year} value={year} style={{ fontFamily: 'Sora, sans-serif' }}>{year}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="block w-auto px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300"
-                    style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', minWidth: '145px' }}
-                  >
-                    <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Miesiąc</option>
-                    {months.map(month => (
-                      <option key={month.value} value={month.value} style={{ fontFamily: 'Sora, sans-serif' }}>{month.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </th>
+              <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50" />
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">

@@ -330,7 +330,8 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-1">
+      <div className="flex justify-end">
+        <div className="flex flex-col gap-1">
         <div className="grid grid-cols-2 gap-1">
           <div className="relative">
             <select
@@ -401,11 +402,12 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
           <button
             type="button"
             onClick={clearFilters}
-            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors w-fit"
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors"
           >
             Wyczyść filtry
           </button>
         )}
+        </div>
       </div>
 
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
