@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Search } from 'lucide-react';
 import Modal from 'react-modal';
 import DatePicker, { registerLocale } from 'react-datepicker';
@@ -47,6 +47,7 @@ interface OrderProduct {
 
 interface Order {
   id: number;
+  client_id?: number | null;
   klient: string;
   numer_zamowienia: string;
   data_utworzenia: string;
@@ -54,6 +55,21 @@ interface Order {
   typ?: string;
   products?: OrderProduct[];
 }
+
+const formatProductsFromOrder = (orderData: Order): ProductRow[] => {
+  if (!orderData.products || orderData.products.length === 0) {
+    return [{ kod: '', nazwa: '', ilosc: '', typ: '' }];
+  }
+
+  return orderData.products.map(product => ({
+    kod: product.kod || '',
+    nazwa: product.nazwa || '',
+    ilosc: (product.ilosc || 0).toString(),
+    typ: product.typ || '',
+    originalIlosc: product.ilosc || 0,
+    ilosc_from_reservation: product.ilosc_from_reservation || 0
+  }));
+};
 
 interface ProductRow {
   kod: string;
@@ -113,46 +129,88 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
   const [overflowDialogOpen, setOverflowDialogOpen] = useState(false);
   const [overflowItems, setOverflowItems] = useState<ReturnType<typeof collectReservationOverflows>>([]);
   const [pendingSubmit, setPendingSubmit] = useState(false);
+  const skipClientSearchRef = useRef(false);
+
+  const resolveClient = async (orderData: Order): Promise<any> => {
+    if (orderData.typ === 'odpisanie' || orderData.typ === 'przychod') {
+      return { nazwa: orderData.klient };
+    }
+
+    if (orderData.client_id) {
+      try {
+        const response = await fetch(`/api/clients/${orderData.client_id}`);
+        if (response.ok) {
+          return await response.json();
+        }
+      } catch (error) {
+        console.error('❌ Error loading client by id:', error);
+      }
+    }
+
+    if (orderData.klient) {
+      try {
+        const response = await fetch(`/api/clients/search?q=${encodeURIComponent(orderData.klient)}`);
+        if (response.ok) {
+          const searchResults = await response.json();
+          const matchingClient = searchResults.find((client: any) =>
+            client.nazwa?.toLowerCase() === orderData.klient.toLowerCase()
+          );
+          if (matchingClient) {
+            return matchingClient;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error loading client:', error);
+      }
+    }
+
+    return { nazwa: orderData.klient };
+  };
 
   // Функция для загрузки информации о продуктах из working_sheets с резервациями
-  const loadProductsInfo = async (productRowsData: any[], clientId?: number) => {
+  const loadProductsInfo = async (productRowsData: ProductRow[], clientId?: number) => {
     try {
-      const productCodes = productRowsData.map(p => p.kod).filter(kod => kod.trim());
+      const productCodes = [...new Set(productRowsData.map(p => p.kod).filter(kod => kod.trim()))];
       console.log('=== LOADING PRODUCTS INFO ===');
       console.log('Product codes to load:', productCodes);
       console.log('Client ID for reservations:', clientId);
       
       if (productCodes.length === 0) return;
 
-      // Загружаем информацию о каждом продукте с учётом резерваций
       const productsInfo: any[] = [];
-      // Все строки по каждому kod (основные + семплы)
       const resultsByKod = new Map<string, any[]>();
-      
-      for (const kod of productCodes) {
-        const params = new URLSearchParams({ query: kod });
-        if (clientId) {
-          params.set('client_id', String(clientId));
-        }
-        if (order?.id && order?.typ !== 'odpisanie' && order?.typ !== 'przychod') {
-          params.set('order_id', String(order.id));
-        }
-        if (order?.typ === 'przychod') {
-          params.set('include_zero_stock', 'true');
-        }
 
-        const response = await fetch(`/api/working-sheets/search?${params.toString()}`);
-        if (!response.ok) continue;
-        
-        const searchResults = await response.json();
-        // Собираем все строки с точным совпадением по коду (основные + семплы)
-        const kodResults = searchResults.filter((p: any) => p.kod === kod);
+      const searchResults = await Promise.all(
+        productCodes.map(async (kod) => {
+          const params = new URLSearchParams({ query: kod });
+          if (clientId) {
+            params.set('client_id', String(clientId));
+          }
+          if (order?.id && order?.typ !== 'odpisanie' && order?.typ !== 'przychod') {
+            params.set('order_id', String(order.id));
+          }
+          if (order?.typ === 'przychod') {
+            params.set('include_zero_stock', 'true');
+          }
+
+          const response = await fetch(`/api/working-sheets/search?${params.toString()}`);
+          if (!response.ok) {
+            return [kod, []] as const;
+          }
+
+          const data = await response.json();
+          const kodResults = data.filter((product: any) => product.kod === kod);
+          return [kod, kodResults] as const;
+        })
+      );
+
+      searchResults.forEach(([kod, kodResults]) => {
         if (kodResults.length > 0) {
           resultsByKod.set(kod, kodResults);
-          kodResults.forEach((r: any) => productsInfo.push(r));
+          kodResults.forEach((result: any) => productsInfo.push(result));
           console.log(`Found ${kodResults.length} row(s) for ${kod}:`, kodResults);
         }
-      }
+      });
 
       // Суммарный остаток по kod (основной + семплы)
       const ilosc_totalByKod = new Map<string, number>();
@@ -203,9 +261,27 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
 
   // Инициализация данных при открытии модального окна
   useEffect(() => {
-    if (isOpen && order) {
-      setKlient(order.klient);
-      setSearchQuery(order.klient);
+    if (!isOpen || !order) {
+      if (!isOpen) {
+        setNumerOdpisaniaBase('');
+        setNumerPrzychoduBase('');
+      }
+      return;
+    }
+
+    skipClientSearchRef.current = true;
+    setKlient(order.klient);
+    setSearchQuery(order.klient);
+    setNumerZamowienia(order.numer_zamowienia);
+    setProductRows(formatProductsFromOrder(order));
+
+    if (order.typ === 'odpisanie' || order.typ === 'przychod') {
+      setSelectedClient({ nazwa: order.klient });
+    } else if (order.client_id) {
+      setSelectedClient({ id: order.client_id, nazwa: order.klient });
+    } else {
+      setSelectedClient({ nazwa: order.klient });
+    }
       
       // Для списаний: извлекаем базовый номер из существующего номера
       if (order.typ === 'odpisanie') {
@@ -261,8 +337,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
         }
       }
       
-      setNumerZamowienia(order.numer_zamowienia);
-      
       // Загружаем дату создания заказа
       if (order.data_utworzenia) {
         const orderDate = new Date(order.data_utworzenia);
@@ -271,68 +345,41 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
       } else {
         setSelectedDate(null);
       }
-      
-      // Преобразуем продукты в формат для редактирования
-      const initFromOrder = (orderData: Order) => {
-        const formattedProducts: ProductRow[] = orderData.products && orderData.products.length > 0
-          ? orderData.products.map(product => ({
-              kod: product.kod || '',
-              nazwa: product.nazwa || '',
-              ilosc: (product.ilosc || 0).toString(),
-              typ: product.typ || '',
-              originalIlosc: product.ilosc || 0,
-              ilosc_from_reservation: product.ilosc_from_reservation || 0
-            }))
-          : [{ kod: '', nazwa: '', ilosc: '', typ: '' }];
 
-        console.log('Order products from backend:', orderData.products);
-        console.log('Formatted products:', formattedProducts);
-        setProductRows(formattedProducts);
+    let cancelled = false;
 
-        if (orderData.klient && orderData.typ !== 'odpisanie' && orderData.typ !== 'przychod') {
-          fetch(`/api/clients/search?q=${encodeURIComponent(orderData.klient)}`)
-            .then(res => res.ok ? res.json() : [])
-            .then(clients => {
-              const matchingClient = clients.find((c: any) =>
-                c.nazwa?.toLowerCase() === orderData.klient.toLowerCase()
-              );
-              if (matchingClient) {
-                setSelectedClient(matchingClient);
-                console.log('✅ Loaded client with id:', matchingClient.id);
-                if (formattedProducts.length > 0 && formattedProducts[0].kod) {
-                  loadProductsInfo(formattedProducts, matchingClient.id);
-                }
-              } else {
-                setSelectedClient({ nazwa: orderData.klient });
-                if (formattedProducts.length > 0 && formattedProducts[0].kod) {
-                  loadProductsInfo(formattedProducts);
-                }
-              }
-            })
-            .catch(err => {
-              console.error('❌ Error loading client:', err);
-              setSelectedClient({ nazwa: orderData.klient });
-              if (formattedProducts.length > 0 && formattedProducts[0].kod) {
-                loadProductsInfo(formattedProducts);
-              }
-            });
-        } else {
-          setSelectedClient({ nazwa: orderData.klient });
-          if (formattedProducts.length > 0 && formattedProducts[0].kod) {
-            loadProductsInfo(formattedProducts);
-          }
+    const enrichInBackground = async () => {
+      const [freshOrder, client] = await Promise.all([
+        fetch(`/api/orders/${order.id}`)
+          .then(res => (res.ok ? res.json() : order))
+          .catch(() => order),
+        resolveClient(order)
+      ]);
+
+      if (cancelled) return;
+
+      const enrichedProducts = formatProductsFromOrder(freshOrder);
+      setProductRows(enrichedProducts);
+
+      if (client) {
+        setSelectedClient(client);
+        if (client.nazwa) {
+          skipClientSearchRef.current = true;
+          setSearchQuery(client.nazwa);
+          setKlient(client.nazwa);
         }
-      };
+      }
 
-      fetch(`/api/orders/${order.id}`)
-        .then(res => (res.ok ? res.json() : order))
-        .then(freshOrder => initFromOrder(freshOrder))
-        .catch(() => initFromOrder(order));
-    } else {
-      // Очищаем состояние при закрытии
-      setNumerOdpisaniaBase('');
-      setNumerPrzychoduBase('');
-    }
+      if (enrichedProducts.some(product => product.kod)) {
+        loadProductsInfo(enrichedProducts, client?.id);
+      }
+    };
+
+    enrichInBackground();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, order]);
 
   // Обновление полного номера списания/przychodu при изменении даты или базового номера
@@ -427,6 +474,11 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
   // Эффект для поиска клиентов
   useEffect(() => {
     const searchClients = async () => {
+      if (skipClientSearchRef.current) {
+        skipClientSearchRef.current = false;
+        return;
+      }
+
       if (searchQuery.trim().length < 2) {
         setClients([]);
         return;

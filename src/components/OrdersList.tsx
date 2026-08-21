@@ -37,6 +37,7 @@ interface OrderProduct {
 
 interface Order {
   id: number;
+  client_id?: number | null;
   klient: string;
   numer_zamowienia: string;
   data_utworzenia: string;
@@ -114,6 +115,7 @@ export const OrdersList: React.FC<OrdersListProps> = ({
       // Data is already properly structured with products array
       const transformedOrders = rawData.map((order: any) => ({
         id: order.id,
+        client_id: order.client_id ?? null,
         klient: order.klient,
         numer_zamowienia: order.numer_zamowienia,
         data_utworzenia: order.data_utworzenia,
