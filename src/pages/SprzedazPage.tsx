@@ -16,7 +16,7 @@ import toast from 'react-hot-toast';
 
 const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
-type SprzedazSubTab = 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis';
+type SprzedazSubTab = 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis' | 'analiza_wydan';
 
 interface SprzedazPageProps {
   activeSubTab: string | null;
@@ -228,6 +228,16 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
             }`}
           >
             Komis
+          </button>
+          <button
+            onClick={() => setActiveSubTab('analiza_wydan')}
+            className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
+              activeSubTab === 'analiza_wydan'
+                ? 'text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Analiza wydań
           </button>
         </div>
 
@@ -497,6 +507,12 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
         {activeSubTab === 'komis' && (
           <div className="flex flex-col gap-4 mt-6 w-full">
             <KomisList refreshTrigger={ordersRefreshTrigger} />
+          </div>
+        )}
+
+        {activeSubTab === 'analiza_wydan' && (
+          <div className="space-y-4 mt-6">
+            <h2 className="text-lg font-bold text-gray-900 font-sora">Analiza wydań</h2>
           </div>
         )}
       </div>

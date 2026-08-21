@@ -89,7 +89,7 @@ interface AppState {
   products: Product[];
   productReceipts: ProductReceipt[];
   activeTab: 'inventory' | 'clients' | 'orders' | 'inventoryStatus';
-  activeSubTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom' | null;
+  activeSubTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'analiza_wydan' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom' | null;
   isDbInitialized: boolean;
 }
 
@@ -111,7 +111,7 @@ function App() {
     const savedActiveSubTab = localStorage.getItem('activeSubTab');
     
     const validTabs = ['inventory', 'clients', 'orders', 'inventoryStatus'] as const;
-    const validSubTabs = ['przyjecie', 'analiza', 'kalendarz', 'wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis', 'baza_klientow', 'sprzedaz_klientom'] as const;
+    const validSubTabs = ['przyjecie', 'analiza', 'kalendarz', 'wydanie', 'rezerwacje', 'analiza_towarow', 'analiza_wydan', 'faktury', 'komis', 'baza_klientow', 'sprzedaz_klientom'] as const;
 
     let activeTab: AppState['activeTab'];
     if (tabFromPath) {
@@ -128,7 +128,7 @@ function App() {
       savedActiveSubTab &&
       validSubTabs.includes(savedActiveSubTab as typeof validSubTabs[number]) &&
       ((activeTab === 'inventory' && ['przyjecie', 'analiza', 'kalendarz'].includes(savedActiveSubTab)) ||
-        (activeTab === 'orders' && ['wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis'].includes(savedActiveSubTab)) ||
+        (activeTab === 'orders' && ['wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis', 'analiza_wydan'].includes(savedActiveSubTab)) ||
         (activeTab === 'clients' && ['baza_klientow', 'sprzedaz_klientom'].includes(savedActiveSubTab)));
     
     const activeSubTab = (savedSubTabValid
@@ -369,7 +369,7 @@ function App() {
     }
   };
 
-  const setActiveSubTab = (subTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom') => {
+  const setActiveSubTab = (subTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'analiza_wydan' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom') => {
     localStorage.setItem('activeSubTab', subTab);
     setAppState(prev => ({ ...prev, activeSubTab: subTab }));
   };
@@ -561,7 +561,7 @@ function App() {
             {appState.activeTab === 'orders' && (
               <SprzedazPage
                 activeSubTab={appState.activeSubTab}
-                setActiveSubTab={setActiveSubTab as (tab: 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis') => void}
+                setActiveSubTab={setActiveSubTab as (tab: 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'faktury' | 'komis' | 'analiza_wydan') => void}
                 ordersRefreshTrigger={ordersRefreshTrigger}
                 onOrdersRefresh={() => setOrdersRefreshTrigger(prev => prev + 1)}
                 reservationsRefreshTrigger={reservationsRefreshTrigger}
