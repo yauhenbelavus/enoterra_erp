@@ -10666,7 +10666,7 @@ if (isProduction) {
     }
     // Для остальных запросов обслуживаем статические файлы
     console.log(`📁 Static file request: ${req.method} ${req.path}`);
-    express.static(path.join(__dirname, '../dist'))(req, res, next);
+    express.static(path.join(__dirname, '..'))(req, res, next);
   });
 
 // ВАЖНО: SPA Fallback маршрут ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ!
@@ -10676,7 +10676,7 @@ app.get('*', (req, res) => {
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ error: 'API endpoint not found' });
     }
-    const indexPath = path.join(__dirname, '../dist/index.html');
+    const indexPath = path.join(__dirname, '../index.html');
   console.log('Serving SPA fallback:', indexPath);
   res.sendFile(indexPath);
 });
