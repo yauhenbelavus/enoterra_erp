@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface WydaniaProduct {
   kod: string;
@@ -101,6 +102,8 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [selectedTyp, setSelectedTyp] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [sortField, setSortField] = useState<string>('nazwa');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const activeFilters = useMemo(
     () => ({
@@ -306,6 +309,50 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     await loadDetails(kod);
   };
 
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection(field === 'ilosc' ? 'desc' : 'asc');
+    }
+  };
+
+  const sortedProducts = useMemo(() => {
+    return [...products].sort((a, b) => {
+      let aValue: string | number = '';
+      let bValue: string | number = '';
+
+      switch (sortField) {
+        case 'kod':
+          aValue = (a.kod || '').toLowerCase();
+          bValue = (b.kod || '').toLowerCase();
+          break;
+        case 'nazwa':
+          aValue = (a.nazwa || '').toLowerCase();
+          bValue = (b.nazwa || '').toLowerCase();
+          break;
+        case 'ilosc':
+          aValue = a.ilosc || 0;
+          bValue = b.ilosc || 0;
+          break;
+        default:
+          aValue = (a.nazwa || '').toLowerCase();
+          bValue = (b.nazwa || '').toLowerCase();
+      }
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortDirection === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+
+      return sortDirection === 'asc'
+        ? (aValue as number) - (bValue as number)
+        : (bValue as number) - (aValue as number);
+    });
+  }, [products, sortField, sortDirection]);
+
   if (isLoading && products.length === 0) {
     return <div className="text-gray-600 font-sora text-sm py-4">Ładowanie danych...</div>;
   }
@@ -378,14 +425,38 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             </th>
           </tr>
           <tr>
-            <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-              Kod
+            <th
+              className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              onClick={() => handleSort('kod')}
+            >
+              <div className="flex items-center gap-1">
+                Kod
+                {sortField === 'kod' && (
+                  sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                )}
+              </div>
             </th>
-            <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-              Nazwa
+            <th
+              className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              onClick={() => handleSort('nazwa')}
+            >
+              <div className="flex items-center gap-1">
+                Nazwa
+                {sortField === 'nazwa' && (
+                  sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                )}
+              </div>
             </th>
-            <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-              Ilość
+            <th
+              className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              onClick={() => handleSort('ilosc')}
+            >
+              <div className="flex items-center gap-1">
+                Ilość
+                {sortField === 'ilosc' && (
+                  sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                )}
+              </div>
             </th>
           </tr>
         </thead>
@@ -409,7 +480,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               </td>
             </tr>
           ) : (
-            products.map((product) => {
+            sortedProducts.map((product) => {
               const isExpanded = expandedKod === product.kod;
               const typRows = isExpanded ? detailsByKod[product.kod] || [] : [];
               const isDetailsLoading = detailsLoadingKod === product.kod;
