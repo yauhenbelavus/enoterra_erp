@@ -915,6 +915,19 @@ db.serialize(() => {
         } else {
           console.log('✅ Column powod_odpisania does not exist in order_products (migration not needed)');
         }
+
+        db.run(
+          `UPDATE order_products SET typ = 'przesuniecie'
+           WHERE typ IS NULL
+             AND orderId IN (SELECT id FROM orders WHERE typ = 'przesuniecie')`,
+          function (migrateTypErr) {
+            if (migrateTypErr) {
+              console.error('❌ Error migrating przesuniecie order_products typ:', migrateTypErr);
+            } else if (this.changes > 0) {
+              console.log(`✅ Migrated ${this.changes} przesuniecie order_products to typ='przesuniecie'`);
+            }
+          }
+        );
       });
     }
   });
@@ -5002,7 +5015,7 @@ app.post('/api/invoices', (req, res) => {
               const ilosc = Math.round(parseFloat(p.ilosc) || 0);
               db.run(
                 `INSERT INTO order_products (orderId, kod, nazwa, ilosc, typ) VALUES (?, ?, ?, ?, ?)`,
-                [psOrderId, p.kod || '', p.nazwa || '', ilosc, null],
+                [psOrderId, p.kod || '', p.nazwa || '', ilosc, 'przesuniecie'],
                 (opErr) => {
                   if (hasErr) return;
                   if (opErr) {

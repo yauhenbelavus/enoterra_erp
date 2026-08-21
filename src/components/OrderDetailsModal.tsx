@@ -50,7 +50,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, on
     { value: 'zamiana', label: 'Zamiana', color: 'bg-purple-100 text-purple-800 border-purple-200' },
     { value: 'prezent', label: 'Prezent', color: 'bg-pink-100 text-pink-800 border-pink-200' },
     { value: 'komis', label: 'Komis', color: 'bg-orange-100 text-orange-800 border-orange-200' },
-    { value: 'bar', label: 'Bar', color: 'bg-cyan-100 text-cyan-800 border-cyan-200' }
+    { value: 'bar', label: 'Bar', color: 'bg-cyan-100 text-cyan-800 border-cyan-200' },
+    { value: 'przesuniecie', label: 'Przesunięcie', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' }
   ];
 
   const POWODY_ODPISANIA = [
