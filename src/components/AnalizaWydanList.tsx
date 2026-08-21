@@ -136,13 +136,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       <table className="w-full">
         <thead className="sticky top-0 z-10">
           <tr>
-            <th className="px-0 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
+            <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
               Kod
             </th>
-            <th className="px-10 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
+            <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
               Nazwa
             </th>
-            <th className="px-0 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
+            <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
               Ilość
             </th>
           </tr>
@@ -150,7 +150,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         <tbody className="bg-white divide-y divide-gray-200">
           {products.length === 0 ? (
             <tr>
-              <td colSpan={3} className="px-4 py-8 text-center text-sm text-gray-500 font-sora">
+              <td colSpan={3} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                 Brak danych o wydaniach
               </td>
             </tr>
@@ -167,20 +167,20 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => toggleProductDetails(product.kod)}
                   >
-                    <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
+                    <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-900 font-sora">
                       {product.kod}
                     </td>
-                    <td className="px-10 py-4 text-sm text-gray-900 font-sora">
+                    <td className="px-8 py-3 text-sm text-gray-900 font-sora">
                       {product.nazwa}
                     </td>
-                    <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center">
+                    <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-600 font-sora">
                       {product.ilosc}
                     </td>
                   </tr>
 
                   {isExpanded && isDetailsLoading && (
                     <tr className="bg-gray-50">
-                      <td colSpan={3} className="px-10 py-3 text-sm text-gray-500 font-sora">
+                      <td colSpan={3} className="px-8 py-3 text-sm text-gray-500 font-sora">
                         Ładowanie szczegółów...
                       </td>
                     </tr>
@@ -188,7 +188,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
                   {isExpanded && detailsError && (
                     <tr className="bg-gray-50">
-                      <td colSpan={3} className="px-10 py-3 text-sm text-red-600 font-sora">
+                      <td colSpan={3} className="px-8 py-3 text-sm text-red-600 font-sora">
                         {detailsError}
                       </td>
                     </tr>
@@ -196,7 +196,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
                   {isExpanded && !isDetailsLoading && !detailsError && typRows.length === 0 && (
                     <tr className="bg-gray-50">
-                      <td colSpan={3} className="px-10 py-3 text-sm text-gray-500 font-sora">
+                      <td colSpan={3} className="px-8 py-3 text-sm text-gray-500 font-sora">
                         Brak danych o typach
                       </td>
                     </tr>
@@ -209,13 +209,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                       const meta = getTypMeta(row.typ);
                       return (
                         <tr key={`${product.kod}-${row.typ}`} className="bg-gray-50">
-                          <td className="px-0 py-2" />
-                          <td className="px-10 py-2 pl-12 text-sm font-sora">
+                          <td className="px-8 py-2 pl-12 text-sm font-sora">
                             <span className={`px-2 py-1 rounded-md text-xs font-medium ${meta.color}`}>
                               {meta.label}
                             </span>
                           </td>
-                          <td className="px-0 py-2 whitespace-nowrap text-sm text-gray-600 font-sora text-center">
+                          <td className="px-8 py-2" />
+                          <td className="px-8 py-2 whitespace-nowrap text-sm text-gray-600 font-sora">
                             {row.ilosc}
                           </td>
                         </tr>
