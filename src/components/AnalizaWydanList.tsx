@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { SortIndicator } from './SortIndicator';
+import { compareAnalizaWydanProducts, extractDateFromOrderNumber, useTableSort } from '../utils/tableSort';
 
 interface WydaniaProduct {
   kod: string;
@@ -54,20 +55,6 @@ const ALL_MONTHS = [
   { value: '12', label: 'Grudzień' },
 ];
 
-const extractDateFromOrderNumber = (orderNumber: string): Date | null => {
-  try {
-    const match = orderNumber.match(/(\d{1,2})_(\d{1,2})_(\d{4})$/);
-    if (!match) return null;
-    const day = parseInt(match[1], 10);
-    const month = parseInt(match[2], 10) - 1;
-    const year = parseInt(match[3], 10);
-    const date = new Date(year, month, day);
-    return isNaN(date.getTime()) ? null : date;
-  } catch {
-    return null;
-  }
-};
-
 const getTypMeta = (typ: string) =>
   TYP_LABELS[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
 
@@ -102,8 +89,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [selectedTyp, setSelectedTyp] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [sortField, setSortField] = useState<string>('nazwa');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(products, {
+    defaultField: 'nazwa',
+    defaultDirection: 'asc',
+    directionForField: (field) => (field === 'ilosc' ? 'desc' : 'asc'),
+    compareItems: compareAnalizaWydanProducts,
+  });
 
   const activeFilters = useMemo(
     () => ({
@@ -309,50 +301,6 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     await loadDetails(kod);
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection(field === 'ilosc' ? 'desc' : 'asc');
-    }
-  };
-
-  const sortedProducts = useMemo(() => {
-    return [...products].sort((a, b) => {
-      let aValue: string | number = '';
-      let bValue: string | number = '';
-
-      switch (sortField) {
-        case 'kod':
-          aValue = (a.kod || '').toLowerCase();
-          bValue = (b.kod || '').toLowerCase();
-          break;
-        case 'nazwa':
-          aValue = (a.nazwa || '').toLowerCase();
-          bValue = (b.nazwa || '').toLowerCase();
-          break;
-        case 'ilosc':
-          aValue = a.ilosc || 0;
-          bValue = b.ilosc || 0;
-          break;
-        default:
-          aValue = (a.nazwa || '').toLowerCase();
-          bValue = (b.nazwa || '').toLowerCase();
-      }
-
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortDirection === 'asc'
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
-      }
-
-      return sortDirection === 'asc'
-        ? (aValue as number) - (bValue as number)
-        : (bValue as number) - (aValue as number);
-    });
-  }, [products, sortField, sortDirection]);
-
   const hasActiveFilters = selectedKlient || selectedTyp || selectedYear || selectedMonth;
 
   const clearFilters = () => {
@@ -470,9 +418,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             >
               <div className="flex items-center gap-1">
                 Kod
-                {sortField === 'kod' && (
-                  sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                )}
+                <SortIndicator field="kod" sortField={sortField} sortDirection={sortDirection} />
               </div>
             </th>
             <th
@@ -481,9 +427,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             >
               <div className="flex items-center gap-1">
                 Nazwa
-                {sortField === 'nazwa' && (
-                  sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                )}
+                <SortIndicator field="nazwa" sortField={sortField} sortDirection={sortDirection} />
               </div>
             </th>
             <th
@@ -492,9 +436,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             >
               <div className="flex items-center gap-1">
                 Ilość
-                {sortField === 'ilosc' && (
-                  sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                )}
+                <SortIndicator field="ilosc" sortField={sortField} sortDirection={sortDirection} />
               </div>
             </th>
           </tr>

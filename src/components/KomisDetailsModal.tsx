@@ -1,6 +1,8 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import Modal from 'react-modal';
+import { SortableTh } from './SortIndicator';
+import { getKomisProductSortValue, useTableSort } from '../utils/tableSort';
 
 interface KomisProduct {
   kod: string;
@@ -21,6 +23,15 @@ interface KomisDetailsModalProps {
 }
 
 export const KomisDetailsModal: React.FC<KomisDetailsModalProps> = ({ isOpen, onClose, komisData }) => {
+  const products = komisData?.products ?? [];
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(
+    products,
+    getKomisProductSortValue,
+    'nazwa',
+    'asc'
+  );
+
   if (!komisData) return null;
 
   const totalIlosc = komisData.products.reduce((sum, p) => sum + p.ilosc, 0);
@@ -88,19 +99,35 @@ export const KomisDetailsModal: React.FC<KomisDetailsModalProps> = ({ isOpen, on
               <table className="w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
-                      Kod
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Nazwa
-                    </th>
-                    <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
-                      Ilość
-                    </th>
+                    <SortableTh
+                      label="Kod"
+                      field="kod"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28 bg-gray-50"
+                    />
+                    <SortableTh
+                      label="Nazwa"
+                      field="nazwa"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
+                    />
+                    <SortableTh
+                      label="Ilość"
+                      field="ilosc"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20 bg-gray-50"
+                      align="center"
+                    />
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {komisData.products.map((product, idx) => (
+                  {sortedProducts.map((product, idx) => (
                     <tr key={`${product.kod}-${idx}`} className="hover:bg-gray-50">
                       <td className="px-4 py-2 text-xs text-gray-900 font-medium w-28">
                         {product.kod}

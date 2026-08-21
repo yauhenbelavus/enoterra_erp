@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Eye, X, Edit } from 'lucide-react';
 import { ReceiptDetailsModal } from './ReceiptDetailsModal';
 import { EditReceiptModal, EditReceiptSubmitResult } from './EditReceiptModal';
 import toast from 'react-hot-toast';
 import Modal from 'react-modal';
 import { getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
+import { SortIndicator } from './SortIndicator';
+import { compareReceipts, useTableSort } from '../utils/tableSort';
 
 interface ProductReceipt {
   id?: number;
@@ -80,8 +82,6 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
-  const [sortField, setSortField] = useState<string>('dataPrzyjecia');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
@@ -124,15 +124,6 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handlePasswordSubmit();
-    }
-  };
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
     }
   };
 
@@ -231,46 +222,20 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
     return true;
   });
 
-  // Сортировка отфильтрованных приёмок
-  const sortedReceipts = filteredReceipts.sort((a, b) => {
-    let aValue: any;
-    let bValue: any;
-    
-    switch (sortField) {
-      case 'dataPrzyjecia':
-        aValue = new Date(a.dataPrzyjecia);
-        bValue = new Date(b.dataPrzyjecia);
-        break;
-      case 'sprzedawca':
-        aValue = (a.sprzedawca || '').toLowerCase();
-        bValue = (b.sprzedawca || '').toLowerCase();
-        break;
-      case 'wartosc':
-        aValue = getReceiptDisplayWartosc(a);
-        bValue = getReceiptDisplayWartosc(b);
-        break;
-      case 'kosztDostawy':
-        aValue = a.kosztDostawy;
-        bValue = b.kosztDostawy;
-        break;
-      default:
-        aValue = (a as any)[sortField] || '';
-        bValue = (b as any)[sortField] || '';
-    }
+  const compareReceiptItems = useCallback(
+    (a: ProductReceipt, b: ProductReceipt, field: string, direction: 'asc' | 'desc') =>
+      compareReceipts(a, b, field, direction, getReceiptDisplayWartosc),
+    []
+  );
 
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return sortDirection === 'asc' 
-        ? aValue.localeCompare(bValue)
-        : bValue.localeCompare(aValue);
+  const { sortField, sortDirection, handleSort, sortedItems: sortedReceipts } = useTableSort(
+    filteredReceipts,
+    {
+      defaultField: 'dataPrzyjecia',
+      defaultDirection: 'desc',
+      compareItems: compareReceiptItems,
     }
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
-    }
-    if (aValue instanceof Date && bValue instanceof Date) {
-      return sortDirection === 'asc' ? aValue.getTime() - bValue.getTime() : bValue.getTime() - aValue.getTime();
-    }
-    return 0;
-  });
+  );
 
   return (
     <div className="space-y-4">
@@ -282,25 +247,37 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('dataPrzyjecia')}
               >
-                Data zakupu
+                <div className="flex items-center gap-1">
+                  Data zakupu
+                  <SortIndicator field="dataPrzyjecia" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('sprzedawca')}
               >
-                Sprzedawca
+                <div className="flex items-center gap-1">
+                  Sprzedawca
+                  <SortIndicator field="sprzedawca" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('wartosc')}
               >
-                Wartość
+                <div className="flex items-center gap-1">
+                  Wartość
+                  <SortIndicator field="wartosc" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('kosztDostawy')}
               >
-                Koszt dostawy
+                <div className="flex items-center gap-1">
+                  Koszt dostawy
+                  <SortIndicator field="kosztDostawy" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
                 <div className="flex space-x-1 justify-end">

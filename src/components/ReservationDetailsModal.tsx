@@ -2,6 +2,8 @@ import React from 'react';
 import { X } from 'lucide-react';
 import Modal from 'react-modal';
 import { getEffectiveReservationStatus, isIndefiniteReservation } from '../utils/reservationDates';
+import { SortableTh } from './SortIndicator';
+import { getReservationProductSortValue, useTableSort } from '../utils/tableSort';
 
 interface ReservationProduct {
   id: number;
@@ -68,6 +70,15 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
       y: e.clientY - position.y
     };
   };
+
+  const reservationProducts = reservation?.products ?? [];
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(
+    reservationProducts,
+    getReservationProductSortValue,
+    'nazwa',
+    'asc'
+  );
 
   if (!reservation) return null;
 
@@ -164,19 +175,57 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
             <table className="min-w-full divide-y divide-gray-200 text-xs">
               <thead>
                 <tr>
-                  <th className="px-2 py-2 text-left w-[80px]">Kod</th>
-                  <th className="px-2 py-2 text-left w-[220px]">Nazwa</th>
+                  <SortableTh
+                    label="Kod"
+                    field="kod"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[80px]"
+                  />
+                  <SortableTh
+                    label="Nazwa"
+                    field="nazwa"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[220px]"
+                  />
                   {(effectiveStatus === 'anulowana' || effectiveStatus === 'zrealizowana' || effectiveStatus === 'wygasła') && (
                     <th className="py-2 text-left w-[85px]"></th>
                   )}
-                  <th className="px-2 py-2 text-center w-[70px]">Pozostało</th>
-                  <th className="px-2 py-2 text-center w-[60px]">Wydane</th>
-                  <th className="px-2 py-2 text-center w-[90px]">Zarezerwowane</th>
+                  <SortableTh
+                    label="Pozostało"
+                    field="pozostalo"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-center w-[70px]"
+                    align="center"
+                  />
+                  <SortableTh
+                    label="Wydane"
+                    field="wydane"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-center w-[60px]"
+                    align="center"
+                  />
+                  <SortableTh
+                    label="Zarezerwowane"
+                    field="zarezerwowane"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-center w-[90px]"
+                    align="center"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {reservation.products && reservation.products.length > 0 ? (
-                  reservation.products.map((product) => {
+                {sortedProducts.length > 0 ? (
+                  sortedProducts.map((product) => {
                     const wydane = product.ilosc_wydane ?? 0;
                     const pozostalo = product.ilosc - wydane;
                     const isInactive = effectiveStatus === 'anulowana' || effectiveStatus === 'zrealizowana' || effectiveStatus === 'wygasła';

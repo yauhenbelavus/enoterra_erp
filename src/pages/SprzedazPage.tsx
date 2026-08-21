@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { X, Plus, Minus, ArrowDownCircle } from 'lucide-react';
 import { Tooltip } from 'react-tooltip';
 import { ProductSearch } from '../components/ProductSearch';
@@ -13,6 +13,8 @@ import { PrzychodModal } from '../components/PrzychodModal';
 import { CreateReservationModal } from '../components/CreateReservationModal';
 import { KomisList } from '../components/KomisList';
 import { AnalizaWydanList } from '../components/AnalizaWydanList';
+import { SortIndicator } from '../components/SortIndicator';
+import { compareAnalysisProducts, useTableSort } from '../utils/tableSort';
 import toast from 'react-hot-toast';
 
 const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
@@ -73,6 +75,25 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
       loadAnalysisProducts();
     }
   }, [activeSubTab, reservationsRefreshTrigger]);
+
+  const filteredAnalysisProducts = useMemo(() => {
+    return analysisProducts.filter((p) => {
+      const ilosc = p.ilosc ?? 0;
+      const iloscWydane = p.ilosc_wydane ?? 0;
+      return ilosc - iloscWydane > 0;
+    });
+  }, [analysisProducts]);
+
+  const {
+    sortField: analysisSortField,
+    sortDirection: analysisSortDirection,
+    handleSort: handleAnalysisSort,
+    sortedItems: sortedAnalysisProducts,
+  } = useTableSort(filteredAnalysisProducts, {
+    defaultField: 'nazwa',
+    defaultDirection: 'asc',
+    compareItems: compareAnalysisProducts,
+  });
 
   const handleProductSearch = async (query: string) => {
     try {
@@ -363,34 +384,56 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
                 <table className="w-full">
                   <thead className="sticky top-0 z-10">
                     <tr>
-                      <th className="px-0 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                        Kod
+                      <th
+                        className="px-0 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50 cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleAnalysisSort('kod')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Kod
+                          <SortIndicator field="kod" sortField={analysisSortField} sortDirection={analysisSortDirection} />
+                        </div>
                       </th>
-                      <th className="px-10 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                        Nazwa
+                      <th
+                        className="px-10 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50 cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleAnalysisSort('nazwa')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Nazwa
+                          <SortIndicator field="nazwa" sortField={analysisSortField} sortDirection={analysisSortDirection} />
+                        </div>
                       </th>
-                      <th className="px-0 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                        Pozostało
+                      <th
+                        className="px-0 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50 cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleAnalysisSort('pozostalo')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          Pozostało
+                          <SortIndicator field="pozostalo" sortField={analysisSortField} sortDirection={analysisSortDirection} />
+                        </div>
                       </th>
-                      <th className="px-0 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                        Wydane
+                      <th
+                        className="px-0 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50 cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleAnalysisSort('wydane')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          Wydane
+                          <SortIndicator field="wydane" sortField={analysisSortField} sortDirection={analysisSortDirection} />
+                        </div>
                       </th>
-                      <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
-                        Zarezerwowane
+                      <th
+                        className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50 cursor-pointer hover:bg-gray-100"
+                        onClick={() => handleAnalysisSort('zarezerwowane')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          Zarezerwowane
+                          <SortIndicator field="zarezerwowane" sortField={analysisSortField} sortDirection={analysisSortDirection} />
+                        </div>
                       </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {analysisProducts.filter(p => {
-                      const ilosc = p.ilosc ?? 0;
-                      const iloscWydane = p.ilosc_wydane ?? 0;
-                      return (ilosc - iloscWydane) > 0;
-                    }).length > 0 ? (
-                      analysisProducts.filter(p => {
-                        const ilosc = p.ilosc ?? 0;
-                        const iloscWydane = p.ilosc_wydane ?? 0;
-                        return (ilosc - iloscWydane) > 0;
-                      }).map((p, idx) => {
+                    {sortedAnalysisProducts.length > 0 ? (
+                      sortedAnalysisProducts.map((p, idx) => {
                         const ilosc = p.ilosc ?? 0;
                         const iloscWydane = p.ilosc_wydane ?? 0;
                         const pozostalo = ilosc - iloscWydane;

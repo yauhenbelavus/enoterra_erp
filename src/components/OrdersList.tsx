@@ -5,24 +5,8 @@ import toast from 'react-hot-toast';
 import { OrderDetailsModal } from './OrderDetailsModal';
 import { EditOrderModal } from './EditOrderModal';
 import { InvoiceModal } from './InvoiceModal';
-
-// Извлечение даты из номера заказа (формат: ..._dzień_miesiąc_rok, np. 1101_12_09_2025)
-const extractDateFromOrderNumber = (orderNumber: string): Date | null => {
-  try {
-    const datePattern = /(\d{1,2})_(\d{1,2})_(\d{4})$/;
-    const match = orderNumber.match(datePattern);
-    if (match) {
-      const day = parseInt(match[1], 10);
-      const month = parseInt(match[2], 10) - 1;
-      const year = parseInt(match[3], 10);
-      const date = new Date(year, month, day);
-      if (!isNaN(date.getTime())) return date;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-};
+import { SortIndicator } from './SortIndicator';
+import { extractDateFromOrderNumber, compareOrders, useTableSort } from '../utils/tableSort';
 
 interface OrderProduct {
   id: number;
@@ -86,8 +70,6 @@ export const OrdersList: React.FC<OrdersListProps> = ({
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [orderForInvoice, setOrderForInvoice] = useState<Order | null>(null);
 
-  const [sortField, setSortField] = useState<string>('data_utworzenia');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedKlient, setSelectedKlient] = useState<string>('');
@@ -329,17 +311,6 @@ export const OrdersList: React.FC<OrdersListProps> = ({
     }
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
-
-
   // Вспомогательная фильтрация без одного измерения (для построения опций)
   const filterOrdersBy = (
     opts: { klient?: string; typ?: string; year?: string; month?: string }
@@ -456,56 +427,14 @@ export const OrdersList: React.FC<OrdersListProps> = ({
     return true;
   });
 
-  // Сортировка отфильтрованных заказов (для numer_zamowienia: сначала по дате из номера, затем по префиксу/номеру)
-  const sortedOrders = filteredOrders.sort((a, b) => {
-    if (sortField === 'numer_zamowienia') {
-      const aDate = extractDateFromOrderNumber(a.numer_zamowienia || '');
-      const bDate = extractDateFromOrderNumber(b.numer_zamowienia || '');
-      const aTime = aDate ? aDate.getTime() : null;
-      const bTime = bDate ? bDate.getTime() : null;
-      if (aTime != null && bTime != null) {
-        const byDate = sortDirection === 'asc' ? aTime - bTime : bTime - aTime;
-        if (byDate !== 0) return byDate;
-      } else if (aTime != null && bTime == null) return sortDirection === 'desc' ? -1 : 1;
-      else if (aTime == null && bTime != null) return sortDirection === 'desc' ? 1 : -1;
-      const byNum = (a.numer_zamowienia || '').localeCompare(b.numer_zamowienia || '', undefined, { numeric: true });
-      return sortDirection === 'asc' ? byNum : -byNum;
+  const { sortField, sortDirection, handleSort, sortedItems: sortedOrders } = useTableSort(
+    filteredOrders,
+    {
+      defaultField: 'data_utworzenia',
+      defaultDirection: 'desc',
+      compareItems: compareOrders,
     }
-
-    let aValue: any;
-    let bValue: any;
-    
-    switch (sortField) {
-      case 'klient':
-        aValue = (a.klient || '').toLowerCase();
-        bValue = (b.klient || '').toLowerCase();
-        break;
-      case 'laczna_ilosc':
-        aValue = a.laczna_ilosc;
-        bValue = b.laczna_ilosc;
-        break;
-      case 'data_utworzenia':
-        aValue = new Date(a.data_utworzenia);
-        bValue = new Date(b.data_utworzenia);
-        break;
-      default:
-        aValue = (a as any)[sortField] || '';
-        bValue = (b as any)[sortField] || '';
-    }
-
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return sortDirection === 'asc' 
-        ? aValue.localeCompare(bValue)
-        : bValue.localeCompare(aValue);
-    }
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
-    }
-    if (aValue instanceof Date && bValue instanceof Date) {
-      return sortDirection === 'asc' ? aValue.getTime() - bValue.getTime() : bValue.getTime() - aValue.getTime();
-    }
-    return 0;
-  });
+  );
 
   if (isLoading) {
     return (
@@ -563,31 +492,46 @@ export const OrdersList: React.FC<OrdersListProps> = ({
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('numer_zamowienia')}
               >
-                Numer zamówienia
+                <div className="flex items-center gap-1">
+                  Numer zamówienia
+                  <SortIndicator field="numer_zamowienia" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('klient')}
               >
-                Klient
+                <div className="flex items-center gap-1">
+                  Klient
+                  <SortIndicator field="klient" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('typ')}
               >
-                Typ
+                <div className="flex items-center gap-1">
+                  Typ
+                  <SortIndicator field="typ" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('laczna_ilosc')}
               >
-                Łączna ilość
+                <div className="flex items-center gap-1">
+                  Łączna ilość
+                  <SortIndicator field="laczna_ilosc" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('data_utworzenia')}
               >
-                Data utworzenia
+                <div className="flex items-center gap-1">
+                  Data utworzenia
+                  <SortIndicator field="data_utworzenia" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
 
               <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">

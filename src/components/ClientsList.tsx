@@ -4,6 +4,8 @@ import toast from 'react-hot-toast';
 import Modal from 'react-modal';
 import { ClientDetailsModal } from './ClientDetailsModal';
 import { EditClientModal } from './EditClientModal';
+import { SortIndicator } from './SortIndicator';
+import { compareClients, useTableSort } from '../utils/tableSort';
 
 interface Client {
   id: number;
@@ -42,14 +44,15 @@ export const ClientsList: React.FC<ClientsListProps> = ({ clients, onDelete, onU
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
-  const [sortField, setSortField] = useState<string>(''); // Убираем сортировку по умолчанию
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Логируем изменения в пропсах clients
-  useEffect(() => {
-    console.log('🔍 ClientsList useEffect - clients changed:', clients);
-    console.log('🔍 ClientsList useEffect - clients length:', clients.length);
-  }, [clients]);
+  const { sortField, sortDirection, handleSort, clearSort, sortedItems: sortedClients } = useTableSort(
+    clients,
+    {
+      defaultField: '',
+      defaultDirection: 'asc',
+      compareItems: compareClients,
+    }
+  );
 
   const handleViewDetails = (client: Client) => {
     setSelectedClient(client);
@@ -92,15 +95,6 @@ export const ClientsList: React.FC<ClientsListProps> = ({ clients, onDelete, onU
     }
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button') || 
         (e.target as HTMLElement).closest('input')) {
@@ -140,54 +134,6 @@ export const ClientsList: React.FC<ClientsListProps> = ({ clients, onDelete, onU
     };
   }, [isDragging]);
 
-  // Сортировка клиентов (создаем копию массива, чтобы не мутировать исходный)
-  // Если sortField пустой, возвращаем клиентов в исходном порядке
-  console.log('🔍 Sorting logic - sortField:', sortField, 'sortDirection:', sortDirection);
-  console.log('🔍 Sorting logic - clients length:', clients.length);
-  
-  const sortedClients = sortField 
-    ? [...clients].sort((a, b) => {
-        let aValue: any;
-        let bValue: any;
-        
-        switch (sortField) {
-          case 'firma':
-            aValue = (a.firma || '').toLowerCase();
-            bValue = (b.firma || '').toLowerCase();
-            break;
-          case 'nazwa':
-            aValue = (a.nazwa || '').toLowerCase();
-            bValue = (b.nazwa || '').toLowerCase();
-            break;
-          case 'adres':
-            aValue = (a.adres || '').toLowerCase();
-            bValue = (b.adres || '').toLowerCase();
-            break;
-          case 'czas_dostawy':
-            aValue = (a.czas_dostawy || '').toLowerCase();
-            bValue = (b.czas_dostawy || '').toLowerCase();
-            break;
-          case 'kontakt':
-            aValue = (a.kontakt || '').toLowerCase();
-            bValue = (b.kontakt || '').toLowerCase();
-            break;
-          default:
-            aValue = (a as any)[sortField] || '';
-            bValue = (b as any)[sortField] || '';
-        }
-
-        if (typeof aValue === 'string' && typeof bValue === 'string') {
-          return sortDirection === 'asc' 
-            ? aValue.localeCompare(bValue)
-            : bValue.localeCompare(aValue);
-        }
-        return 0;
-      })
-    : clients; // Возвращаем в исходном порядке без сортировки
-  
-  console.log('🔍 Final sortedClients length:', sortedClients.length);
-  console.log('🔍 Final sortedClients first:', sortedClients[0]);
-
   return (
     <div className="space-y-4">
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
@@ -202,7 +148,10 @@ export const ClientsList: React.FC<ClientsListProps> = ({ clients, onDelete, onU
                 }`}
                 onClick={() => handleSort('firma')}
               >
-                Nazwa firmy {sortField === 'firma' && (sortDirection === 'asc' ? '↑' : '↓')}
+                <div className="flex items-center gap-1">
+                  Nazwa firmy
+                  <SortIndicator field="firma" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className={`px-8 py-4 text-left text-xs font-bold uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 ${
@@ -212,33 +161,42 @@ export const ClientsList: React.FC<ClientsListProps> = ({ clients, onDelete, onU
                 }`}
                 onClick={() => handleSort('nazwa')}
               >
-                Nazwa {sortField === 'nazwa' && (sortDirection === 'asc' ? '↑' : '↓')}
+                <div className="flex items-center gap-1">
+                  Nazwa
+                  <SortIndicator field="nazwa" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('adres')}
               >
-                Adres
+                <div className="flex items-center gap-1">
+                  Adres
+                  <SortIndicator field="adres" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('czas_dostawy')}
               >
-                Czas dostawy
+                <div className="flex items-center gap-1">
+                  Czas dostawy
+                  <SortIndicator field="czas_dostawy" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('kontakt')}
               >
-                Kontakt
+                <div className="flex items-center gap-1">
+                  Kontakt
+                  <SortIndicator field="kontakt" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">
                 {sortField && (
                   <button
-                    onClick={() => {
-                      setSortField('');
-                      setSortDirection('asc');
-                    }}
+                    onClick={clearSort}
                     className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded border border-gray-300 hover:border-gray-400"
                     title="Сбросить сортировку"
                   >

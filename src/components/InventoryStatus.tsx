@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, Edit, ShoppingCart, X, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Tooltip } from 'react-tooltip';
 import Modal from 'react-modal';
 import { EditInventoryModal } from './EditInventoryModal';
+import { SortIndicator } from './SortIndicator';
+import { compareInventoryItems, useTableSort } from '../utils/tableSort';
 
 // Глобальные стили для тултипов и таблицы
 const tooltipStyles = `
@@ -456,14 +458,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
   const [selectedProductKod, setSelectedProductKod] = useState<string | null>(null);
   const [salesFilterClient, setSalesFilterClient] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<string>(() => {
-    const saved = localStorage.getItem('sortField');
-    return saved || 'nazwa';
-  });
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
-    const saved = localStorage.getItem('sortDirection');
-    return (saved as 'asc' | 'desc') || 'asc';
-  });
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
   const [filters, setFilters] = useState({
     sprzedawca: '',
@@ -740,21 +734,51 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
     }
   }, [refreshTrigger]);
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      const newDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-      setSortDirection(newDirection);
-      localStorage.setItem('sortDirection', newDirection);
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-      localStorage.setItem('sortField', field);
-      localStorage.setItem('sortDirection', 'asc');
+  const filteredInventory = useMemo(() => inventory.filter(item => {
+      if (hideZeroStock && (item.ilosc || 0) <= 0) return false;
+
+      const matchesSearch = 
+        item.kod.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.nazwa.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.kod_kreskowy && item.kod_kreskowy.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      if (!matchesSearch) return false;
+
+      if (filters.sprzedawca && (item.sprzedawca || sprzedawcaCache.get(item.kod)) !== filters.sprzedawca) return false;
+      if (filters.typ && item.typ !== filters.typ) return false;
+      if (filters.objetosc && item.objetosc?.toString() !== filters.objetosc) return false;
+
+      if (filters.status) {
+        const status = getInventoryStatus(item, orderProducts, averageSalesCache);
+        if (status !== filters.status) return false;
+      }
+
+      return true;
+    }), [inventory, hideZeroStock, searchTerm, filters, sprzedawcaCache, orderProducts, averageSalesCache]);
+
+  const compareInventory = useCallback(
+    (a: InventoryItem, b: InventoryItem, field: string, direction: 'asc' | 'desc') =>
+      compareInventoryItems(a, b, field, direction, {
+        sprzedawcaCache,
+        orderProducts,
+        getDisplayAverage: (item) => getDisplayAverage(item, orderProducts, productReceipts, averageSalesCache),
+        getDisplayDaysLeft: (item) => getDisplayDaysLeft(item, orderProducts, productReceipts, averageSalesCache),
+        getDisplayDepletionDate: (item) => getDisplayDepletionDate(item, orderProducts, productReceipts, averageSalesCache),
+        getInventoryStatus: (item) => getInventoryStatus(item, orderProducts, averageSalesCache),
+      }),
+    [sprzedawcaCache, orderProducts, productReceipts, averageSalesCache]
+  );
+
+  const { sortField, sortDirection, handleSort, sortedItems: filteredAndSortedInventory } = useTableSort(
+    filteredInventory,
+    {
+      defaultField: 'nazwa',
+      defaultDirection: 'asc',
+      persistKeys: { field: 'sortField', direction: 'sortDirection' },
+      compareItems: compareInventory,
     }
-  };
+  );
 
-
-  // Функция для получения цвета типа товара
   const getTypColor = (typ: string): string => {
     const typConfig = TYPY_TOWARU.find(t => t.value === typ);
     return typConfig ? typConfig.color : 'bg-gray-100 text-gray-800 border-gray-200';
@@ -800,151 +824,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
     });
     return Array.from(statusy).sort();
   }, [inventory, averageSalesCache, orderProducts, productReceipts]);
-
-  const filteredAndSortedInventory = inventory
-    .filter(item => {
-      // Скрываем товары с нулевым (или отрицательным) остатком если включен фильтр
-      if (hideZeroStock && (item.ilosc || 0) <= 0) return false;
-
-      // Поиск по тексту
-      const matchesSearch = 
-        item.kod.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.nazwa.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (item.kod_kreskowy && item.kod_kreskowy.toLowerCase().includes(searchTerm.toLowerCase()));
-      
-      if (!matchesSearch) return false;
-
-      // Фильтр по sprzedawca
-      if (filters.sprzedawca && (item.sprzedawca || sprzedawcaCache.get(item.kod)) !== filters.sprzedawca) return false;
-
-      // Фильтр по typ
-      if (filters.typ && item.typ !== filters.typ) return false;
-
-      // Фильтр по objetosc
-      if (filters.objetosc && item.objetosc?.toString() !== filters.objetosc) return false;
-
-      // Фильтр по status
-      if (filters.status) {
-        const status = getInventoryStatus(item, orderProducts, averageSalesCache);
-        if (status !== filters.status) return false;
-      }
-
-      return true;
-    })
-    .sort((a, b) => {
-      let aValue: any;
-      let bValue: any;
-      switch (sortField) {
-              case 'sprzedawca':
-        aValue = a.sprzedawca || sprzedawcaCache.get(a.kod) || '';
-        bValue = b.sprzedawca || sprzedawcaCache.get(b.kod) || '';
-        break;
-      case 'cena':
-        aValue = a.cena || 0;
-        bValue = b.cena || 0;
-        break;
-      case 'cena_sprzedazy':
-        aValue = a.cena_sprzedazy || 0;
-        bValue = b.cena_sprzedazy || 0;
-        break;
-      case 'koszt_wlasny':
-        aValue = a.koszt_wlasny || 0;
-        bValue = b.koszt_wlasny || 0;
-        break;
-        case 'srednieZuzycie':
-          aValue = getDisplayAverage(a, orderProducts, productReceipts, averageSalesCache);
-          bValue = getDisplayAverage(b, orderProducts, productReceipts, averageSalesCache);
-          break;
-        case 'dniPozostalo': {
-          const aDays = getDisplayDaysLeft(a, orderProducts, productReceipts, averageSalesCache);
-          const bDays = getDisplayDaysLeft(b, orderProducts, productReceipts, averageSalesCache);
-          aValue = aDays === '-' ? Infinity : aDays;
-          bValue = bDays === '-' ? Infinity : bDays;
-          break;
-        }
-        case 'dataWyczerpania': {
-          const parseDisplayDate = (value: string) => {
-            if (!value || value === '-') return 0;
-            const parts = value.split('.');
-            if (parts.length === 3) {
-              return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
-            }
-            const parsed = new Date(value).getTime();
-            return Number.isNaN(parsed) ? 0 : parsed;
-          };
-          aValue = parseDisplayDate(getDisplayDepletionDate(a, orderProducts, productReceipts, averageSalesCache));
-          bValue = parseDisplayDate(getDisplayDepletionDate(b, orderProducts, productReceipts, averageSalesCache));
-          break;
-        }
-        case 'status': {
-          const getStatusRank = (item: InventoryItem) => {
-            const status = getInventoryStatus(item, orderProducts, averageSalesCache);
-            if (status === 'brak') return 0;
-            if (status === 'Brak sprzedaży') return 4;
-            if (status === 'mało') return 1;
-            if (status === 'średnie') return 2;
-            return 3;
-          };
-          aValue = getStatusRank(a);
-          bValue = getStatusRank(b);
-          break;
-        }
-        case 'typ':
-          // Обработка null/undefined значений для typ
-          aValue = a.typ || '';
-          bValue = b.typ || '';
-          break;
-        case 'objetosc':
-          // Обработка null/undefined значений для objetosc
-          aValue = a.objetosc || 0;
-          bValue = b.objetosc || 0;
-          break;
-        case 'dataWaznosci':
-          // Обработка null/undefined значений для data_waznosci
-          // Нормализуем даты для корректной сортировки
-          const normalizeDate = (dateValue: string | number | null): number => {
-            if (!dateValue) return 0;
-            
-            let date: Date;
-            if (typeof dateValue === 'string') {
-              date = new Date(dateValue);
-            } else if (typeof dateValue === 'number') {
-              if (dateValue < 1000000000000) {
-                date = new Date(dateValue * 1000);
-              } else {
-                date = new Date(dateValue);
-              }
-            } else {
-              return 0;
-            }
-            
-            return isNaN(date.getTime()) ? 0 : date.getTime();
-          };
-          
-          aValue = normalizeDate(a.data_waznosci);
-          bValue = normalizeDate(b.data_waznosci);
-          break;
-        case 'sprzedaze':
-          // Сортировка по количеству продаж (количество квадратиков)
-          const aSales = orderProducts.filter(p => p.kod === a.kod).length;
-          const bSales = orderProducts.filter(p => p.kod === b.kod).length;
-          aValue = aSales;
-          bValue = bSales;
-          break;
-        default:
-          aValue = (a as any)[sortField];
-          bValue = (b as any)[sortField];
-      }
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return sortDirection === 'asc' 
-          ? aValue.localeCompare(bValue)
-          : bValue.localeCompare(aValue);
-      }
-      if (typeof aValue === 'number' && typeof bValue === 'number') {
-        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
-      }
-      return 0;
-    });
 
   // Выделить/снять все
   const handleSelectAll = (checked: boolean) => {
@@ -1321,7 +1200,10 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                   onClick={() => handleSort('kod')}
                   style={{ width: '100px' }}
                 >
-                  Kod
+                  <div className="flex items-center gap-1">
+                    Kod
+                    <SortIndicator field="kod" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 relative"
@@ -1332,7 +1214,10 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                   }}
                   style={{ width: `${columnWidths.nazwa}px` }}
                 >
-                  Nazwa
+                  <div className="flex items-center gap-1">
+                    Nazwa
+                    <SortIndicator field="nazwa" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                   <div 
                     className={`absolute top-0 right-0 h-full cursor-col-resize hover:bg-blue-500 transition-opacity z-10 ${
                       isResizing === 'nazwa' ? 'bg-blue-500 opacity-100' : 'opacity-0 hover:opacity-100'
@@ -1350,86 +1235,125 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                   onClick={() => handleSort('sprzedawca')}
                   style={{ width: '120px' }}
                 >
-                  Sprzedawca
+                  <div className="flex items-center gap-1">
+                    Sprzedawca
+                    <SortIndicator field="sprzedawca" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('ilosc')}
                 >
-                  Ilość
+                  <div className="flex items-center gap-1">
+                    Ilość
+                    <SortIndicator field="ilosc" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('typ')}
                 >
-                  Typ
+                  <div className="flex items-center gap-1">
+                    Typ
+                    <SortIndicator field="typ" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('objetosc')}
                 >
-                  Objętość
+                  <div className="flex items-center gap-1">
+                    Objętość
+                    <SortIndicator field="objetosc" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('cena')}
                   style={{ width: '90px' }}
                 >
-                  <div className="whitespace-normal">Cena<br/>fakturowa</div>
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Cena<br/>fakturowa</div>
+                    <SortIndicator field="cena" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('koszt_wlasny')}
                   style={{ width: '90px' }}
                 >
-                  <div className="whitespace-normal">Koszt<br/>własny</div>
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Koszt<br/>własny</div>
+                    <SortIndicator field="koszt_wlasny" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('cena_sprzedazy')}
                   style={{ width: '90px' }}
                 >
-                  <div className="whitespace-normal">Cena w<br/>sprzedaży</div>
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Cena w<br/>sprzedaży</div>
+                    <SortIndicator field="cena_sprzedazy" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('dataWaznosci')}
                   style={{ width: '90px' }}
                 >
-                  <div className="whitespace-normal">Data<br/>ważności</div>
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Data<br/>ważności</div>
+                    <SortIndicator field="dataWaznosci" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('sprzedaze')}
                 >
-                  Sprzedaże
+                  <div className="flex items-center gap-1">
+                    Sprzedaże
+                    <SortIndicator field="sprzedaze" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('srednieZuzycie')}
                   style={{ width: '100px' }}
                 >
-                  <div className="whitespace-normal">Średnie<br/>zużycie/dzień</div>
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Średnie<br/>zużycie/dzień</div>
+                    <SortIndicator field="srednieZuzycie" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('dniPozostalo')}
                   style={{ width: '80px' }}
                 >
-                  <div className="whitespace-normal">Dni<br/>pozostało</div>
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Dni<br/>pozostało</div>
+                    <SortIndicator field="dniPozostalo" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('dataWyczerpania')}
                   style={{ width: '110px' }}
                 >
-                  <div className="whitespace-normal">Data wyczerpania<br/>zapasów</div>
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Data wyczerpania<br/>zapasów</div>
+                    <SortIndicator field="dataWyczerpania" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('status')}
                 >
-                  Status
+                  <div className="flex items-center gap-1">
+                    Status
+                    <SortIndicator field="status" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
                 </th>
               </tr>
             </thead>

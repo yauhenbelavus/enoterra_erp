@@ -10,6 +10,8 @@ import {
   RESERVATION_STATUS_FILTER_OPTIONS
 } from '../utils/reservationDates';
 import Modal from 'react-modal';
+import { SortIndicator } from './SortIndicator';
+import { compareReservations, useTableSort } from '../utils/tableSort';
 
 interface ReservationProduct {
   id: number;
@@ -53,8 +55,6 @@ export const ReservationsList: React.FC<ReservationsListProps> = ({
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [reservationToCancel, setReservationToCancel] = useState<Reservation | null>(null);
 
-  const [sortField, setSortField] = useState<string>('data_utworzenia');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedClient, setSelectedClient] = useState<string>('');
@@ -168,15 +168,6 @@ export const ReservationsList: React.FC<ReservationsListProps> = ({
     }
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
   // Получение уникальных годов и месяцев из данных
   const years = Array.from(new Set(reservations.map(reservation => {
     const date = new Date(reservation.data_utworzenia);
@@ -247,54 +238,14 @@ export const ReservationsList: React.FC<ReservationsListProps> = ({
     return true;
   });
 
-  // Сортировка отфильтрованных резерваций
-  const sortedReservations = filteredReservations.sort((a, b) => {
-    let aValue: any;
-    let bValue: any;
-    
-    switch (sortField) {
-      case 'numer_rezerwacji':
-        aValue = (a.numer_rezerwacji || '').toLowerCase();
-        bValue = (b.numer_rezerwacji || '').toLowerCase();
-        break;
-      case 'klient':
-        aValue = (a.klient || '').toLowerCase();
-        bValue = (b.klient || '').toLowerCase();
-        break;
-      case 'status':
-        aValue = (a.status || '').toLowerCase();
-        bValue = (b.status || '').toLowerCase();
-        break;
-      case 'laczna_ilosc':
-        aValue = a.laczna_ilosc;
-        bValue = b.laczna_ilosc;
-        break;
-      case 'data_utworzenia':
-        aValue = new Date(a.data_utworzenia);
-        bValue = new Date(b.data_utworzenia);
-        break;
-      case 'data_zakonczenia':
-        aValue = new Date(a.data_zakonczenia);
-        bValue = new Date(b.data_zakonczenia);
-        break;
-      default:
-        aValue = (a as any)[sortField] || '';
-        bValue = (b as any)[sortField] || '';
+  const { sortField, sortDirection, handleSort, sortedItems: sortedReservations } = useTableSort(
+    filteredReservations,
+    {
+      defaultField: 'data_utworzenia',
+      defaultDirection: 'desc',
+      compareItems: compareReservations,
     }
-
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return sortDirection === 'asc' 
-        ? aValue.localeCompare(bValue)
-        : bValue.localeCompare(aValue);
-    }
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
-    }
-    if (aValue instanceof Date && bValue instanceof Date) {
-      return sortDirection === 'asc' ? aValue.getTime() - bValue.getTime() : bValue.getTime() - aValue.getTime();
-    }
-    return 0;
-  });
+  );
 
   if (isLoading) {
     return (
@@ -396,31 +347,46 @@ export const ReservationsList: React.FC<ReservationsListProps> = ({
                 className="px-0 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('numer_rezerwacji')}
               >
-                Numer rezerwacji
+                <div className="flex items-center gap-1">
+                  Numer rezerwacji
+                  <SortIndicator field="numer_rezerwacji" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-10 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('klient')}
               >
-                Klient
+                <div className="flex items-center gap-1">
+                  Klient
+                  <SortIndicator field="klient" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-0 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('data_utworzenia')}
               >
-                Data utworzenia
+                <div className="flex items-center gap-1">
+                  Data utworzenia
+                  <SortIndicator field="data_utworzenia" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-0 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('data_zakonczenia')}
               >
-                Data zakończenia
+                <div className="flex items-center gap-1">
+                  Data zakończenia
+                  <SortIndicator field="data_zakonczenia" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th 
                 className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('status')}
               >
-                Status
+                <div className="flex items-center gap-1">
+                  Status
+                  <SortIndicator field="status" sortField={sortField} sortDirection={sortDirection} />
+                </div>
               </th>
               <th className="px-8 py-4 border-b border-gray-200 bg-gray-50">
               </th>

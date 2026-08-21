@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import Modal from 'react-modal';
+import { SortableTh } from './SortIndicator';
+import { getInvoiceProductSortValue, useTableSort } from '../utils/tableSort';
 
 interface InvoiceProduct {
   id: number;
@@ -55,6 +57,15 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({ isOpen
       loadClientData();
     }
   }, [isOpen, invoice]);
+
+  const invoiceProducts = invoice ? ((invoiceWithProducts || invoice)?.products ?? []) : [];
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(
+    invoiceProducts,
+    getInvoiceProductSortValue,
+    'nazwa',
+    'asc'
+  );
 
   const loadInvoiceWithProducts = async () => {
     if (!invoice) return;
@@ -237,34 +248,74 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({ isOpen
                     <table className="w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
-                            Kod
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Nazwa
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
-                            Ilość
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                            Cena netto
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
-                            Rabat
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
-                            VAT
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
-                            Wartość netto
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
-                            Wartość brutto
-                          </th>
+                          <SortableTh
+                            label="Kod"
+                            field="kod"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Nazwa"
+                            field="nazwa"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Ilość"
+                            field="ilosc"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Cena netto"
+                            field="cena_netto"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Rabat"
+                            field="rabat"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="VAT"
+                            field="vat_stawka"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Wartość netto"
+                            field="wartosc_netto"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Wartość brutto"
+                            field="wartosc_brutto"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28 bg-gray-50"
+                          />
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {displayInvoice.products.map((product) => (
+                        {sortedProducts.map((product) => (
                           <tr key={product.id} className="hover:bg-gray-50">
                             <td className="px-4 py-2 text-xs text-gray-900 font-medium w-20">
                               {product.kod}

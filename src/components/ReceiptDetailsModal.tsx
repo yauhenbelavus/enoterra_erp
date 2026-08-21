@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import Modal from 'react-modal';
 import { X, Grape, Car } from 'lucide-react';
 import { ProductDetailsModal } from './ProductDetailsModal';
 import { API_URL } from '../config';
 import { getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
+import { SortableTh } from './SortIndicator';
+import { getReceiptProductSortValue, useTableSort } from '../utils/tableSort';
 
 interface ProductReceipt {
   id?: number;
@@ -73,21 +75,30 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
     };
   };
 
+  const productsArray = useMemo(() => {
+    if (!receipt) return [];
+    if (Array.isArray(receipt.products)) return receipt.products;
+    if (typeof receipt.products === 'string') {
+      try {
+        return JSON.parse(receipt.products);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, [receipt]);
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(
+    productsArray,
+    getReceiptProductSortValue,
+    'nazwa',
+    'asc'
+  );
+
   if (!receipt) return null;
 
   const waluta = normalizeWalutaFaktury(receipt.waluta_faktury ?? receipt.walutaFaktury);
   const walutaSymbol = getWalutaSymbol(waluta);
-
-  let productsArray: any[] = [];
-  if (Array.isArray(receipt.products)) {
-    productsArray = receipt.products;
-  } else if (typeof receipt.products === 'string') {
-    try {
-      productsArray = JSON.parse(receipt.products);
-    } catch {
-      productsArray = [];
-    }
-  }
 
   return (
     <Modal
@@ -189,26 +200,92 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
             <table className="min-w-full divide-y divide-gray-200 text-xs">
               <thead>
                 <tr>
-                  <th className="px-2 py-2 text-left w-[80px]">Kod</th>
-                  <th className="px-2 py-2 text-left w-[180px]">Nazwa</th>
-                  <th className="px-2 py-2 text-left w-[100px]">Kod kreskowy</th>
-                  <th className="px-2 py-2 text-center w-[50px]">Ilość</th>
-                  <th className="px-2 py-2 text-right w-[70px]">Cena</th>
-                  <th className="px-2 py-2 text-right w-[90px]">Wartość</th>
-                  <th className="px-2 py-2 text-left w-[80px]">Typ</th>
-                  <th className="px-2 py-2 text-left w-[80px]">Objętość</th>
-                  <th className="px-2 py-2 text-left w-[90px]">Data ważności</th>
+                  <SortableTh
+                    label="Kod"
+                    field="kod"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[80px]"
+                  />
+                  <SortableTh
+                    label="Nazwa"
+                    field="nazwa"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[180px]"
+                  />
+                  <SortableTh
+                    label="Kod kreskowy"
+                    field="kod_kreskowy"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[100px]"
+                  />
+                  <SortableTh
+                    label="Ilość"
+                    field="ilosc"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-center w-[50px]"
+                    align="center"
+                  />
+                  <SortableTh
+                    label="Cena"
+                    field="cena"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-right w-[70px]"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Wartość"
+                    field="wartosc"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-right w-[90px]"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Typ"
+                    field="typ"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[80px]"
+                  />
+                  <SortableTh
+                    label="Objętość"
+                    field="objetosc"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[80px]"
+                  />
+                  <SortableTh
+                    label="Data ważności"
+                    field="dataWaznosci"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="px-2 py-2 text-left w-[90px]"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {productsArray.map((product, index) => (
+                {sortedProducts.map((product, index) => (
                   <tr key={index}>
                     <td className="px-2 py-2 w-[80px] break-words">{product.kod}</td>
                     <td className="px-2 py-2 w-[180px] break-words leading-tight">{product.nazwa}</td>
                     <td className="px-2 py-2 w-[100px] break-words">{product.kod_kreskowy || '-'}</td>
                     <td className="px-2 py-2 w-[50px] text-center">{product.ilosc}</td>
                     <td className="px-2 py-2 w-[70px] text-right">{product.cena} {walutaSymbol}</td>
-                    <td className="px-2 py-2 w-[90px] text-right">{(product.ilosc * product.cena).toFixed(2).replace('.', ',')} {walutaSymbol}</td>
+                    <td className="px-2 py-2 w-[90px] text-right">{((product.ilosc ?? 0) * (product.cena ?? 0)).toFixed(2).replace('.', ',')} {walutaSymbol}</td>
                     <td className="px-2 py-2 w-[80px] break-words">
                       {(() => {
                         const typ = product.typ;

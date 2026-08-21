@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Edit, ChevronUp, ChevronDown } from 'lucide-react';
+import { Eye, Edit } from 'lucide-react';
 import { KomisDetailsModal } from './KomisDetailsModal';
 import { EditKomisModal } from './EditKomisModal';
 import { InvoiceModal } from './InvoiceModal';
+import { SortIndicator } from './SortIndicator';
+import { compareKomisClients, useTableSort } from '../utils/tableSort';
 
 interface KomisProduct {
   kod: string;
@@ -33,8 +35,12 @@ export const KomisList: React.FC<KomisListProps> = ({ refreshTrigger }) => {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [invoiceKlient, setInvoiceKlient] = useState<string>('');
   const [invoiceProducts, setInvoiceProducts] = useState<Array<{ kod: string; nazwa: string; ilosc: number; cena_sprzedazy?: number | null }>>([]);
-  const [sortField, setSortField] = useState<string>('klient');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedData } = useTableSort(data, {
+    defaultField: 'klient',
+    defaultDirection: 'asc',
+    compareItems: compareKomisClients,
+  });
 
   const loadData = async () => {
     try {
@@ -61,48 +67,6 @@ export const KomisList: React.FC<KomisListProps> = ({ refreshTrigger }) => {
       loadData();
     }
   }, [refreshTrigger]);
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
-  const sortedData = [...data].sort((a, b) => {
-    let aValue: any;
-    let bValue: any;
-
-    switch (sortField) {
-      case 'klient':
-        aValue = (a.klient || '').toLowerCase();
-        bValue = (b.klient || '').toLowerCase();
-        break;
-      case 'total_ilosc':
-        aValue = a.total_ilosc || 0;
-        bValue = b.total_ilosc || 0;
-        break;
-      case 'products_count':
-        aValue = a.products.length;
-        bValue = b.products.length;
-        break;
-      default:
-        aValue = (a as any)[sortField] || '';
-        bValue = (b as any)[sortField] || '';
-    }
-
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return sortDirection === 'asc'
-        ? aValue.localeCompare(bValue)
-        : bValue.localeCompare(aValue);
-    }
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
-    }
-    return 0;
-  });
 
   if (isLoading) {
     return (
@@ -132,9 +96,7 @@ export const KomisList: React.FC<KomisListProps> = ({ refreshTrigger }) => {
               >
                 <div className="flex items-center gap-1">
                   Klient
-                  {sortField === 'klient' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="klient" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th
@@ -143,9 +105,7 @@ export const KomisList: React.FC<KomisListProps> = ({ refreshTrigger }) => {
               >
                 <div className="flex items-center gap-1">
                   Liczba pozycji
-                  {sortField === 'products_count' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="products_count" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th
@@ -154,9 +114,7 @@ export const KomisList: React.FC<KomisListProps> = ({ refreshTrigger }) => {
               >
                 <div className="flex items-center gap-1">
                   Łączna ilość
-                  {sortField === 'total_ilosc' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="total_ilosc" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">

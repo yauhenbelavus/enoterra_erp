@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Eye, ChevronUp, ChevronDown, Edit, X } from 'lucide-react';
+import { Eye, Edit, X } from 'lucide-react';
 import Modal from 'react-modal';
 import toast from 'react-hot-toast';
 import { InvoiceDetailsModal } from './InvoiceDetailsModal';
 import { EditInvoiceModal } from './EditInvoiceModal';
+import { SortIndicator } from './SortIndicator';
+import { compareInvoices, useTableSort } from '../utils/tableSort';
 
 interface Invoice {
   id: number;
@@ -83,8 +85,6 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
   const [error, setError] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
-  const [sortField, setSortField] = useState<string>('numer_faktury');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [invoiceToEdit, setInvoiceToEdit] = useState<Invoice | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditFromKomis, setIsEditFromKomis] = useState(false);
@@ -155,15 +155,6 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
     setIsPasswordModalOpen(false);
     setInvoiceToDelete(null);
     setPassword('');
-  };
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
   };
 
   const matchesFiltersExcept = (
@@ -253,50 +244,14 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
     0
   );
 
-  const sortedInvoices = [...filteredInvoices].sort((a, b) => {
-    let aValue: any;
-    let bValue: any;
-
-    switch (sortField) {
-      case 'numer_faktury':
-        // Извлекаем числовую часть из "FV 240/2/2026"
-        const aMatch = (a.numer_faktury || '').match(/(\d+)/);
-        const bMatch = (b.numer_faktury || '').match(/(\d+)/);
-        aValue = aMatch ? parseInt(aMatch[1], 10) : 0;
-        bValue = bMatch ? parseInt(bMatch[1], 10) : 0;
-        break;
-      case 'data_faktury':
-      case 'termin_platnosci':
-        aValue = a[sortField as keyof Invoice] ? new Date(a[sortField as keyof Invoice] as string) : new Date(0);
-        bValue = b[sortField as keyof Invoice] ? new Date(b[sortField as keyof Invoice] as string) : new Date(0);
-        break;
-      case 'klient_nazwa':
-        aValue = (a.klient_nazwa || '').toLowerCase();
-        bValue = (b.klient_nazwa || '').toLowerCase();
-        break;
-      case 'suma_netto':
-      case 'suma_brutto':
-        aValue = a[sortField as keyof Invoice] || 0;
-        bValue = b[sortField as keyof Invoice] || 0;
-        break;
-      default:
-        aValue = (a as any)[sortField] || '';
-        bValue = (b as any)[sortField] || '';
+  const { sortField, sortDirection, handleSort, sortedItems: sortedInvoices } = useTableSort(
+    filteredInvoices,
+    {
+      defaultField: 'numer_faktury',
+      defaultDirection: 'desc',
+      compareItems: compareInvoices,
     }
-
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return sortDirection === 'asc'
-        ? aValue.localeCompare(bValue)
-        : bValue.localeCompare(aValue);
-    }
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
-    }
-    if (aValue instanceof Date && bValue instanceof Date) {
-      return sortDirection === 'asc' ? aValue.getTime() - bValue.getTime() : bValue.getTime() - aValue.getTime();
-    }
-    return 0;
-  });
+  );
 
   if (isLoading) {
     return (
@@ -394,9 +349,7 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
               >
                 <div className="flex items-center gap-1">
                   Numer faktury
-                  {sortField === 'numer_faktury' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="numer_faktury" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
@@ -405,9 +358,7 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
               >
                 <div className="flex items-center gap-1">
                   Data faktury
-                  {sortField === 'data_faktury' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="data_faktury" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
@@ -416,9 +367,7 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
               >
                 <div className="flex items-center gap-1">
                   Termin płatności
-                  {sortField === 'termin_platnosci' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="termin_platnosci" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
@@ -427,9 +376,7 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
               >
                 <div className="flex items-center gap-1">
                   Klient
-                  {sortField === 'klient_nazwa' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="klient_nazwa" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
@@ -438,9 +385,7 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
               >
                 <div className="flex items-center gap-1">
                   Kwota netto
-                  {sortField === 'suma_netto' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="suma_netto" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
@@ -449,9 +394,7 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({ refreshTrigger, onIn
               >
                 <div className="flex items-center gap-1">
                   Kwota brutto
-                  {sortField === 'suma_brutto' && (
-                    sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                  )}
+                  <SortIndicator field="suma_brutto" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50">

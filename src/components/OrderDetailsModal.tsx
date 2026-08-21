@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import Modal from 'react-modal';
+import { SortableTh } from './SortIndicator';
+import { getOrderProductSortValue, useTableSort } from '../utils/tableSort';
 
 interface OrderProduct {
   id: number;
@@ -67,6 +69,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, on
       loadClientData();
     }
   }, [isOpen, order]);
+
+  const orderProducts = order ? ((orderWithProducts || order)?.products ?? []) : [];
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(
+    orderProducts,
+    getOrderProductSortValue,
+    'nazwa',
+    'asc'
+  );
 
   const loadOrderWithProducts = async () => {
     if (!order) return;
@@ -263,25 +274,50 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, on
                     <table className="w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
-                            Kod
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Nazwa
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                            Kod kreskowy
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
-                            Ilość
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
-                            {displayOrder.typ === 'odpisanie' ? 'Powód' : displayOrder.typ === 'przesuniecie' ? 'Typ' : displayOrder.typ === 'przychod' ? 'Powód' : 'Typ'}
-                          </th>
+                          <SortableTh
+                            label="Kod"
+                            field="kod"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Nazwa"
+                            field="nazwa"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Kod kreskowy"
+                            field="kod_kreskowy"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24 bg-gray-50"
+                          />
+                          <SortableTh
+                            label="Ilość"
+                            field="ilosc"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16 bg-gray-50"
+                          />
+                          <SortableTh
+                            label={displayOrder.typ === 'odpisanie' ? 'Powód' : displayOrder.typ === 'przesuniecie' ? 'Typ' : displayOrder.typ === 'przychod' ? 'Powód' : 'Typ'}
+                            field="typ"
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20 bg-gray-50"
+                          />
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {displayOrder.products.map((product) => (
+                        {sortedProducts.map((product) => (
                           <tr key={product.id} className="hover:bg-gray-50">
                             <td className="px-4 py-2 text-xs text-gray-900 font-medium w-20">
                               {product.kod}

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search } from 'lucide-react';
+import { SortIndicator } from './SortIndicator';
+import { getProductSearchSortValue, useTableSort } from '../utils/tableSort';
 
 interface Product {
   kod: string;
@@ -16,6 +18,13 @@ export const ProductSearch: React.FC<ProductSearchProps> = ({ onSearch }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  const { sortField, sortDirection, handleSort, sortedItems } = useTableSort(
+    products,
+    getProductSearchSortValue,
+    'nazwa',
+    'asc'
+  );
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
@@ -65,13 +74,37 @@ export const ProductSearch: React.FC<ProductSearchProps> = ({ onSearch }) => {
           <table className="w-full table-fixed">
             <thead className="sticky top-0 z-10">
               <tr>
-                <th className="w-[15%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase font-sora bg-gray-50 border-b border-gray-200">Kod</th>
-                <th className="w-[70%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase font-sora bg-gray-50 border-b border-gray-200">Nazwa</th>
-                <th className="w-[15%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase font-sora bg-gray-50 border-b border-gray-200">Ilość</th>
+                <th
+                  className="w-[15%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase font-sora bg-gray-50 border-b border-gray-200 cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('kod')}
+                >
+                  <div className="flex items-center gap-1">
+                    Kod
+                    <SortIndicator field="kod" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
+                </th>
+                <th
+                  className="w-[70%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase font-sora bg-gray-50 border-b border-gray-200 cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('nazwa')}
+                >
+                  <div className="flex items-center gap-1">
+                    Nazwa
+                    <SortIndicator field="nazwa" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
+                </th>
+                <th
+                  className="w-[15%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase font-sora bg-gray-50 border-b border-gray-200 cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('ilosc')}
+                >
+                  <div className="flex items-center gap-1">
+                    Ilość
+                    <SortIndicator field="ilosc" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {products.map((product, index) => (
+              {sortedItems.map((product, index) => (
                 <tr key={index} className="hover:bg-gray-50">
                   <td className="px-2 py-2 text-sm text-gray-900 truncate font-sora" title={product.kod}>{product.kod}</td>
                   <td className="px-2 py-2 text-sm text-gray-900 truncate font-sora" title={product.nazwa}>{product.nazwa}</td>
@@ -84,10 +117,10 @@ export const ProductSearch: React.FC<ProductSearchProps> = ({ onSearch }) => {
       ) : searchQuery ? (
         <div className="absolute top-full left-0 right-0 z-50 bg-white rounded-lg shadow-sm border border-gray-200 mt-1 font-sora">
           <div className="text-center py-4 text-gray-500">
-            Brak wynikов
+            Brak wyników
           </div>
         </div>
       ) : null}
     </div>
   );
-}; 
+};

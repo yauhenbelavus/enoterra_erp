@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import { SortIndicator } from './SortIndicator';
+import { compareClientSales, useTableSort } from '../utils/tableSort';
 
 interface InvoiceSale {
   id: number;
@@ -120,8 +121,6 @@ export const ClientSalesList: React.FC<ClientSalesListProps> = ({ refreshTrigger
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [expandedClient, setExpandedClient] = useState<string | null>(null);
-  const [sortField, setSortField] = useState<string>('sumBrutto');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   const loadSalesData = async () => {
     try {
@@ -329,50 +328,11 @@ export const ClientSalesList: React.FC<ClientSalesListProps> = ({ refreshTrigger
   const totalNetto = salesRows.reduce((sum, row) => sum + row.sumNetto, 0);
   const totalBrutto = salesRows.reduce((sum, row) => sum + row.sumBrutto, 0);
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection(field === 'klient' ? 'asc' : 'desc');
-    }
-  };
-
-  const sortedRows = [...salesRows].sort((a, b) => {
-    let aValue: string | number = '';
-    let bValue: string | number = '';
-
-    switch (sortField) {
-      case 'klient':
-        aValue = (a.klient || '').toLowerCase();
-        bValue = (b.klient || '').toLowerCase();
-        break;
-      case 'butelki':
-        aValue = a.butelki;
-        bValue = b.butelki;
-        break;
-      case 'sumNetto':
-        aValue = a.sumNetto;
-        bValue = b.sumNetto;
-        break;
-      case 'sumBrutto':
-        aValue = a.sumBrutto;
-        bValue = b.sumBrutto;
-        break;
-      default:
-        aValue = a.sumBrutto;
-        bValue = b.sumBrutto;
-    }
-
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return sortDirection === 'asc'
-        ? aValue.localeCompare(bValue)
-        : bValue.localeCompare(aValue);
-    }
-
-    return sortDirection === 'asc'
-      ? (aValue as number) - (bValue as number)
-      : (bValue as number) - (aValue as number);
+  const { sortField, sortDirection, handleSort, sortedItems: sortedRows } = useTableSort(salesRows, {
+    defaultField: 'sumBrutto',
+    defaultDirection: 'desc',
+    directionForField: (field) => (field === 'klient' ? 'asc' : 'desc'),
+    compareItems: compareClientSales,
   });
 
   const toggleClientDetails = (klient: string) => {
@@ -477,7 +437,7 @@ export const ClientSalesList: React.FC<ClientSalesListProps> = ({ refreshTrigger
               >
                 <div className="flex items-center gap-1">
                   Klient
-                  {sortField === 'klient' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
+                  <SortIndicator field="klient" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th
@@ -486,7 +446,7 @@ export const ClientSalesList: React.FC<ClientSalesListProps> = ({ refreshTrigger
               >
                 <div className="flex items-center gap-1">
                   Butelki
-                  {sortField === 'butelki' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
+                  <SortIndicator field="butelki" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th
@@ -495,7 +455,7 @@ export const ClientSalesList: React.FC<ClientSalesListProps> = ({ refreshTrigger
               >
                 <div className="flex items-center gap-1">
                   Sprzedaż netto
-                  {sortField === 'sumNetto' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
+                  <SortIndicator field="sumNetto" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th
@@ -504,7 +464,7 @@ export const ClientSalesList: React.FC<ClientSalesListProps> = ({ refreshTrigger
               >
                 <div className="flex items-center gap-1">
                   Sprzedaż brutto
-                  {sortField === 'sumBrutto' && (sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
+                  <SortIndicator field="sumBrutto" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
             </tr>
