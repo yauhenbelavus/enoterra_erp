@@ -353,6 +353,25 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     });
   }, [products, sortField, sortDirection]);
 
+  const hasActiveFilters = selectedKlient || selectedTyp || selectedYear || selectedMonth;
+
+  const clearFilters = () => {
+    setSelectedKlient('');
+    setSelectedTyp('');
+    setSelectedYear('');
+    setSelectedMonth('');
+  };
+
+  const filterSelectClass =
+    'block px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300 truncate';
+  const filterSelectStyle = {
+    fontFamily: 'Sora, sans-serif',
+    direction: 'ltr' as const,
+    width: '145px',
+    minWidth: '145px',
+    maxWidth: '145px',
+  };
+
   if (isLoading && products.length === 0) {
     return <div className="text-gray-600 font-sora text-sm py-4">Ładowanie danych...</div>;
   }
@@ -362,69 +381,89 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   }
 
   return (
-    <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
-      <table className="w-full">
-        <thead className="sticky top-0 z-10">
-          <tr className="bg-white border-b border-gray-200">
-            <th colSpan={2} className="px-8 py-2 font-sora bg-white" />
-            <th className="px-8 py-2 text-right font-sora bg-white">
-              <div className="flex space-x-1 justify-end">
-                <select
-                  value={selectedKlient}
-                  onChange={(e) => setSelectedKlient(e.target.value)}
-                  className="block px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300 truncate"
-                  style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', width: '145px', minWidth: '145px', maxWidth: '145px' }}
-                >
-                  <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Klient</option>
-                  {clients.map((klient) => (
-                    <option key={klient} value={klient} style={{ fontFamily: 'Sora, sans-serif' }}>
-                      {klient}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selectedTyp}
-                  onChange={(e) => setSelectedTyp(e.target.value)}
-                  className="block w-auto px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300"
-                  style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', minWidth: '145px' }}
-                >
-                  <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ</option>
-                  {typOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className="block w-auto px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300"
-                  style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', minWidth: '145px' }}
-                >
-                  <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Rok</option>
-                  {years.map((year) => (
-                    <option key={year} value={year} style={{ fontFamily: 'Sora, sans-serif' }}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="block w-auto px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300"
-                  style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', minWidth: '145px' }}
-                >
-                  <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Miesiąc</option>
-                  {months.map((month) => (
-                    <option key={month.value} value={month.value} style={{ fontFamily: 'Sora, sans-serif' }}>
-                      {month.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </th>
-          </tr>
-          <tr>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-1">
+        <div className="grid grid-cols-2 gap-1">
+          <div className="relative">
+            <select
+              value={selectedKlient}
+              onChange={(e) => setSelectedKlient(e.target.value)}
+              className={filterSelectClass}
+              style={filterSelectStyle}
+            >
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Klient</option>
+              {clients.map((klient) => (
+                <option key={klient} value={klient} style={{ fontFamily: 'Sora, sans-serif' }}>
+                  {klient}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="relative">
+            <select
+              value={selectedTyp}
+              onChange={(e) => setSelectedTyp(e.target.value)}
+              className={filterSelectClass}
+              style={filterSelectStyle}
+            >
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ</option>
+              {typOptions.map((opt) => (
+                <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="relative">
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className={filterSelectClass}
+              style={filterSelectStyle}
+            >
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Rok</option>
+              {years.map((year) => (
+                <option key={year} value={year} style={{ fontFamily: 'Sora, sans-serif' }}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="relative">
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className={filterSelectClass}
+              style={filterSelectStyle}
+            >
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Miesiąc</option>
+              {months.map((month) => (
+                <option key={month.value} value={month.value} style={{ fontFamily: 'Sora, sans-serif' }}>
+                  {month.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors w-fit"
+          >
+            Wyczyść filtry
+          </button>
+        )}
+      </div>
+
+      <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
+        <table className="w-full">
+          <thead className="sticky top-0 z-10">
+            <tr>
             <th
               className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
               onClick={() => handleSort('kod')}
@@ -552,6 +591,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 };
