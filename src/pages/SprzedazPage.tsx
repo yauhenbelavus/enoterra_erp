@@ -12,6 +12,7 @@ import { WriteOffModal } from '../components/WriteOffModal';
 import { PrzychodModal } from '../components/PrzychodModal';
 import { CreateReservationModal } from '../components/CreateReservationModal';
 import { KomisList } from '../components/KomisList';
+import { AnalizaWydanList } from '../components/AnalizaWydanList';
 import toast from 'react-hot-toast';
 
 const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
@@ -511,8 +512,8 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
         )}
 
         {activeSubTab === 'analiza_wydan' && (
-          <div className="space-y-4 mt-6">
-            <h2 className="text-lg font-bold text-gray-900 font-sora">Analiza wydań</h2>
+          <div className="flex flex-col gap-4 mt-6 w-full">
+            <AnalizaWydanList refreshTrigger={ordersRefreshTrigger} apiUrl={API_URL} />
           </div>
         )}
       </div>

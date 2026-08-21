@@ -7176,6 +7176,81 @@ app.get('/api/orders-with-products', (req, res) => {
   });
 });
 
+app.get('/api/analiza-wydan', (req, res) => {
+  console.log('📊 GET /api/analiza-wydan - Fetching order products grouped by kod');
+
+  db.all(
+    `SELECT
+      COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS kod,
+      COALESCE(ws.nazwa, MAX(op.nazwa)) AS nazwa,
+      SUM(op.ilosc) AS ilosc
+    FROM order_products op
+    JOIN orders o ON o.id = op.orderId
+    LEFT JOIN working_sheets ws ON
+      (TRIM(COALESCE(op.kod, '')) != '' AND ws.kod = TRIM(op.kod))
+      OR (TRIM(COALESCE(op.kod, '')) = '' AND ws.nazwa = op.nazwa)
+    WHERE o.typ NOT IN ('zwrot', 'przychod', 'przesuniecie')
+      AND COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) IS NOT NULL
+      AND TRIM(COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)) != ''
+    GROUP BY COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)
+    ORDER BY nazwa COLLATE NOCASE`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza wydan:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+
+      console.log(`✅ Found ${rows.length} grouped products for analiza wydan`);
+      res.json(rows || []);
+    }
+  );
+});
+
+app.get('/api/analiza-wydan/:kod', (req, res) => {
+  const { kod } = req.params;
+  console.log(`📊 GET /api/analiza-wydan/${kod} - Fetching typ breakdown`);
+
+  db.all(
+    `WITH filtered AS (
+      SELECT
+        op.ilosc,
+        COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ,
+        COALESCE(ws.nazwa, op.nazwa) AS nazwa
+      FROM order_products op
+      JOIN orders o ON o.id = op.orderId
+      LEFT JOIN working_sheets ws ON
+        (TRIM(COALESCE(op.kod, '')) != '' AND ws.kod = TRIM(op.kod))
+        OR (TRIM(COALESCE(op.kod, '')) = '' AND ws.nazwa = op.nazwa)
+      WHERE o.typ NOT IN ('zwrot', 'przychod', 'przesuniecie')
+        AND COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) = ?
+    )
+    SELECT typ, SUM(ilosc) AS ilosc, MAX(nazwa) AS nazwa
+    FROM filtered
+    GROUP BY typ
+    ORDER BY ilosc DESC, typ COLLATE NOCASE`,
+    [kod],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza wydan details:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+
+      const byTyp = (rows || []).map((row) => ({
+        typ: row.typ,
+        ilosc: row.ilosc,
+      }));
+      const nazwa = rows?.[0]?.nazwa || '';
+      const totalIlosc = byTyp.reduce((sum, row) => sum + (row.ilosc || 0), 0);
+
+      console.log(`✅ Found ${byTyp.length} typ rows for kod ${kod}`);
+      res.json({ kod, nazwa, ilosc: totalIlosc, by_typ: byTyp });
+    }
+  );
+});
+
 app.post('/api/order-products', (req, res) => {
   const { orderId, kod, nazwa, ilosc, typ } = req.body;
   console.log('📋 POST /api/order-products - Adding product to order:', { orderId, kod, nazwa, ilosc });
