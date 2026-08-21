@@ -976,139 +976,36 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
           </div>
 
           {/* Продукты */}
-          <div className="space-y-3">
+          <div className="space-y-2">
             <label className="block text-xs font-medium text-gray-700 font-sora">
               Produkty
             </label>
             {productRows.map((row, index) => (
               <div key={index} className="relative">
-                <div className="flex items-start">
-                  <div className="relative flex-1 min-w-0">
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-4 w-4 text-gray-400" />
-                      </div>
-                      <input
-                        type="text"
-                        value={row.nazwa}
-                        onChange={(e) => {
-                          const newValue = e.target.value;
-                          console.log('🔍 EditOrderModal Product search input changed for index:', index, 'value:', newValue);
-                          
-                          const newRows = [...productRows];
-                          newRows[index].nazwa = newValue;
-                          setProductRows(newRows);
-                          setActiveSearchId(index);
-                        }}
-                        onFocus={() => setActiveSearchId(index)}
-                        placeholder="Wyszukaj produkty..."
-                        className="w-full pl-10 pr-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                      />
-                      {isProductLoading && activeSearchId === index && (
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                        </div>
-                      )}
+                <div className="flex">
+                  <div className={`relative flex-1 ${order?.typ === 'odpisanie' || order?.typ === 'przychod' ? 'max-w-[65%]' : 'max-w-[70%]'}`}>
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Search className="h-4 w-4 text-gray-400" />
                     </div>
-
-                    <div className={`mt-1 relative dropdown-container ${order?.typ === 'odpisanie' || order?.typ === 'przychod' ? 'w-44' : 'w-36'}`}>
-                      <button
-                        type="button"
-                        onClick={() => toggleDropdown(index)}
-                        className={`w-full px-2 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${
-                          row.typ 
-                            ? (order?.typ === 'odpisanie' 
-                                ? POWODY_ODPISANIA.find(t => t.value === row.typ)?.color 
-                                : order?.typ === 'przychod'
-                                ? POWODY_PRZYCHODU.find(t => t.value === row.typ)?.color
-                                : TYPY_ZAMOWIENIA.find(t => t.value === row.typ)?.color) || 'border-gray-300 bg-white' 
-                            : 'border-gray-300 bg-white'
-                        }`}
-                      >
-                        <span className="truncate text-[10px]">
-                          {row.typ 
-                            ? (order?.typ === 'odpisanie' 
-                                ? POWODY_ODPISANIA.find(t => t.value === row.typ)?.label 
-                                : order?.typ === 'przychod'
-                                ? POWODY_PRZYCHODU.find(t => t.value === row.typ)?.label
-                                : TYPY_ZAMOWIENIA.find(t => t.value === row.typ)?.label) || 'Powód'
-                            : 'Powód'}
-                        </span>
-                        <svg className="w-3 h-3 ml-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                      {openDropdownIndex === index && (
-                        <div 
-                          className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {(order?.typ === 'odpisanie' ? POWODY_ODPISANIA 
-                          : order?.typ === 'przychod' ? POWODY_PRZYCHODU
-                          : TYPY_ZAMOWIENIA).map((typ) => (
-                            <button
-                              key={typ.value}
-                              type="button"
-                              onClick={() => handleTypChange(index, typ.value)}
-                              className={`w-full px-2 py-1.5 text-left text-[10px] hover:bg-gray-50 ${typ.color}`}
-                            >
-                              {typ.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {products.length > 0 && activeSearchId === index && row.nazwa.trim() && (
-                      <div className="absolute z-50 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base overflow-auto focus:outline-none sm:text-sm border border-gray-200">
-                        {products.map((product) => {
-                          const isCurrentRowProduct = product.kod === row.kod;
-                          const warehouseStock = product.ilosc_total ?? (parseInt(product.ilosc) || 0);
-                          const originalInOrder = isCurrentRowProduct ? (row.originalIlosc || 0) : 0;
-                          const warehouseForEdit = warehouseStock + originalInOrder;
-                          const isEditingOrder = order?.typ !== 'odpisanie' && order?.typ !== 'przychod';
-
-                          const stockLabel = isEditingOrder && originalInOrder > 0
-                            ? `Dostępna ilość: ${warehouseForEdit}`
-                            : `Dostępna ilość: ${warehouseStock}`;
-
-                          const globalReservedDisplay = product.ilosc_reserved ?? 0;
-                          const clientReservedDisplay = product.ilosc_client_reserved ?? 0;
-
-                          return (
-                          <div
-                            key={product.kod}
-                            className="cursor-pointer select-none relative py-1 pl-3 pr-9 hover:bg-blue-50"
-                            onClick={() => handleProductSelect(index, product)}
-                          >
-                            <div className="flex flex-col">
-                              <ProductSearchHintLines
-                                kod={product.kod}
-                                nazwa={product.nazwa}
-                                sprzedawca={product.sprzedawca}
-                              >
-                              <span className="text-[10px] text-gray-500">{stockLabel}</span>
-                              {globalReservedDisplay > 0 && (
-                                <span className="text-[10px] text-red-500">
-                                  Z nich w rezerw: {globalReservedDisplay}
-                                </span>
-                              )}
-                              {selectedClient?.id && clientReservedDisplay > 0 && (
-                                <span className="text-[10px] text-blue-700">
-                                  Rezerwacja klienta: {clientReservedDisplay}
-                                </span>
-                              )}
-                              </ProductSearchHintLines>
-                            </div>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <input
+                      type="text"
+                      value={row.nazwa}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        console.log('🔍 EditOrderModal Product search input changed for index:', index, 'value:', newValue);
+                        
+                        const newRows = [...productRows];
+                        newRows[index].nazwa = newValue;
+                        setProductRows(newRows);
+                        setActiveSearchId(index);
+                      }}
+                      onFocus={() => setActiveSearchId(index)}
+                      placeholder="Wyszukaj produkty..."
+                      className="w-full pl-10 pr-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    />
                   </div>
 
-                  {/* Поле для количества */}
-                  <div className="w-16 ml-2 flex-shrink-0">
+                  <div className="w-16 ml-2">
                     <input
                       type="number"
                       min="1"
@@ -1122,7 +1019,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
                         newRows[index].ilosc = newValue;
                         setProductRows(newRows);
                         
-                        // Проверяем доступность только для обычных заказов (не списаний и не przychodów)
                         if (order?.typ !== 'odpisanie' && order?.typ !== 'przychod' && row.kod) {
                           const isSamplesRow = row.status === 'samples';
                           const samplesOwnQuantity = row.availableQuantity || 0;
@@ -1182,7 +1078,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
                             });
                           }
                         } else {
-                          // Для списаний и przychodów просто очищаем ошибку
                           if (fieldsWithErrors.has(index)) {
                             const newErrors = new Set(fieldsWithErrors);
                             newErrors.delete(index);
@@ -1195,13 +1090,60 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
                       }`}
                     />
                   </div>
-                  
-                  {/* Кнопка удаления позиции */}
+
+                  <div className={`${order?.typ === 'odpisanie' || order?.typ === 'przychod' ? 'w-32' : 'w-24'} ml-2 relative dropdown-container`}>
+                    <button
+                      type="button"
+                      onClick={() => toggleDropdown(index)}
+                      className={`w-full px-2 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${
+                        row.typ 
+                          ? (order?.typ === 'odpisanie' 
+                              ? POWODY_ODPISANIA.find(t => t.value === row.typ)?.color 
+                              : order?.typ === 'przychod'
+                              ? POWODY_PRZYCHODU.find(t => t.value === row.typ)?.color
+                              : TYPY_ZAMOWIENIA.find(t => t.value === row.typ)?.color) || 'border-gray-300 bg-white' 
+                          : 'border-gray-300 bg-white'
+                      }`}
+                    >
+                      <span className="truncate text-[10px]">
+                        {row.typ 
+                          ? (order?.typ === 'odpisanie' 
+                              ? POWODY_ODPISANIA.find(t => t.value === row.typ)?.label 
+                              : order?.typ === 'przychod'
+                              ? POWODY_PRZYCHODU.find(t => t.value === row.typ)?.label
+                              : TYPY_ZAMOWIENIA.find(t => t.value === row.typ)?.label) || 'Powód'
+                          : 'Powód'}
+                      </span>
+                      <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {openDropdownIndex === index && (
+                      <div 
+                        className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {(order?.typ === 'odpisanie' ? POWODY_ODPISANIA 
+                        : order?.typ === 'przychod' ? POWODY_PRZYCHODU
+                        : TYPY_ZAMOWIENIA).map((typ) => (
+                          <button
+                            key={typ.value}
+                            type="button"
+                            onClick={() => handleTypChange(index, typ.value)}
+                            className={`w-full px-2 py-1.5 text-left text-[10px] hover:bg-gray-50 ${typ.color}`}
+                          >
+                            {typ.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {productRows.length > 1 && (
                     <button
                       type="button"
                       onClick={() => deleteRow(index)}
-                      className="ml-2 text-red-400 hover:text-red-600 flex-shrink-0"
+                      className="ml-2 text-red-400 hover:text-red-600"
                       title="Usuń pozycję"
                     >
                       <X size={16} />
@@ -1209,7 +1151,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
                   )}
                 </div>
 
-                {/* Кнопка добавления новой позиции (только для последней строки) */}
                 {index === productRows.length - 1 && (
                   <button
                     type="button"
@@ -1221,6 +1162,57 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
                   </button>
                 )}
 
+                {isProductLoading && activeSearchId === index && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                  </div>
+                )}
+                {products.length > 0 && activeSearchId === index && row.nazwa.trim() && (
+                  <div className={`absolute z-50 mt-1 ${order?.typ === 'odpisanie' || order?.typ === 'przychod' ? 'w-[65%]' : 'w-[70%]'} bg-white shadow-lg max-h-60 rounded-md py-1 text-base overflow-auto focus:outline-none sm:text-sm border border-gray-200`}>
+                    {products.map((product) => {
+                      const isCurrentRowProduct = product.kod === row.kod;
+                      const warehouseStock = product.ilosc_total ?? (parseInt(product.ilosc) || 0);
+                      const originalInOrder = isCurrentRowProduct ? (row.originalIlosc || 0) : 0;
+                      const warehouseForEdit = warehouseStock + originalInOrder;
+                      const isEditingOrder = order?.typ !== 'odpisanie' && order?.typ !== 'przychod';
+
+                      const stockLabel = isEditingOrder && originalInOrder > 0
+                        ? `Dostępna ilość: ${warehouseForEdit}`
+                        : `Dostępna ilość: ${warehouseStock}`;
+
+                      const globalReservedDisplay = product.ilosc_reserved ?? 0;
+                      const clientReservedDisplay = product.ilosc_client_reserved ?? 0;
+
+                      return (
+                      <div
+                        key={product.kod}
+                        className="cursor-pointer select-none relative py-1 pl-3 pr-9 hover:bg-blue-50"
+                        onClick={() => handleProductSelect(index, product)}
+                      >
+                        <div className="flex flex-col">
+                          <ProductSearchHintLines
+                            kod={product.kod}
+                            nazwa={product.nazwa}
+                            sprzedawca={product.sprzedawca}
+                          >
+                          <span className="text-[10px] text-gray-500">{stockLabel}</span>
+                          {globalReservedDisplay > 0 && (
+                            <span className="text-[10px] text-red-500">
+                              Z nich w rezerw: {globalReservedDisplay}
+                            </span>
+                          )}
+                          {selectedClient?.id && clientReservedDisplay > 0 && (
+                            <span className="text-[10px] text-blue-700">
+                              Rezerwacja klienta: {clientReservedDisplay}
+                            </span>
+                          )}
+                          </ProductSearchHintLines>
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>

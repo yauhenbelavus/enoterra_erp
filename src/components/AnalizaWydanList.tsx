@@ -209,12 +209,12 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                       const meta = getTypMeta(row.typ);
                       return (
                         <tr key={`${product.kod}-${row.typ}`} className="bg-gray-50">
-                          <td className="px-8 py-2 pl-12 text-sm font-sora">
-                            <span className={`px-2 py-1 rounded-md text-xs font-medium ${meta.color}`}>
+                          <td className="px-8 py-2 pl-12 text-sm font-sora" />
+                          <td className="px-8 py-2 text-sm font-sora">
+                            <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium border ${meta.color}`}>
                               {meta.label}
                             </span>
                           </td>
-                          <td className="px-8 py-2" />
                           <td className="px-8 py-2 whitespace-nowrap text-sm text-gray-600 font-sora">
                             {row.ilosc}
                           </td>
