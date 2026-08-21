@@ -7176,79 +7176,222 @@ app.get('/api/orders-with-products', (req, res) => {
   });
 });
 
-app.get('/api/analiza-wydan', (req, res) => {
-  console.log('📊 GET /api/analiza-wydan - Fetching order products grouped by kod');
+function extractDateFromOrderNumber(orderNumber) {
+  if (!orderNumber) return null;
+  const match = String(orderNumber).match(/(\d{1,2})_(\d{1,2})_(\d{4})$/);
+  if (!match) return null;
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10) - 1;
+  const year = parseInt(match[3], 10);
+  const date = new Date(year, month, day);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+const ANALIZA_WYDAN_BASE_JOIN = `
+  FROM order_products op
+  JOIN orders o ON o.id = op.orderId
+  LEFT JOIN working_sheets ws ON
+    (TRIM(COALESCE(op.kod, '')) != '' AND ws.kod = TRIM(op.kod))
+    OR (TRIM(COALESCE(op.kod, '')) = '' AND ws.nazwa = op.nazwa)
+`;
+
+const ANALIZA_WYDAN_BASE_WHERE = `
+  o.typ NOT IN ('zwrot', 'przychod', 'przesuniecie')
+  AND COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) IS NOT NULL
+  AND TRIM(COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)) != ''
+`;
+
+function parseAnalizaWydanFilters(query) {
+  return {
+    klient: (query.klient || '').trim(),
+    typ: (query.typ || '').trim(),
+    year: (query.year || '').trim(),
+    month: (query.month || '').trim()
+  };
+}
+
+function orderMatchesAnalizaWydanDate(numerZamowienia, year, month) {
+  if (!year && !month) return true;
+  const date = extractDateFromOrderNumber(numerZamowienia);
+  if (!date) return false;
+  if (year && date.getFullYear().toString() !== year) return false;
+  if (month && (date.getMonth() + 1).toString().padStart(2, '0') !== month.padStart(2, '0')) {
+    return false;
+  }
+  return true;
+}
+
+function getAnalizaWydanOrderIdsForDateFilters(filters, callback) {
+  if (!filters.year && !filters.month) {
+    callback(null, null);
+    return;
+  }
 
   db.all(
-    `SELECT
-      COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS kod,
-      COALESCE(ws.nazwa, MAX(op.nazwa)) AS nazwa,
-      SUM(op.ilosc) AS ilosc
-    FROM order_products op
-    JOIN orders o ON o.id = op.orderId
-    LEFT JOIN working_sheets ws ON
-      (TRIM(COALESCE(op.kod, '')) != '' AND ws.kod = TRIM(op.kod))
-      OR (TRIM(COALESCE(op.kod, '')) = '' AND ws.nazwa = op.nazwa)
-    WHERE o.typ NOT IN ('zwrot', 'przychod', 'przesuniecie')
-      AND COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) IS NOT NULL
-      AND TRIM(COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)) != ''
-    GROUP BY COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)
-    ORDER BY nazwa COLLATE NOCASE`,
+    `SELECT id, numer_zamowienia FROM orders WHERE typ NOT IN ('zwrot', 'przychod', 'przesuniecie')`,
     [],
     (err, rows) => {
       if (err) {
-        console.error('❌ Database error fetching analiza wydan:', err);
+        callback(err);
+        return;
+      }
+
+      const ids = (rows || [])
+        .filter((row) => orderMatchesAnalizaWydanDate(row.numer_zamowienia, filters.year, filters.month))
+        .map((row) => row.id);
+
+      callback(null, ids);
+    }
+  );
+}
+
+function buildAnalizaWydanWhere(filters, kod, orderIdsForDate) {
+  const conditions = [ANALIZA_WYDAN_BASE_WHERE];
+  const params = [];
+
+  if (filters.klient) {
+    conditions.push('o.klient = ?');
+    params.push(filters.klient);
+  }
+
+  if (filters.typ) {
+    conditions.push("COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') = ?");
+    params.push(filters.typ);
+  }
+
+  if (kod) {
+    conditions.push("COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) = ?");
+    params.push(kod);
+  }
+
+  if (orderIdsForDate !== null) {
+    if (orderIdsForDate.length === 0) {
+      return { empty: true, where: '', params: [] };
+    }
+    conditions.push(`o.id IN (${orderIdsForDate.map(() => '?').join(', ')})`);
+    params.push(...orderIdsForDate);
+  }
+
+  return { empty: false, where: conditions.join(' AND '), params };
+}
+
+app.get('/api/analiza-wydan/filters', (req, res) => {
+  console.log('📊 GET /api/analiza-wydan/filters - Fetching filter options');
+
+  db.all(
+    `SELECT DISTINCT
+      o.klient AS klient,
+      COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ,
+      o.numer_zamowienia AS numer_zamowienia
+    ${ANALIZA_WYDAN_BASE_JOIN}
+    WHERE ${ANALIZA_WYDAN_BASE_WHERE}
+      AND o.klient IS NOT NULL
+      AND TRIM(o.klient) != ''`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza wydan filters:', err);
         res.status(500).json({ error: err.message });
         return;
       }
 
-      console.log(`✅ Found ${rows.length} grouped products for analiza wydan`);
       res.json(rows || []);
     }
   );
 });
 
+app.get('/api/analiza-wydan', (req, res) => {
+  const filters = parseAnalizaWydanFilters(req.query);
+  console.log('📊 GET /api/analiza-wydan - Fetching order products grouped by kod', filters);
+
+  getAnalizaWydanOrderIdsForDateFilters(filters, (dateErr, orderIdsForDate) => {
+    if (dateErr) {
+      console.error('❌ Database error resolving analiza wydan date filters:', dateErr);
+      res.status(500).json({ error: dateErr.message });
+      return;
+    }
+
+    const built = buildAnalizaWydanWhere(filters, null, orderIdsForDate);
+    if (built.empty) {
+      res.json([]);
+      return;
+    }
+
+    db.all(
+      `SELECT
+        COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS kod,
+        COALESCE(ws.nazwa, MAX(op.nazwa)) AS nazwa,
+        SUM(op.ilosc) AS ilosc
+      ${ANALIZA_WYDAN_BASE_JOIN}
+      WHERE ${built.where}
+      GROUP BY COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)
+      ORDER BY nazwa COLLATE NOCASE`,
+      built.params,
+      (err, rows) => {
+        if (err) {
+          console.error('❌ Database error fetching analiza wydan:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        console.log(`✅ Found ${rows.length} grouped products for analiza wydan`);
+        res.json(rows || []);
+      }
+    );
+  });
+});
+
 app.get('/api/analiza-wydan/:kod', (req, res) => {
   const { kod } = req.params;
-  console.log(`📊 GET /api/analiza-wydan/${kod} - Fetching typ breakdown`);
+  const filters = parseAnalizaWydanFilters(req.query);
+  console.log(`📊 GET /api/analiza-wydan/${kod} - Fetching typ breakdown`, filters);
 
-  db.all(
-    `WITH filtered AS (
-      SELECT
-        op.ilosc,
-        COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ,
-        COALESCE(ws.nazwa, op.nazwa) AS nazwa
-      FROM order_products op
-      JOIN orders o ON o.id = op.orderId
-      LEFT JOIN working_sheets ws ON
-        (TRIM(COALESCE(op.kod, '')) != '' AND ws.kod = TRIM(op.kod))
-        OR (TRIM(COALESCE(op.kod, '')) = '' AND ws.nazwa = op.nazwa)
-      WHERE o.typ NOT IN ('zwrot', 'przychod', 'przesuniecie')
-        AND COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) = ?
-    )
-    SELECT typ, SUM(ilosc) AS ilosc, MAX(nazwa) AS nazwa
-    FROM filtered
-    GROUP BY typ
-    ORDER BY ilosc DESC, typ COLLATE NOCASE`,
-    [kod],
-    (err, rows) => {
-      if (err) {
-        console.error('❌ Database error fetching analiza wydan details:', err);
-        res.status(500).json({ error: err.message });
-        return;
-      }
-
-      const byTyp = (rows || []).map((row) => ({
-        typ: row.typ,
-        ilosc: row.ilosc,
-      }));
-      const nazwa = rows?.[0]?.nazwa || '';
-      const totalIlosc = byTyp.reduce((sum, row) => sum + (row.ilosc || 0), 0);
-
-      console.log(`✅ Found ${byTyp.length} typ rows for kod ${kod}`);
-      res.json({ kod, nazwa, ilosc: totalIlosc, by_typ: byTyp });
+  getAnalizaWydanOrderIdsForDateFilters(filters, (dateErr, orderIdsForDate) => {
+    if (dateErr) {
+      console.error('❌ Database error resolving analiza wydan date filters:', dateErr);
+      res.status(500).json({ error: dateErr.message });
+      return;
     }
-  );
+
+    const built = buildAnalizaWydanWhere(filters, kod, orderIdsForDate);
+    if (built.empty) {
+      res.json({ kod, nazwa: '', ilosc: 0, by_typ: [] });
+      return;
+    }
+
+    db.all(
+      `WITH filtered AS (
+        SELECT
+          op.ilosc,
+          COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ,
+          COALESCE(ws.nazwa, op.nazwa) AS nazwa
+        ${ANALIZA_WYDAN_BASE_JOIN}
+        WHERE ${built.where}
+      )
+      SELECT typ, SUM(ilosc) AS ilosc, MAX(nazwa) AS nazwa
+      FROM filtered
+      GROUP BY typ
+      ORDER BY ilosc DESC, typ COLLATE NOCASE`,
+      built.params,
+      (err, rows) => {
+        if (err) {
+          console.error('❌ Database error fetching analiza wydan details:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
+        const byTyp = (rows || []).map((row) => ({
+          typ: row.typ,
+          ilosc: row.ilosc,
+        }));
+        const nazwa = rows?.[0]?.nazwa || '';
+        const totalIlosc = byTyp.reduce((sum, row) => sum + (row.ilosc || 0), 0);
+
+        console.log(`✅ Found ${byTyp.length} typ rows for kod ${kod}`);
+        res.json({ kod, nazwa, ilosc: totalIlosc, by_typ: byTyp });
+      }
+    );
+  });
 });
 
 app.post('/api/order-products', (req, res) => {
