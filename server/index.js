@@ -9629,10 +9629,11 @@ app.get('/api/working-sheets/search', (req, res) => {
   // Считает 3 агрегата ОДИН раз по WHERE kod IN (...) (равенство → работает индекс),
   // без LIKE '%...%'-сканов в цикле. Используется при открытии EditOrderModal.
   if (codes !== undefined) {
+    // Не триммим коды: в БД встречаются kod с ведущим/хвостовым пробелом
+    // (напр. " ER23R/12B"), а фронт шлёт их как есть и затем фильтрует product.kod === kod.
     const codeList = String(codes)
       .split(',')
-      .map((c) => c.trim())
-      .filter(Boolean);
+      .filter((c) => c.length > 0);
 
     if (codeList.length === 0) {
       return res.json([]);
