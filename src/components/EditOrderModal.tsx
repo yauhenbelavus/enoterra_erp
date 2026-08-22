@@ -180,29 +180,29 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
       const productsInfo: any[] = [];
       const resultsByKod = new Map<string, any[]>();
 
-      const searchResults = await Promise.all(
-        productCodes.map(async (kod) => {
-          const params = new URLSearchParams({ query: kod });
-          if (clientId) {
-            params.set('client_id', String(clientId));
-          }
-          if (order?.id && order?.typ !== 'odpisanie' && order?.typ !== 'przychod') {
-            params.set('order_id', String(order.id));
-          }
-          if (order?.typ === 'przychod') {
-            params.set('include_zero_stock', 'true');
-          }
+      // Один батч-запрос по всем кодам сразу вместо N параллельных вызовов —
+      // сервер считает агрегаты один раз по WHERE kod IN (...), а не LIKE '%kod%' в цикле.
+      const params = new URLSearchParams({ codes: productCodes.join(',') });
+      if (clientId) {
+        params.set('client_id', String(clientId));
+      }
+      if (order?.id && order?.typ !== 'odpisanie' && order?.typ !== 'przychod') {
+        params.set('order_id', String(order.id));
+      }
+      if (order?.typ === 'przychod') {
+        params.set('include_zero_stock', 'true');
+      }
 
-          const response = await fetch(`/api/working-sheets/search?${params.toString()}`);
-          if (!response.ok) {
-            return [kod, []] as const;
-          }
+      let allRows: any[] = [];
+      const response = await fetch(`/api/working-sheets/search?${params.toString()}`);
+      if (response.ok) {
+        allRows = await response.json();
+      }
 
-          const data = await response.json();
-          const kodResults = data.filter((product: any) => product.kod === kod);
-          return [kod, kodResults] as const;
-        })
-      );
+      const searchResults = productCodes.map((kod) => {
+        const kodResults = allRows.filter((product: any) => product.kod === kod);
+        return [kod, kodResults] as const;
+      });
 
       searchResults.forEach(([kod, kodResults]) => {
         if (kodResults.length > 0) {

@@ -9622,9 +9622,143 @@ app.get('/api/working-sheets/search-simple', (req, res) => {
 
 // Search working sheets
 app.get('/api/working-sheets/search', (req, res) => {
-  const { query, client_id, include_zero_stock, for_reservation, order_id } = req.query;
-  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}${order_id ? `, order_id: ${order_id}` : ''}${include_zero_stock ? ', include_zero_stock: true' : ''}${for_reservation ? ', for_reservation: true' : ''}`);
-  
+  const { query, client_id, include_zero_stock, for_reservation, order_id, codes } = req.query;
+  console.log(`🔍 GET /api/working-sheets/search - Searching working sheets with query: "${query}"${client_id ? `, client_id: ${client_id}` : ''}${order_id ? `, order_id: ${order_id}` : ''}${include_zero_stock ? ', include_zero_stock: true' : ''}${for_reservation ? ', for_reservation: true' : ''}${codes ? `, codes: ${codes}` : ''}`);
+
+  // Батч-режим: инфо сразу по списку кодов (?codes=kod1,kod2,...) — один запрос вместо N.
+  // Считает 3 агрегата ОДИН раз по WHERE kod IN (...) (равенство → работает индекс),
+  // без LIKE '%...%'-сканов в цикле. Используется при открытии EditOrderModal.
+  if (codes !== undefined) {
+    const codeList = String(codes)
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    if (codeList.length === 0) {
+      return res.json([]);
+    }
+
+    const includeZeroBatch = include_zero_stock === 'true';
+    const placeholders = codeList.map(() => '?').join(', ');
+
+    const wsPromiseB = new Promise((resolve, reject) => {
+      db.all(
+        `SELECT w.kod, MAX(w.nazwa) as nazwa, MAX(w.sprzedawca) as sprzedawca, SUM(w.ilosc) as ilosc_main
+         FROM working_sheets w
+         WHERE w.kod IN (${placeholders})
+         GROUP BY w.kod`,
+        codeList,
+        (err, rows) => err ? reject(err) : resolve(rows || [])
+      );
+    });
+
+    const samplesPromiseB = new Promise((resolve, reject) => {
+      db.all(
+        `SELECT kod, MAX(nazwa) as nazwa, SUM(ilosc_aktualna) as ilosc_samples
+         FROM products
+         WHERE kod IN (${placeholders}) AND status = 'samples'
+         GROUP BY kod
+         HAVING SUM(ilosc_aktualna) > 0`,
+        codeList,
+        (err, rows) => err ? reject(err) : resolve(rows || [])
+      );
+    });
+
+    const reservationsPromiseB = new Promise((resolve, reject) => {
+      db.all(
+        `SELECT rp.product_kod as kod,
+                SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc_reserved,
+                SUM(CASE WHEN r.client_id = ? THEN rp.ilosc - COALESCE(rp.ilosc_wydane, 0) ELSE 0 END) as ilosc_client_reserved,
+                SUM(CASE WHEN r.client_id = ? THEN rp.ilosc ELSE 0 END) as ilosc_client_reserved_total
+         FROM reservation_products rp
+         INNER JOIN reservations r ON rp.reservation_id = r.id
+         WHERE r.status = 'aktywna' AND rp.product_kod IN (${placeholders})
+         GROUP BY rp.product_kod`,
+        [client_id || 0, client_id || 0, ...codeList],
+        (err, rows) => err ? reject(err) : resolve(rows || [])
+      );
+    });
+
+    Promise.all([wsPromiseB, samplesPromiseB, reservationsPromiseB])
+      .then(([wsRows, samplesRows, reservationsRows]) => {
+        const samplesByKod = new Map();
+        samplesRows.forEach(r => samplesByKod.set(r.kod, r.ilosc_samples || 0));
+
+        const reservationsByKod = new Map();
+        reservationsRows.forEach(r => reservationsByKod.set(r.kod, {
+          ilosc_reserved: r.ilosc_reserved || 0,
+          ilosc_client_reserved: r.ilosc_client_reserved || 0,
+          ilosc_client_reserved_total: r.ilosc_client_reserved_total || 0
+        }));
+
+        const wsMainByKod = new Map(wsRows.map(r => [r.kod, r.ilosc_main || 0]));
+        const sprzedawcaByKod = new Map(wsRows.map(r => [r.kod, r.sprzedawca || '']));
+
+        const result = [];
+
+        // Основные строки — working_sheets
+        wsRows.forEach(ws => {
+          const samplesQty = samplesByKod.get(ws.kod) || 0;
+          const mainOnly = (ws.ilosc_main || 0) - samplesQty;
+          if (!includeZeroBatch && mainOnly <= 0) return;
+
+          const reserved = reservationsByKod.get(ws.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0, ilosc_client_reserved_total: 0 };
+          const row = {
+            kod: ws.kod,
+            nazwa: ws.nazwa,
+            sprzedawca: ws.sprzedawca || '',
+            ilosc: mainOnly,
+            ilosc_reserved: reserved.ilosc_reserved,
+            status: null
+          };
+          if (client_id) {
+            row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+            row.ilosc_client_reserved_total = reserved.ilosc_client_reserved_total;
+          }
+          result.push(row);
+        });
+
+        // Строки семплов
+        samplesRows.forEach(sp => {
+          const sampleQty = sp.ilosc_samples || 0;
+          if (sampleQty <= 0) return;
+          const wsMain = wsMainByKod.get(sp.kod) || 0;
+          if (wsMain <= 0) return;
+          const effectiveSampleQty = Math.min(sampleQty, wsMain);
+          if (effectiveSampleQty <= 0) return;
+
+          const reserved = reservationsByKod.get(sp.kod) || { ilosc_reserved: 0, ilosc_client_reserved: 0, ilosc_client_reserved_total: 0 };
+          const row = {
+            kod: sp.kod,
+            nazwa: `${sp.nazwa} (samples)`,
+            sprzedawca: sprzedawcaByKod.get(sp.kod) || '',
+            ilosc: effectiveSampleQty,
+            ilosc_reserved: reserved.ilosc_reserved,
+            status: 'samples'
+          };
+          if (client_id) {
+            row.ilosc_client_reserved = reserved.ilosc_client_reserved;
+            row.ilosc_client_reserved_total = reserved.ilosc_client_reserved_total;
+          }
+          result.push(row);
+        });
+
+        enrichSearchRowsWithOrderReservation(order_id, result, (enrichErr, enrichedRows) => {
+          if (enrichErr) {
+            console.error('❌ Error enriching batch rows with order reservation:', enrichErr);
+            return res.status(500).json({ error: enrichErr.message });
+          }
+          console.log(`✅ Batch search: ${enrichedRows.length} rows for ${codeList.length} codes`);
+          res.json(enrichedRows);
+        });
+      })
+      .catch(err => {
+        console.error('❌ Database error (batch):', err);
+        res.status(500).json({ error: err.message });
+      });
+    return;
+  }
+
   if (query === undefined || query === null) {
     console.log('❌ Validation failed: query parameter is required');
     return res.status(400).json({ error: 'Query parameter is required' });
