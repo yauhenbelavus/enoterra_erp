@@ -74,6 +74,7 @@ export const OrdersList: React.FC<OrdersListProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedKlient, setSelectedKlient] = useState<string>('');
   const [selectedTyp, setSelectedTyp] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   const loadOrders = async () => {
     try {
@@ -436,6 +437,11 @@ export const OrdersList: React.FC<OrdersListProps> = ({
     }
   );
 
+  // Сброс на первую страницу при изменении фильтров или сортировки
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedKlient, selectedTyp, selectedYear, selectedMonth, sortField, sortDirection]);
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-32">
@@ -453,6 +459,13 @@ export const OrdersList: React.FC<OrdersListProps> = ({
   }
 
   const hasActiveFilters = selectedKlient || selectedTyp || selectedYear || selectedMonth;
+
+  // Пагинация: рендерим только текущую страницу, чтобы не держать в DOM все строки
+  // (Safari при большом DOM тормозит пересчёт стилей/раскладки).
+  const ORDERS_PER_PAGE = 50;
+  const totalPages = Math.max(1, Math.ceil(sortedOrders.length / ORDERS_PER_PAGE));
+  const page = Math.min(currentPage, totalPages);
+  const pagedOrders = sortedOrders.slice((page - 1) * ORDERS_PER_PAGE, page * ORDERS_PER_PAGE);
 
   const filterSelectClass =
     'block px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300 truncate';
@@ -604,7 +617,7 @@ export const OrdersList: React.FC<OrdersListProps> = ({
                 </td>
               </tr>
             ) : (
-              sortedOrders.map((order) => (
+              pagedOrders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50">
                   <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                     {order.numer_zamowienia}
@@ -711,6 +724,33 @@ export const OrdersList: React.FC<OrdersListProps> = ({
           </tbody>
         </table>
       </div>
+
+      {sortedOrders.length > ORDERS_PER_PAGE && (
+        <div className="flex items-center justify-between px-2 py-3 text-xs font-sora text-gray-600">
+          <span>
+            {(page - 1) * ORDERS_PER_PAGE + 1}–{Math.min(page * ORDERS_PER_PAGE, sortedOrders.length)} z {sortedOrders.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1 border border-gray-300 rounded font-sora disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 focus:outline-none"
+            >
+              Poprzednia
+            </button>
+            <span>Strona {page} / {totalPages}</span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="px-3 py-1 border border-gray-300 rounded font-sora disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 focus:outline-none"
+            >
+              Następna
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Модальное окно для ввода пароля */}
       <Modal
