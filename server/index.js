@@ -8891,7 +8891,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   console.log(`💰 Only receipt params changed for ${productCode} (${updateReason.join(', ')}), updating working_sheets`);
                   
                   // Сохраняем снимок ДО изменений
-                  await new Promise((resolve) => {
+                  await new Promise((resolve, reject) => {
                     db.run(
                       `INSERT INTO working_sheets_history 
                        (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
@@ -8900,12 +8900,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                        FROM working_sheets WHERE kod = ?`,
                       [id, productCode],
                       function(err) {
-                    if (err) {
-                          console.error(`❌ Error saving snapshot for ${productCode}:`, err);
-                      } else {
+                        if (err) {
+                          reject(err);
+                        } else {
                           console.log(`✅ Snapshot saved for ${productCode}`);
+                          resolve();
                         }
-                        resolve();
                       }
                     );
                   });
@@ -8993,7 +8993,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 console.log(`📝 Working_sheets changes for ${productCode}:`, wsChanges);
                 
                 // Сохраняем снимок ДО изменений
-                await new Promise((resolve) => {
+                await new Promise((resolve, reject) => {
                         db.run(
                     `INSERT INTO working_sheets_history 
                      (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
@@ -9003,12 +9003,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                     [id, productCode],
                           function(err) {
                             if (err) {
-                        console.error(`❌ Error saving snapshot for ${productCode}:`, err);
+                              reject(err);
                             } else {
                         console.log(`✅ Snapshot saved for ${productCode}`);
-                      }
                               resolve();
                             }
+                          }
                         );
                 });
                 
@@ -9281,27 +9281,19 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
     for (const product of products) {
       const productKod = normalizeProductKod(product.kod);
 
-      const wsRow = await new Promise((resolve) => {
+      const wsRow = await new Promise((resolve, reject) => {
         db.get('SELECT * FROM working_sheets WHERE kod = ?', [productKod], (wsErr, row) => {
-          if (wsErr) {
-            console.error('❌ working_sheets read error:', wsErr);
-            resolve(null);
-          } else {
-            resolve(row);
-          }
+          if (wsErr) reject(wsErr);
+          else resolve(row);
         });
       });
 
       if (!wsRow) continue;
 
-      const cntRow = await new Promise((resolve) => {
+      const cntRow = await new Promise((resolve, reject) => {
         db.get('SELECT COUNT(*) as cnt FROM products WHERE kod = ?', [productKod], (cntErr, row) => {
-          if (cntErr) {
-            console.error('❌ count error:', cntErr);
-            resolve({ cnt: 0 });
-          } else {
-            resolve(row || { cnt: 0 });
-          }
+          if (cntErr) reject(cntErr);
+          else resolve(row || { cnt: 0 });
         });
       });
 
@@ -9309,26 +9301,22 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
 
       if (leftReceipts === 0) {
         console.log(`🔍 Looking for snapshot before receipt ${id} for product ${productKod}`);
-        const snapshot = await new Promise((resolve) => {
+        const snapshot = await new Promise((resolve, reject) => {
           db.get(
             `SELECT * FROM working_sheets_history
              WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
              ORDER BY created_at DESC LIMIT 1`,
             [productKod, id],
             (snapshotErr, row) => {
-              if (snapshotErr) {
-                console.error(`❌ Error finding snapshot for ${productKod}:`, snapshotErr);
-                resolve(null);
-              } else {
-                resolve(row);
-              }
+              if (snapshotErr) reject(snapshotErr);
+              else resolve(row);
             }
           );
         });
 
         if (snapshot) {
           console.log(`🔄 Restoring ${productKod} from snapshot (receipt_id: ${id})`);
-          await new Promise((resolve) => {
+          await new Promise((resolve, reject) => {
             db.run(
               `UPDATE working_sheets SET
                 nazwa = ?,
@@ -9355,21 +9343,21 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
               ],
               function (restoreErr) {
                 if (restoreErr) {
-                  console.error(`❌ Error restoring ${productKod}:`, restoreErr);
+                  reject(restoreErr);
                 } else {
                   console.log(`✅ Restored ${productKod} to state before receipt ${id}`);
                   wsUpdated++;
+                  resolve();
                 }
-                resolve();
               }
             );
           });
         } else {
           console.log(`🗑️ No snapshot found for ${productKod}, deleting from working_sheets`);
-          await new Promise((resolve) => {
+          await new Promise((resolve, reject) => {
             db.run('DELETE FROM working_sheets WHERE kod = ?', [productKod], function (delErr) {
-              if (!delErr) wsDeleted++;
-              resolve();
+              if (delErr) reject(delErr);
+              else { wsDeleted++; resolve(); }
             });
           });
         }
@@ -9378,12 +9366,12 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
         // Nazwa и прочие поля: если текущее состояние в working_sheets совпадает
         // с тем, что записала удаляемая przyjęcie, откатываем метаданные
         // к snapshot before_receipt (иначе оставляем — их уже перезаписала более новая przyjęcie).
-        const sumRow = await new Promise((resolve) => {
+        const sumRow = await new Promise((resolve, reject) => {
           db.get(
             'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?',
             [productKod],
             (sumErr, row) => {
-              if (sumErr) resolve(null);
+              if (sumErr) reject(sumErr);
               else resolve(row);
             }
           );
@@ -9400,19 +9388,15 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
 
         let snapshot = null;
         if (shouldRestoreMeta) {
-          snapshot = await new Promise((resolve) => {
+          snapshot = await new Promise((resolve, reject) => {
             db.get(
               `SELECT * FROM working_sheets_history
                WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
                ORDER BY created_at DESC LIMIT 1`,
               [productKod, id],
               (snapshotErr, row) => {
-                if (snapshotErr) {
-                  console.error(`❌ Error finding snapshot for ${productKod}:`, snapshotErr);
-                  resolve(null);
-                } else {
-                  resolve(row);
-                }
+                if (snapshotErr) reject(snapshotErr);
+                else resolve(row);
               }
             );
           });
@@ -9422,7 +9406,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
           console.log(
             `🔄 Restoring metadata for ${productKod} from snapshot (receipt ${id}), qty from remaining batches`
           );
-          await new Promise((resolve) => {
+          await new Promise((resolve, reject) => {
             db.run(
               `UPDATE working_sheets SET
                 nazwa = ?,
@@ -9449,25 +9433,25 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
               ],
               function (restoreErr) {
                 if (restoreErr) {
-                  console.error(`❌ Error restoring metadata for ${productKod}:`, restoreErr);
+                  reject(restoreErr);
                 } else {
                   console.log(
                     `✅ Restored ${productKod}: nazwa="${snapshot.nazwa}", ilosc=${qty}, cena=${price}`
                   );
                   wsUpdated++;
+                  resolve();
                 }
-                resolve();
               }
             );
           });
         } else {
-          await new Promise((resolve) => {
+          await new Promise((resolve, reject) => {
             db.run(
               'UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?',
               [qty, price, productKod],
               function (upErr) {
-                if (!upErr) wsUpdated++;
-                resolve();
+                if (upErr) reject(upErr);
+                else { wsUpdated++; resolve(); }
               }
             );
           });
