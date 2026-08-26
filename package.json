@@ -29,7 +29,8 @@
     "react-router-dom": "^7.18.2",
     "react-tooltip": "^5.29.1",
     "sqlite3": "^5.1.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@types/node": "^20",

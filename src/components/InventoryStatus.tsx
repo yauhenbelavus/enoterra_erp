@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, Edit, ShoppingCart, X, FileText, FileSpreadsheet } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import toast from 'react-hot-toast';
 import { Tooltip } from 'react-tooltip';
 import Modal from 'react-modal';
@@ -44,6 +44,51 @@ const TYPY_TOWARU = [
   { value: 'aksesoria', label: 'Aksesoria', color: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
   { value: 'amber', label: 'Amber', color: 'bg-amber-100 text-amber-800 border-amber-200' }
 ];
+
+type ExcelBadgeColors = { bg: string; text: string; border: string };
+
+const DEFAULT_EXCEL_BADGE: ExcelBadgeColors = { bg: 'F3F4F6', text: '1F2937', border: 'E5E7EB' };
+
+const TYP_EXCEL_BADGE_COLORS: Record<string, ExcelBadgeColors> = {
+  czerwone: { bg: 'FEE2E2', text: '991B1B', border: 'FECACA' },
+  biale: { bg: 'F3F4F6', text: '1F2937', border: 'E5E7EB' },
+  musujace: { bg: 'FEFCE8', text: 'CA8A04', border: 'FEF9C3' },
+  bezalkoholowe: { bg: 'DCFCE7', text: '166534', border: 'BBF7D0' },
+  ferment: { bg: 'FFEDD5', text: '9A3412', border: 'FED7AA' },
+  rozowe: { bg: 'FCE7F3', text: '9D174D', border: 'FBCFE8' },
+  slodkie: { bg: 'F3E8FF', text: '6B21A8', border: 'E9D5FF' },
+  aksesoria: { bg: 'E0E7FF', text: '3730A3', border: 'C7D2FE' },
+  amber: { bg: 'FEF3C7', text: '92400E', border: 'FDE68A' },
+};
+
+const EXCEL_HEADER_STYLE = {
+  fill: { patternType: 'solid' as const, fgColor: { rgb: 'F9FAFB' } },
+  font: { bold: true, color: { rgb: '374151' } },
+  alignment: { vertical: 'center' as const, horizontal: 'left' as const, wrapText: true },
+};
+
+const EXCEL_DATA_CELL_STYLE = {
+  alignment: { vertical: 'top' as const, horizontal: 'left' as const },
+};
+
+const EXCEL_NAZWA_CELL_STYLE = {
+  alignment: { vertical: 'top' as const, horizontal: 'left' as const, wrapText: true },
+};
+
+const EXCEL_BADGE_ALIGNMENT = {
+  vertical: 'top' as const,
+  horizontal: 'left' as const,
+  indent: 1,
+};
+
+const EXCEL_COLUMN = {
+  NAZWA: 1,
+  TYP: 4,
+  STATUS: 13,
+} as const;
+
+const getTypExcelBadgeColors = (typ?: string): ExcelBadgeColors =>
+  (typ && TYP_EXCEL_BADGE_COLORS[typ]) || DEFAULT_EXCEL_BADGE;
 
 interface InventoryItem {
   id: number;
@@ -152,6 +197,79 @@ const formatAverageConsumption = (avg: number): string => {
   if (avg >= 1) return avg.toFixed(2) + '/dzień';
   if (avg >= 0.1) return avg.toFixed(3) + '/dzień';
   return avg.toFixed(4) + '/dzień';
+};
+
+const autoSizeWorksheetColumns = (
+  worksheet: XLSX.WorkSheet,
+  fixedColumnWidths?: Record<number, number>
+) => {
+  const range = worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']) : null;
+  if (!range) return;
+
+  worksheet['!cols'] = Array.from({ length: range.e.c - range.s.c + 1 }, (_, colIndex) => {
+    const column = range.s.c + colIndex;
+
+    if (fixedColumnWidths?.[column] != null) {
+      return { wch: fixedColumnWidths[column] };
+    }
+
+    let maxLength = 8;
+
+    for (let row = range.s.r; row <= range.e.r; row++) {
+      const cell = worksheet[XLSX.utils.encode_cell({ r: row, c: column })];
+      if (cell?.v == null) continue;
+      const lines = String(cell.v).split('\n');
+      const lineLength = lines.reduce((max, line) => Math.max(max, line.length), 0);
+      maxLength = Math.max(maxLength, lineLength);
+    }
+
+    return { wch: Math.min(maxLength + 2, 60) };
+  });
+};
+
+const pxToExcelColWidth = (px: number): number =>
+  Math.max(8, Math.round((px - 32) / 6.5));
+
+const wrapTextLikeTableCell = (
+  text: string,
+  columnWidthPx: number,
+  maxLines: number
+): string => {
+  if (!text) return text;
+
+  const charsPerLine = Math.max(8, Math.floor((columnWidthPx - 32) / 6.5));
+  const wrappedLines: string[] = [];
+
+  for (const paragraph of text.split('\n')) {
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    let currentLine = '';
+
+    for (const word of words) {
+      if (word.length > charsPerLine) {
+        if (currentLine) {
+          wrappedLines.push(currentLine);
+          currentLine = '';
+        }
+        for (let i = 0; i < word.length; i += charsPerLine) {
+          wrappedLines.push(word.slice(i, i + charsPerLine));
+        }
+        continue;
+      }
+
+      const candidate = currentLine ? `${currentLine} ${word}` : word;
+      if (candidate.length <= charsPerLine) {
+        currentLine = candidate;
+      } else {
+        if (currentLine) wrappedLines.push(currentLine);
+        currentLine = word;
+      }
+    }
+
+    if (currentLine) wrappedLines.push(currentLine);
+    if (paragraph === '' && words.length === 0) wrappedLines.push('');
+  }
+
+  return wrappedLines.slice(0, maxLines).join('\n');
 };
 
 const formatFrozenDepletionDate = (value?: string | null): string => {
@@ -330,6 +448,95 @@ const getStatusDaysLeftForColor = (
   const avgSales = averageSalesCache.get(item.kod) || 0;
   if (avgSales <= 0) return Infinity;
   return Math.floor(item.ilosc / avgSales);
+};
+
+const getStatusExcelBadgeColors = (
+  item: InventoryItem,
+  orderProducts: OrderProduct[],
+  averageSalesCache: Map<string, number>
+): ExcelBadgeColors => {
+  const status = getInventoryStatus(item, orderProducts, averageSalesCache);
+  if (status === 'brak') {
+    return { bg: 'F3F4F6', text: '4B5563', border: 'D1D5DB' };
+  }
+
+  const daysLeft = getStatusDaysLeftForColor(item, orderProducts, averageSalesCache);
+  if (daysLeft === Infinity) {
+    return { bg: 'DBEAFE', text: '1E40AF', border: 'BFDBFE' };
+  }
+  if (daysLeft <= 30) {
+    return { bg: 'FEE2E2', text: '1F2937', border: 'FECACA' };
+  }
+  if (daysLeft <= 60) {
+    return { bg: 'FEF9C3', text: '1F2937', border: 'FEF08A' };
+  }
+  return { bg: 'DCFCE7', text: '1F2937', border: 'BBF7D0' };
+};
+
+const createExcelBadgeStyle = (colors: ExcelBadgeColors): XLSX.CellObject['s'] => ({
+  fill: { patternType: 'solid', fgColor: { rgb: colors.bg } },
+  font: { color: { rgb: colors.text } },
+  alignment: EXCEL_BADGE_ALIGNMENT,
+  border: {
+    top: { style: 'thin', color: { rgb: colors.border } },
+    bottom: { style: 'thin', color: { rgb: colors.border } },
+    left: { style: 'thin', color: { rgb: colors.border } },
+    right: { style: 'thin', color: { rgb: colors.border } },
+  },
+});
+
+const getExcelRowHeight = (lineCount: number): number => Math.max(18, lineCount * 15);
+
+const applyInventoryExcelStyles = (
+  worksheet: XLSX.WorkSheet,
+  items: InventoryItem[],
+  orderProducts: OrderProduct[],
+  averageSalesCache: Map<string, number>
+) => {
+  const range = worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']) : null;
+  if (!range) return;
+
+  for (let column = range.s.c; column <= range.e.c; column++) {
+    const headerCell = worksheet[XLSX.utils.encode_cell({ r: range.s.r, c: column })];
+    if (headerCell) {
+      headerCell.s = EXCEL_HEADER_STYLE;
+    }
+  }
+
+  items.forEach((item, index) => {
+    const row = range.s.r + 1 + index;
+    let rowLineCount = 1;
+
+    for (let column = range.s.c; column <= range.e.c; column++) {
+      const cell = worksheet[XLSX.utils.encode_cell({ r: row, c: column })];
+      if (!cell) continue;
+
+      if (column === EXCEL_COLUMN.NAZWA) {
+        cell.s = EXCEL_NAZWA_CELL_STYLE;
+        rowLineCount = Math.max(rowLineCount, String(cell.v ?? '').split('\n').length);
+        continue;
+      }
+
+      if (column === EXCEL_COLUMN.TYP) {
+        cell.s = createExcelBadgeStyle(getTypExcelBadgeColors(item.typ));
+        continue;
+      }
+
+      if (column === EXCEL_COLUMN.STATUS) {
+        cell.s = createExcelBadgeStyle(
+          getStatusExcelBadgeColors(item, orderProducts, averageSalesCache)
+        );
+        continue;
+      }
+
+      cell.s = EXCEL_DATA_CELL_STYLE;
+    }
+
+    if (!worksheet['!rows']) {
+      worksheet['!rows'] = [];
+    }
+    worksheet['!rows'][row] = { hpt: getExcelRowHeight(rowLineCount) };
+  });
 };
 
 interface InventoryStatusProps {
@@ -1018,7 +1225,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
     try {
       const rows = filteredAndSortedInventory.map((item) => ({
         Kod: item.kod,
-        Nazwa: item.nazwa,
+        Nazwa: wrapTextLikeTableCell(item.nazwa, columnWidths.nazwa, 3),
         Sprzedawca: item.sprzedawca || sprzedawcaCache.get(item.kod) || '',
         Ilość: item.ilosc,
         Typ: item.typ
@@ -1043,6 +1250,15 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
       }));
 
       const worksheet = XLSX.utils.json_to_sheet(rows);
+      autoSizeWorksheetColumns(worksheet, {
+        [EXCEL_COLUMN.NAZWA]: pxToExcelColWidth(columnWidths.nazwa),
+      });
+      applyInventoryExcelStyles(
+        worksheet,
+        filteredAndSortedInventory,
+        orderProducts,
+        averageSalesCache
+      );
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Stany magazynowe');
 
