@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Search, Edit, ShoppingCart, X, FileText } from 'lucide-react';
+import { Search, Edit, ShoppingCart, X, FileText, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { Tooltip } from 'react-tooltip';
 import Modal from 'react-modal';
@@ -1008,6 +1009,52 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
     return date.toLocaleDateString('pl-PL');
   };
 
+  const handleExportExcel = () => {
+    if (filteredAndSortedInventory.length === 0) {
+      toast.error('Brak wierszy do eksportu');
+      return;
+    }
+
+    try {
+      const rows = filteredAndSortedInventory.map((item) => ({
+        Kod: item.kod,
+        Nazwa: item.nazwa,
+        Sprzedawca: item.sprzedawca || sprzedawcaCache.get(item.kod) || '',
+        Ilość: item.ilosc,
+        Typ: item.typ
+          ? (TYPY_TOWARU.find((t) => t.value === item.typ)?.label || item.typ)
+          : '-',
+        Objętość: item.objetosc ? `${item.objetosc} l` : '-',
+        'Cena fakturowa': item.cena != null ? `${item.cena.toFixed(2)} €` : '-',
+        'Koszt własny': item.koszt_wlasny != null ? `${item.koszt_wlasny.toFixed(2)} zł` : '-',
+        'Cena w sprzedaży': item.cena_sprzedazy != null ? `${item.cena_sprzedazy.toFixed(2)} zł` : '-',
+        'Data ważności': formatDate(item.data_waznosci),
+        'Średnie zużycie/dzień': formatAverageConsumption(
+          getDisplayAverage(item, orderProducts, productReceipts, averageSalesCache)
+        ),
+        'Dni pozostało': getDisplayDaysLeft(item, orderProducts, productReceipts, averageSalesCache),
+        'Data wyczerpania zapasów': getDisplayDepletionDate(
+          item,
+          orderProducts,
+          productReceipts,
+          averageSalesCache
+        ),
+        Status: getInventoryStatus(item, orderProducts, averageSalesCache),
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Stany magazynowe');
+
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      XLSX.writeFile(workbook, `stany_magazynowe_${dateStr}.xlsx`);
+    } catch (error) {
+      console.error('Error exporting Excel:', error);
+      toast.error('Błąd eksportu do Excel');
+    }
+  };
+
   // 1. Получаем массив выбранных товаров для статистики
   const selectedInventory = selectedItems.length > 0
     ? inventory.filter(item => selectedItems.includes(item.id))
@@ -1074,6 +1121,13 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           title="Raport stanów magazynowych — przy zaznaczonych wierszach tylko one; bez zaznaczenia cały magazyn"
         >
           <FileText size={16} />
+        </button>
+        <button
+          onClick={handleExportExcel}
+          className="text-green-600 hover:text-green-800 focus:outline-none"
+          title="Eksport widocznych wierszy do Excel"
+        >
+          <FileSpreadsheet size={16} />
         </button>
       </div>
 
