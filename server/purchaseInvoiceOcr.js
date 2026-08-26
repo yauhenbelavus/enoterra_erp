@@ -247,10 +247,11 @@ Invoice text:
 ${text.slice(0, 12000)}`;
 
   const response = await client.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 4000,
     temperature: 0,
+    reasoning_effort: 'low',
     response_format: { type: 'json_object' },
   });
 
