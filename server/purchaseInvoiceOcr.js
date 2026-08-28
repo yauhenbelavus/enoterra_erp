@@ -12,17 +12,12 @@ async function extractTextFromPdfBuffer(buffer) {
   }
 }
 
-// ─── Groq parser ─────────────────────────────────────────────────────────────
+// ─── Gemini parser ───────────────────────────────────────────────────────────
+// gemini-1.5-flash is shut down; gemini-2.5-flash is the current free Flash model.
 
-async function parseWithGroq(text) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error('GROQ_API_KEY nie jest ustawiony na serwerze');
-
-  const OpenAI = require('openai');
-  const client = new OpenAI({
-    apiKey,
-    baseURL: 'https://api.groq.com/openai/v1',
-  });
+async function parseWithGemini(text) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY nie jest ustawiony na serwerze');
 
   const prompt = `You extract purchase invoice data from raw PDF text into JSON.
 
@@ -246,16 +241,37 @@ FERAL S.R.L. invoice — CRITICAL (columns left to right):
 Invoice text:
 ${text.slice(0, 12000)}`;
 
-  const response = await client.chat.completions.create({
-    model: 'openai/gpt-oss-120b',
-    messages: [{ role: 'user', content: prompt }],
-    max_tokens: 4000,
-    temperature: 0,
-    reasoning_effort: 'low',
-    response_format: { type: 'json_object' },
-  });
+  const response = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+    }
+  );
 
-  const content = response.choices[0].message.content.trim();
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error?.message || `HTTP ${response.status}`);
+  }
+
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const content = parts.map((part) => part.text || '').join('').trim();
+  if (!content) {
+    const reason = data.candidates?.[0]?.finishReason || 'empty';
+    throw new Error('Pusta odpowiedź modelu (' + reason + ')');
+  }
   return JSON.parse(content);
 }
 
@@ -503,7 +519,7 @@ async function parsePurchaseInvoicePdf(buffer) {
   }
 
   try {
-    const parsed = await parseWithGroq(text);
+    const parsed = await parseWithGemini(text);
 
     if (!parsed || (!parsed.sprzedawca && (!parsed.products || parsed.products.length === 0))) {
       return { success: false, error: 'Nie udało się rozpoznać danych faktury.', data: null };
@@ -523,7 +539,7 @@ async function parsePurchaseInvoicePdf(buffer) {
       },
     };
   } catch (err) {
-    console.error('❌ Groq OCR error:', err.message);
+    console.error('❌ Gemini OCR error:', err.message);
     return {
       success: false,
       error: 'Błąd rozpoznawania faktury (AI): ' + (err.message || 'nieznany błąd'),
