@@ -241,38 +241,73 @@ FERAL S.R.L. invoice — CRITICAL (columns left to right):
 Invoice text:
 ${text.slice(0, 12000)}`;
 
-  const response = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
+    body: JSON.stringify({
+      model: 'gemini-3.6-flash',
+      input: prompt,
+      generation_config: {
+        max_output_tokens: 8192,
+        thinking_level: 'minimal',
       },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-          thinkingConfig: { thinkingLevel: 'minimal' },
-        },
-      }),
-    }
-  );
+      response_format: {
+        type: 'text',
+        mime_type: 'application/json',
+      },
+    }),
+  });
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.error?.message || `HTTP ${response.status}`);
   }
 
-  const parts = data.candidates?.[0]?.content?.parts || [];
-  const content = parts.map((part) => part.text || '').join('').trim();
+  const content = extractGeminiInteractionText(data);
   if (!content) {
-    const reason = data.candidates?.[0]?.finishReason || 'empty';
+    const reason = data.status || 'empty';
     throw new Error('Pusta odpowiedź modelu (' + reason + ')');
   }
   return JSON.parse(content);
+}
+
+function extractGeminiInteractionText(data) {
+  if (typeof data.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const outputs = data.outputs || [];
+  for (let i = outputs.length - 1; i >= 0; i--) {
+    const output = outputs[i];
+    if (typeof output.text === 'string' && output.text.trim()) {
+      return output.text.trim();
+    }
+    if (Array.isArray(output.content)) {
+      const text = output.content
+        .filter((part) => part.type === 'text' && part.text)
+        .map((part) => part.text)
+        .join('')
+        .trim();
+      if (text) return text;
+    }
+  }
+
+  const steps = data.steps || [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+    if (step.type !== 'model_output' && step.type !== 'output') continue;
+    const text = (step.content || [])
+      .filter((part) => part.type === 'text' && part.text)
+      .map((part) => part.text)
+      .join('')
+      .trim();
+    if (text) return text;
+  }
+
+  return '';
 }
 
 function parseNumber(value) {
