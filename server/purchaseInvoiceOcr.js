@@ -261,9 +261,14 @@ ${text.slice(0, 12000)}`;
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
+  const raw = await response.json().catch(() => ({}));
+  const data = Array.isArray(raw) ? raw[0] : raw;
   if (!response.ok) {
-    throw new Error(data.error?.message || `HTTP ${response.status}`);
+    const reason = data?.error?.details?.[0]?.reason;
+    const message = data?.error?.message;
+    throw new Error(
+      reason && message ? `${reason}: ${message}` : message || `HTTP ${response.status}`
+    );
   }
 
   const content = extractGeminiInteractionText(data);
