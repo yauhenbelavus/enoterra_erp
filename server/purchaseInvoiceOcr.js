@@ -13,11 +13,13 @@ async function extractTextFromPdfBuffer(buffer) {
 }
 
 // ─── Gemini parser ───────────────────────────────────────────────────────────
-// gemini-2.5-flash is unavailable for new API keys; use gemini-3.6-flash (free tier).
+// gemini-2.5-flash is unavailable for new API keys; use gemini-3.7-flash via Interactions API.
 
 async function parseWithGemini(text) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY nie jest ustawiony na serwerze');
+  const apiKey = (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) {
+    throw new Error('GOOGLE_API_KEY lub GEMINI_API_KEY nie jest ustawiony na serwerze');
+  }
 
   const prompt = `You extract purchase invoice data from raw PDF text into JSON.
 
@@ -246,9 +248,10 @@ ${text.slice(0, 12000)}`;
     headers: {
       'Content-Type': 'application/json',
       'x-goog-api-key': apiKey,
+      'Api-Revision': '2026-05-20',
     },
     body: JSON.stringify({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-3.7-flash',
       input: prompt,
       generation_config: {
         max_output_tokens: 8192,
