@@ -13,7 +13,8 @@ async function extractTextFromPdfBuffer(buffer) {
 }
 
 // ─── Gemini parser ───────────────────────────────────────────────────────────
-// gemini-2.5-flash is unavailable for new API keys; use gemini-3.7-flash via Interactions API.
+// gemini-2.5-flash is unavailable for new API keys; gemini-3.7-flash is frequently
+// overloaded on free tier (500/429), so use the stable gemini-3.6-flash via Interactions API.
 
 async function parseWithGemini(text) {
   const apiKey = (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '').trim();
@@ -251,7 +252,7 @@ ${text.slice(0, 12000)}`;
       'Api-Revision': '2026-05-20',
     },
     body: JSON.stringify({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-3.6-flash',
       input: prompt,
       generation_config: {
         max_output_tokens: 8192,
