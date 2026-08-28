@@ -13,7 +13,7 @@ async function extractTextFromPdfBuffer(buffer) {
 }
 
 // ─── Gemini parser ───────────────────────────────────────────────────────────
-// gemini-1.5-flash is shut down; gemini-2.5-flash is the current free Flash model.
+// gemini-2.5-flash is unavailable for new API keys; use gemini-3.6-flash (free tier).
 
 async function parseWithGemini(text) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -242,7 +242,7 @@ Invoice text:
 ${text.slice(0, 12000)}`;
 
   const response = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
     {
       method: 'POST',
       headers: {
@@ -255,7 +255,7 @@ ${text.slice(0, 12000)}`;
           temperature: 0,
           maxOutputTokens: 8192,
           responseMimeType: 'application/json',
-          thinkingConfig: { thinkingBudget: 0 },
+          thinkingConfig: { thinkingLevel: 'minimal' },
         },
       }),
     }
