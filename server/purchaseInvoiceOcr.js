@@ -255,7 +255,7 @@ ${text.slice(0, 12000)}`;
       input: prompt,
       generation_config: {
         max_output_tokens: 8192,
-        thinking_level: 'minimal',
+        thinking_level: 'medium',
       },
       response_format: {
         type: 'text',
