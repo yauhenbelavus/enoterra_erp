@@ -49,6 +49,7 @@ jobs:
             --exclude '*.db' \
             --exclude '*.sqlite' \
             --exclude 'node_modules/' \
+            --exclude '.env' \
             -e "ssh -i ~/.ssh/deploy_key" \
             server/ "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/var/www/erp-enoterra/enoterra_erp/deploy/server/"
 
