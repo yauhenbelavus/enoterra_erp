@@ -8,6 +8,7 @@ dist/
 # Environment and secrets
 .env
 .env.*
+!server/.env
 
 # Cursor (local only)
 .cursor/
