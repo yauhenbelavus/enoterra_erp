@@ -302,6 +302,7 @@ export interface InventorySortContext<TItem> {
   getDisplayDaysLeft: (item: TItem) => number | string;
   getDisplayDepletionDate: (item: TItem) => string;
   getInventoryStatus: (item: TItem) => string;
+  getReservationsCount: (item: TItem) => number;
 }
 
 export function compareInventoryItems<TItem extends {
@@ -387,6 +388,8 @@ export function compareInventoryItems<TItem extends {
       return compareSortValues(getStatusRank(a), getStatusRank(b), direction);
     case 'typ':
       return compareSortValues(a.typ ?? '', b.typ ?? '', direction);
+    case 'rezerwacje':
+      return compareSortValues(ctx.getReservationsCount(a), ctx.getReservationsCount(b), direction);
     case 'objetosc':
       return compareSortValues(a.objetosc ?? 0, b.objetosc ?? 0, direction);
     case 'dataWaznosci':

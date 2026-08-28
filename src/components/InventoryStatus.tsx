@@ -84,7 +84,7 @@ const EXCEL_BADGE_ALIGNMENT = {
 const EXCEL_COLUMN = {
   NAZWA: 1,
   TYP: 4,
-  STATUS: 13,
+  STATUS: 14,
 } as const;
 
 const getTypExcelBadgeColors = (typ?: string): ExcelBadgeColors =>
@@ -973,8 +973,9 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         getDisplayDaysLeft: (item) => getDisplayDaysLeft(item, orderProducts, productReceipts, averageSalesCache),
         getDisplayDepletionDate: (item) => getDisplayDepletionDate(item, orderProducts, productReceipts, averageSalesCache),
         getInventoryStatus: (item) => getInventoryStatus(item, orderProducts, averageSalesCache),
+        getReservationsCount: (item) => reservationsCount[item.kod] || 0,
       }),
-    [sprzedawcaCache, orderProducts, productReceipts, averageSalesCache]
+    [sprzedawcaCache, orderProducts, productReceipts, averageSalesCache, reservationsCount]
   );
 
   const { sortField, sortDirection, handleSort, sortedItems: filteredAndSortedInventory } = useTableSort(
@@ -1231,6 +1232,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         Typ: item.typ
           ? (TYPY_TOWARU.find((t) => t.value === item.typ)?.label || item.typ)
           : '-',
+        Rezerwacje: reservationsCount[item.kod] || 0,
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
         'Cena fakturowa': item.cena != null ? `${item.cena.toFixed(2)} €` : '-',
         'Koszt własny': item.koszt_wlasny != null ? `${item.koszt_wlasny.toFixed(2)} zł` : '-',
@@ -1530,6 +1532,15 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                  onClick={() => handleSort('rezerwacje')}
+                >
+                  <div className="flex items-center gap-1">
+                    Rezerwacje
+                    <SortIndicator field="rezerwacje" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
+                </th>
+                <th 
+                  className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('objetosc')}
                 >
                   <div className="flex items-center gap-1">
@@ -1666,12 +1677,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                             <span className="font-medium">samples:</span>
                             <span className="text-gray-500 ml-2">{samplesCount[item.kod] || 0} szt</span>
                           </div>
-                          {reservationsCount[item.kod] > 0 && (
-                            <div className="mb-1">
-                              <span className="font-medium">rezerwacja:</span>
-                              <span className="text-gray-500 ml-2">{reservationsCount[item.kod]} szt</span>
-                            </div>
-                          )}
                         </div>
                       </Tooltip>
                     </td>
@@ -1681,6 +1686,9 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                           {TYPY_TOWARU.find(t => t.value === item.typ)?.label || item.typ}
                         </span>
                       ) : '-'}
+                    </td>
+                    <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
+                      {reservationsCount[item.kod] || 0}
                     </td>
                     <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                       {item.objetosc ? `${item.objetosc} l` : '-'}
