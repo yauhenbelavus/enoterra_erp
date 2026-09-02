@@ -3368,6 +3368,36 @@ app.get('/api/orders/:id/pdf', async (req, res) => {
   }
 });
 
+app.get('/api/orders/next-number-only', (req, res) => {
+  console.log('🔢 GET /api/orders/next-number-only - Generating next order number');
+
+  db.all(
+    `SELECT numer_zamowienia FROM orders WHERE COALESCE(typ, 'zamowienie') = 'zamowienie'`,
+    (err, allRows) => {
+      if (err) {
+        console.error('❌ Error finding max order number:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      let maxNumber = 0;
+      (allRows || []).forEach((row) => {
+        const raw = String(row.numer_zamowienia || '').trim();
+        const match = raw.match(/^(\d+)/);
+        if (!match) return;
+        const num = parseInt(match[1], 10);
+        if (!Number.isNaN(num) && num > maxNumber) {
+          maxNumber = num;
+        }
+      });
+
+      const nextNumber = maxNumber + 1;
+      const numer_zamowienia_only = String(nextNumber);
+      console.log(`✅ Generated next order number: ${numer_zamowienia_only} (max was: ${maxNumber})`);
+      res.json({ numer_zamowienia: numer_zamowienia_only });
+    }
+  );
+});
+
 app.get('/api/orders/:id', (req, res) => {
   const { id } = req.params;
   console.log(`📋 GET /api/orders/${id} - Fetching order by ID`);

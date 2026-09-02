@@ -50,7 +50,9 @@ interface OrderModalProps {
 export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrderCreated }) => {
   console.log('🔍 OrderModal render - isOpen:', isOpen);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [orderNumberBase, setOrderNumberBase] = useState('');
   const [orderNumber, setOrderNumber] = useState('');
+  const [orderNumberEdited, setOrderNumberEdited] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -94,7 +96,9 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
     console.log('🔍 OrderModal handleClose called');
     // Очищаем все данные
     setSelectedDate(null);
+    setOrderNumberBase('');
     setOrderNumber('');
+    setOrderNumberEdited(false);
     setSearchQuery('');
     setClients([]);
     setSelectedClient(null);
@@ -118,8 +122,10 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
   useEffect(() => {
     if (isOpen) {
       console.log('🔍 OrderModal opened - clearing state');
-      setSelectedDate(null);
+      setSelectedDate(new Date());
+      setOrderNumberBase('');
       setOrderNumber('');
+      setOrderNumberEdited(false);
       setSearchQuery('');
       setClients([]);
       setSelectedClient(null);
@@ -136,6 +142,49 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
       setPendingSubmit(false);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelled = false;
+    fetch('/api/orders/next-number-only')
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to fetch next number');
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setOrderNumberBase(data.numer_zamowienia ? String(data.numer_zamowienia) : '1');
+      })
+      .catch((err) => {
+        console.error('❌ Error fetching next order number:', err);
+        if (!cancelled) setOrderNumberBase('1');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!selectedDate || !orderNumberBase) return;
+
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const year = selectedDate.getFullYear();
+    const dateSuffix = `_${day}_${month}_${year}`;
+
+    setOrderNumber((current) => {
+      if (orderNumberEdited) {
+        const withoutDate = current.replace(/_\d{1,2}_\d{1,2}_\d{4}$/, '');
+        if (withoutDate && withoutDate !== current) {
+          return `${withoutDate}${dateSuffix}`;
+        }
+        return current;
+      }
+      return `${orderNumberBase}${dateSuffix}`;
+    });
+  }, [orderNumberBase, selectedDate, orderNumberEdited]);
 
   useEffect(() => {
     const searchClients = async () => {
@@ -361,7 +410,10 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
     const day = selectedDate!.getDate().toString().padStart(2, '0');
     const month = (selectedDate!.getMonth() + 1).toString().padStart(2, '0');
     const year = selectedDate!.getFullYear();
-    const fullOrderNumber = `${orderNumber.trim()}_${day}_${month}_${year}`;
+    const trimmedNumber = orderNumber.trim();
+    const fullOrderNumber = /_\d{1,2}_\d{1,2}_\d{4}$/.test(trimmedNumber)
+      ? trimmedNumber
+      : `${trimmedNumber}_${day}_${month}_${year}`;
 
     setIsSubmitting(true);
     try {
@@ -545,8 +597,11 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
                 <input
                   type="text"
                   value={orderNumber}
-                  onChange={(e) => setOrderNumber(e.target.value)}
-                  placeholder="Wprowadź numer zamówienia"
+                  onChange={(e) => {
+                    setOrderNumberEdited(true);
+                    setOrderNumber(e.target.value);
+                  }}
+                  placeholder="Numer zamówienia"
                   className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                 />
               </div>
