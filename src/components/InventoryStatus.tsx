@@ -84,8 +84,25 @@ const EXCEL_BADGE_ALIGNMENT = {
 const EXCEL_COLUMN = {
   NAZWA: 1,
   TYP: 4,
+  CENA_FAKTUROWA: 7,
+  KOSZT_WLASNY: 8,
+  CENA_SPRZEDAZY: 9,
   STATUS: 14,
 } as const;
+
+const EXCEL_MONEY_COLUMNS = new Set<number>([
+  EXCEL_COLUMN.CENA_FAKTUROWA,
+  EXCEL_COLUMN.KOSZT_WLASNY,
+  EXCEL_COLUMN.CENA_SPRZEDAZY,
+]);
+
+const EXCEL_MONEY_CELL_STYLE = {
+  alignment: { vertical: 'top' as const, horizontal: 'left' as const },
+  numFmt: '0.00',
+};
+
+const toExcelMoney = (value?: number | null): number | null =>
+  value != null ? Number(value.toFixed(2)) : null;
 
 const getTypExcelBadgeColors = (typ?: string): ExcelBadgeColors =>
   (typ && TYP_EXCEL_BADGE_COLORS[typ]) || DEFAULT_EXCEL_BADGE;
@@ -526,6 +543,13 @@ const applyInventoryExcelStyles = (
         cell.s = createExcelBadgeStyle(
           getStatusExcelBadgeColors(item, orderProducts, averageSalesCache)
         );
+        continue;
+      }
+
+      if (EXCEL_MONEY_COLUMNS.has(column)) {
+        cell.t = 'n';
+        cell.z = '0.00';
+        cell.s = EXCEL_MONEY_CELL_STYLE;
         continue;
       }
 
@@ -1234,9 +1258,9 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           : '-',
         Rezerwacje: reservationsCount[item.kod] || 0,
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
-        'Cena fakturowa': item.cena != null ? `${item.cena.toFixed(2)} €` : '-',
-        'Koszt własny': item.koszt_wlasny != null ? `${item.koszt_wlasny.toFixed(2)} zł` : '-',
-        'Cena w sprzedaży': item.cena_sprzedazy != null ? `${item.cena_sprzedazy.toFixed(2)} zł` : '-',
+        'Cena fakturowa': toExcelMoney(item.cena),
+        'Koszt własny': toExcelMoney(item.koszt_wlasny),
+        'Cena w sprzedaży': toExcelMoney(item.cena_sprzedazy),
         'Data ważności': formatDate(item.data_waznosci),
         'Średnie zużycie/dzień': formatAverageConsumption(
           getDisplayAverage(item, orderProducts, productReceipts, averageSalesCache)
