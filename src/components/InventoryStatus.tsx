@@ -704,6 +704,9 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
   const [priceHistory, setPriceHistory] = useState<{[key: string]: any[]}>({});
   const [samplesCount, setSamplesCount] = useState<{[key: string]: number}>({});
   const [reservationsCount, setReservationsCount] = useState<{[key: string]: number}>({});
+  const [reservationsByClient, setReservationsByClient] = useState<{
+    [key: string]: Array<{ clientId: number; klient: string; ilosc: number }>;
+  }>({});
   const [wartoscTowaru, setWartoscTowaru] = useState<{[key: string]: number}>({});
   const [columnWidths, setColumnWidths] = useState<{ [key: string]: number }>(() => {
     const saved = localStorage.getItem('columnWidths');
@@ -933,6 +936,30 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         }
       } catch (error) {
         console.error('❌ Error loading reservations count:', error);
+      }
+
+      try {
+        const reservationsClientsResponse = await fetch('/api/products/reservations-clients');
+        if (reservationsClientsResponse.ok) {
+          const reservationsClientsData = await reservationsClientsResponse.json();
+          const clientsMap: { [key: string]: Array<{ clientId: number; klient: string; ilosc: number }> } = {};
+          reservationsClientsData.forEach((item: any) => {
+            if (!item.kod) return;
+            if (!clientsMap[item.kod]) {
+              clientsMap[item.kod] = [];
+            }
+            clientsMap[item.kod].push({
+              clientId: item.client_id,
+              klient: item.klient || '—',
+              ilosc: item.ilosc || 0,
+            });
+          });
+          setReservationsByClient(clientsMap);
+        } else {
+          console.error('❌ Failed to load reservation clients:', reservationsClientsResponse.status);
+        }
+      } catch (error) {
+        console.error('❌ Error loading reservation clients:', error);
       }
       
       // Загружаем стоимость товаров
@@ -1711,8 +1738,30 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                         </span>
                       ) : '-'}
                     </td>
-                    <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
+                    <td
+                      className={`px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap ${
+                        (reservationsByClient[item.kod] || []).length > 0 ? 'cursor-pointer' : ''
+                      }`}
+                      data-tooltip-id={(reservationsByClient[item.kod] || []).length > 0 ? `rezerwacje-tooltip-${item.kod}` : undefined}
+                    >
                       {reservationsCount[item.kod] || 0}
+                      {(reservationsByClient[item.kod] || []).length > 0 && (
+                        <Tooltip
+                          id={`rezerwacje-tooltip-${item.kod}`}
+                          className="max-w-md"
+                          place="top"
+                          positionStrategy="fixed"
+                        >
+                          <div className="font-sora">
+                            {reservationsByClient[item.kod].map((entry) => (
+                              <div key={`${item.kod}-${entry.clientId}`} className="mb-1 last:mb-0">
+                                <span className="font-medium">{entry.klient}:</span>
+                                <span className="text-gray-500 ml-2">{entry.ilosc} szt</span>
+                              </div>
+                            ))}
+                          </div>
+                        </Tooltip>
+                      )}
                     </td>
                     <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                       {item.objetosc ? `${item.objetosc} l` : '-'}

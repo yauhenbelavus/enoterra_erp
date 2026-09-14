@@ -1858,6 +1858,35 @@ app.get('/api/products/reservations-count', (req, res) => {
   );
 });
 
+// Клиенты с актуальным остатком в активных резервациях по каждому товару
+app.get('/api/products/reservations-clients', (req, res) => {
+  console.log('📦 GET /api/products/reservations-clients - Fetching active reservation clients');
+  db.all(
+    `SELECT 
+      rp.product_kod as kod,
+      r.client_id as client_id,
+      COALESCE(NULLIF(TRIM(c.nazwa), ''), NULLIF(TRIM(c.firma), ''), '—') as klient,
+      SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) as ilosc
+     FROM reservation_products rp
+     INNER JOIN reservations r ON rp.reservation_id = r.id
+     LEFT JOIN clients c ON r.client_id = c.id
+     WHERE r.status = 'aktywna'
+     GROUP BY rp.product_kod, r.client_id
+     HAVING SUM(rp.ilosc - COALESCE(rp.ilosc_wydane, 0)) > 0
+     ORDER BY klient ASC`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      console.log(`✅ Found reservation clients for ${rows.length} product-client rows`);
+      res.json(rows || []);
+    }
+  );
+});
+
 // Получение стоимости товаров (ilosc * cena для каждого kod из working_sheets)
 app.get('/api/products/wartosc-towaru', (req, res) => {
   console.log('📦 GET /api/products/wartosc-towaru - Fetching product values from working_sheets');
