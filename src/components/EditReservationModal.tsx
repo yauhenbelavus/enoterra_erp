@@ -116,13 +116,18 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({ isOp
       }
       
       if (reservation.products && reservation.products.length > 0) {
-        const formattedProducts: ProductRow[] = reservation.products.map(product => ({
-          kod: product.product_kod || '',
-          nazwa: product.product_nazwa || '',
-          ilosc: (product.ilosc || 0).toString(),
-          originalIlosc: product.ilosc || 0,
-          iloscWydane: product.ilosc_wydane || 0
-        }));
+        const formattedProducts: ProductRow[] = reservation.products.map(product => {
+          const totalIlosc = product.ilosc || 0;
+          const iloscWydane = product.ilosc_wydane || 0;
+          const remainingIlosc = Math.max(0, totalIlosc - iloscWydane);
+          return {
+            kod: product.product_kod || '',
+            nazwa: product.product_nazwa || '',
+            ilosc: remainingIlosc.toString(),
+            originalIlosc: totalIlosc,
+            iloscWydane
+          };
+        });
         setProductRows(formattedProducts);
         
         // Проверяем, есть ли выданные товары
@@ -221,15 +226,16 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({ isOp
     setProductRows(newRows);
 
     const row = newRows[index];
-    const newQuantity = parseInt(value) || 0;
+    const newRemaining = parseInt(value) || 0;
     const originalQuantity = row.originalIlosc || 0;
     const iloscWydane = row.iloscWydane || 0;
+    const newTotal = newRemaining + iloscWydane;
 
     // ВСЕГДА сбрасываем lastToastFieldId при любом изменении
     lastToastFieldId.current = null;
     
     // Если значение пустое или 0 - ВСЕГДА очищаем ошибку
-    if (!value.trim() || newQuantity === 0) {
+    if (!value.trim() || newRemaining === 0) {
       setFieldsWithErrors(prev => {
         const newSet = new Set(prev);
         newSet.delete(index);
@@ -247,12 +253,10 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({ isOp
     
     let errorMessage: string | null = null;
 
-    // Проверка 1: нельзя уменьшить ниже уже выданного
-    if (newQuantity < iloscWydane) {
-      errorMessage = `Nie można zmniejszyć poniżej wydanej ilości (${iloscWydane} szt.)`;
+    if (newRemaining < 0) {
+      errorMessage = 'Ilość nie może być ujemna';
     }
-    // Проверка 2: проверяем доступность na magazynie
-    else if (row.kod && newQuantity > maxForThisReservation) {
+    else if (row.kod && newTotal > maxForThisReservation) {
       const availableToAdd = Math.max(0, maxForThisReservation - originalQuantity);
       errorMessage = totalReserved > 0
         ? `Niewystarczająca ilość - dostępne do rezerwacji: ${availableToAdd} szt. (łącznie na magazynie: ${stockQuantity}, zarezerwowane przez innych: ${totalReserved})`
@@ -295,22 +299,20 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({ isOp
       const row = productRows[i];
       if (!row.kod.trim() || !row.nazwa.trim() || !row.ilosc.trim()) continue;
       
-      const newQuantity = parseInt(row.ilosc) || 0;
+      const newRemaining = parseInt(row.ilosc) || 0;
       const iloscWydane = row.iloscWydane || 0;
       const originalQuantity = row.originalIlosc || 0;
-      
-      // Проверка 1: нельзя уменьшить ниже выданного
-      if (newQuantity < iloscWydane) return false;
-      
-      // Проверка 2: при увеличении проверяем доступность
-      if (newQuantity > originalQuantity && row.kod) {
+      const newTotal = newRemaining + iloscWydane;
+
+      if (newRemaining < 0) return false;
+
+      if (newTotal > originalQuantity && row.kod) {
         const stockProduct = stockInfo.find(p => p.kod === row.kod);
         const stockQuantity = stockProduct?.ilosc || 0;
         const totalReserved = stockProduct?.ilosc_reserved || 0;
-        // Свободный остаток + наш текущий резерв = максимум для этой резервации
         const maxForThisReservation = stockQuantity - totalReserved + originalQuantity;
-        
-        if (newQuantity > maxForThisReservation) return false;
+
+        if (newTotal > maxForThisReservation) return false;
       }
     }
     
@@ -356,7 +358,7 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({ isOp
     const productsData = validProducts.map(product => ({
       kod: product.kod,
       nazwa: product.nazwa,
-      ilosc: parseInt(product.ilosc) || 0,
+      ilosc: (parseInt(product.ilosc) || 0) + (product.iloscWydane || 0),
       originalIlosc: product.originalIlosc || 0,
       iloscWydane: product.iloscWydane || 0
     }));
@@ -639,7 +641,7 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({ isOp
                   <div className="w-20 ml-2">
                     <input
                       type="number"
-                      min={row.iloscWydane || 1}
+                      min={0}
                       placeholder="Ilość"
                       value={row.ilosc}
                       onChange={(e) => handleQuantityChange(index, e.target.value)}
