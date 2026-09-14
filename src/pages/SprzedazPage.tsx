@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { X, Plus, Minus, ArrowDownCircle } from 'lucide-react';
-import { Tooltip } from 'react-tooltip';
 import { ProductSearch } from '../components/ProductSearch';
 import { OrderModal } from '../components/OrderModal';
 import { OrdersList } from '../components/OrdersList';
@@ -439,7 +438,6 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
                         const pozostalo = ilosc - iloscWydane;
                         const kod = p.product_kod ?? '—';
                         const nazwa = p.product_nazwa ?? '—';
-                        const klienci = p.klienci || [];
                         return (
                           <tr key={`${p.product_kod}-${idx}`} className="hover:bg-gray-50">
                             <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
@@ -453,57 +451,11 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
                                 {pozostalo}
                               </span>
                             </td>
-                            <td
-                              className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center text-red-600 cursor-pointer"
-                              data-tooltip-id={`wydane-tooltip-${p.product_kod}-${idx}`}
-                            >
+                            <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center text-red-600">
                               {iloscWydane}
-                              {iloscWydane > 0 && (
-                                <Tooltip
-                                  id={`wydane-tooltip-${p.product_kod}-${idx}`}
-                                  className="max-w-md"
-                                  place="top"
-                                  positionStrategy="fixed"
-                                  noArrow={true}
-                                >
-                                  <div className="font-sora">
-                                    {p.zamowienia_z_iloscia && p.zamowienia_z_iloscia.length > 0 ? (
-                                      p.zamowienia_z_iloscia.map((zam: any, zIdx: number) => (
-                                        <div key={zIdx} className={zIdx === 0 ? '' : 'mt-0.5'}>
-                                          <span className="font-medium">{zam.numer_zamowienia}</span>
-                                          <span className="text-gray-500 ml-2">{zam.ilosc} szt</span>
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <div>Brak danych o zamówieniach</div>
-                                    )}
-                                  </div>
-                                </Tooltip>
-                              )}
                             </td>
-                            <td
-                              className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center cursor-pointer"
-                              data-tooltip-id={`zarezerwowane-tooltip-${p.product_kod}-${idx}`}
-                            >
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center">
                               {ilosc}
-                              {klienci.length > 0 && (
-                                <Tooltip
-                                  id={`zarezerwowane-tooltip-${p.product_kod}-${idx}`}
-                                  className="max-w-md"
-                                  place="top"
-                                  positionStrategy="fixed"
-                                  noArrow={true}
-                                >
-                                  <div className="font-sora">
-                                    {klienci.map((klient: any, rIdx: number) => (
-                                      <div key={rIdx} className={rIdx === 0 ? '' : 'mt-0.5'}>
-                                        <span className="font-medium">{klient.klient || '—'}</span>
-                                        <span className="text-gray-500 ml-2">{klient.ilosc ?? 0} szt</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </Tooltip>
-                              )}
                             </td>
                           </tr>
                         );
