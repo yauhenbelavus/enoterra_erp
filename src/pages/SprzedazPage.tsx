@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { X, Plus, Minus, ArrowDownCircle } from 'lucide-react';
+import { X, Plus, Minus, ArrowDownCircle, ChevronRight, ChevronDown } from 'lucide-react';
 import { ProductSearch } from '../components/ProductSearch';
 import { OrderModal } from '../components/OrderModal';
 import { OrdersList } from '../components/OrdersList';
@@ -50,6 +50,7 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
   const [analysisProducts, setAnalysisProducts] = useState<any[]>([]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [expandedAnalysisKod, setExpandedAnalysisKod] = useState<string | null>(null);
 
   const loadAnalysisProducts = async () => {
     try {
@@ -438,26 +439,72 @@ export const SprzedazPage: React.FC<SprzedazPageProps> = ({
                         const pozostalo = ilosc - iloscWydane;
                         const kod = p.product_kod ?? '—';
                         const nazwa = p.product_nazwa ?? '—';
+                        const klienci = p.klienci || [];
+                        const isExpanded = expandedAnalysisKod === p.product_kod;
                         return (
-                          <tr key={`${p.product_kod}-${idx}`} className="hover:bg-gray-50">
-                            <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
-                              {kod}
-                            </td>
-                            <td className="px-10 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
-                              {nazwa}
-                            </td>
-                            <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center">
-                              <span className={pozostalo > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                                {pozostalo}
-                              </span>
-                            </td>
-                            <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center text-red-600">
-                              {iloscWydane}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center">
-                              {ilosc}
-                            </td>
-                          </tr>
+                          <React.Fragment key={`${p.product_kod}-${idx}`}>
+                            <tr
+                              className="hover:bg-gray-50 cursor-pointer"
+                              onClick={() =>
+                                setExpandedAnalysisKod((current) =>
+                                  current === p.product_kod ? null : p.product_kod
+                                )
+                              }
+                            >
+                              <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
+                                <div className="flex items-center gap-1">
+                                  {isExpanded ? (
+                                    <ChevronDown size={14} className="text-gray-400 flex-shrink-0" />
+                                  ) : (
+                                    <ChevronRight size={14} className="text-gray-400 flex-shrink-0" />
+                                  )}
+                                  {kod}
+                                </div>
+                              </td>
+                              <td className="px-10 py-4 whitespace-nowrap text-sm text-gray-900 font-sora">
+                                {nazwa}
+                              </td>
+                              <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center">
+                                <span className={pozostalo > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                                  {pozostalo}
+                                </span>
+                              </td>
+                              <td className="px-0 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center text-red-600">
+                                {iloscWydane}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-sora text-center">
+                                {ilosc}
+                              </td>
+                            </tr>
+                            {isExpanded &&
+                              klienci.map((klient: any) => {
+                                const klientIlosc = klient.ilosc ?? 0;
+                                const klientWydane = klient.ilosc_wydane ?? 0;
+                                const klientPozostalo = klientIlosc - klientWydane;
+                                return (
+                                  <tr
+                                    key={`${p.product_kod}-${klient.client_id}`}
+                                    className="bg-gray-50"
+                                  >
+                                    <td className="px-0 py-2" />
+                                    <td className="px-10 py-2 whitespace-nowrap text-xs text-gray-700 font-sora">
+                                      {klient.klient || '—'}
+                                    </td>
+                                    <td className="px-0 py-2 whitespace-nowrap text-xs text-gray-900 font-sora text-center">
+                                      <span className={klientPozostalo > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                                        {klientPozostalo}
+                                      </span>
+                                    </td>
+                                    <td className="px-0 py-2 whitespace-nowrap text-xs font-sora text-center text-red-600">
+                                      {klientWydane}
+                                    </td>
+                                    <td className="px-6 py-2 whitespace-nowrap text-xs text-gray-900 font-sora text-center">
+                                      {klientIlosc}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                          </React.Fragment>
                         );
                       })
                     ) : (

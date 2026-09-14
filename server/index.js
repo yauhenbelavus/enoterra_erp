@@ -1607,21 +1607,31 @@ app.get('/api/reservations/active-products', (req, res) => {
 
         // Получаем список клиентов для этого товара (из активных и реализованных резерваций)
         db.all(`
-          SELECT DISTINCT
-            c.nazwa as klient,
-            rp.ilosc as ilosc_per_client
+          SELECT
+            r.client_id as client_id,
+            COALESCE(NULLIF(TRIM(c.nazwa), ''), NULLIF(TRIM(c.firma), ''), '—') as klient,
+            SUM(COALESCE(rp.ilosc, 0)) as ilosc,
+            SUM(COALESCE(rp.ilosc_wydane, 0)) as ilosc_wydane
           FROM reservations r
           INNER JOIN reservation_products rp ON rp.reservation_id = r.id
           LEFT JOIN clients c ON r.client_id = c.id
           WHERE LOWER(TRIM(r.status)) IN ('aktywna', 'aktywny', 'zrealizowana')
             AND rp.product_kod = ?
-          ORDER BY c.nazwa ASC
+          GROUP BY r.client_id
+          ORDER BY klient ASC
         `, [groupedRow.product_kod], (err, clientRows) => {
           if (err) {
             console.error(`❌ Error fetching clients for product ${groupedRow.product_kod}:`, err);
             resolve({ ...groupedRow, klienci: [], zamowienia_z_iloscia: [] });
             return;
           }
+
+          const klienci = (clientRows || []).map((cr) => ({
+            client_id: cr.client_id,
+            klient: cr.klient || '—',
+            ilosc: cr.ilosc || 0,
+            ilosc_wydane: cr.ilosc_wydane || 0,
+          }));
 
           // Получаем все заказы для этого товара из всех резерваций (активных и реализованных)
           db.all(`
@@ -1641,7 +1651,7 @@ app.get('/api/reservations/active-products', (req, res) => {
               console.error(`❌ Error fetching orders for product ${groupedRow.product_kod}:`, err);
               resolve({ 
                 ...groupedRow, 
-                klienci: clientRows.map(cr => ({ klient: cr.klient, ilosc: cr.ilosc_per_client })),
+                klienci,
                 zamowienia_z_iloscia: [] 
               });
               return;
@@ -1652,7 +1662,7 @@ app.get('/api/reservations/active-products', (req, res) => {
               product_nazwa: groupedRow.product_nazwa,
               ilosc: groupedRow.ilosc || 0,
               ilosc_wydane: groupedRow.ilosc_wydane || 0,
-              klienci: clientRows.map(cr => ({ klient: cr.klient, ilosc: cr.ilosc_per_client })),
+              klienci,
               zamowienia_z_iloscia: orderRows.map(or => ({
                 numer_zamowienia: or.numer_zamowienia,
                 ilosc: or.ilosc_wydane_w_zamowieniu || 0
