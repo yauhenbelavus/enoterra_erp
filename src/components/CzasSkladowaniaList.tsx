@@ -4,15 +4,24 @@ import { SortIndicator } from './SortIndicator';
 import { compareCzasSkladowania, extractDateFromOrderNumber, useTableSort } from '../utils/tableSort';
 
 const tableStyles = `
-  .analiza-magazynu-table {
+  .react-tooltip {
+    z-index: 10000 !important;
+    max-width: 400px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .resizable-table {
     table-layout: fixed !important;
     width: max-content !important;
     min-width: 100% !important;
   }
 
-  .analiza-magazynu-table th,
-  .analiza-magazynu-table td {
+  .resizable-table th,
+  .resizable-table td {
     box-sizing: border-box !important;
+    overflow: visible !important;
   }
 `;
 
@@ -133,6 +142,18 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTyp, setSelectedTyp] = useState('');
   const [hideZeroStock, setHideZeroStock] = useState(true);
+  const [nazwaWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('columnWidths');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed?.nazwa) return parsed.nazwa;
+      } catch {
+        // keep default
+      }
+    }
+    return 250;
+  });
 
   const loadData = useCallback(async () => {
     try {
@@ -317,7 +338,18 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
 
       <div className="bg-white shadow-sm rounded-lg overflow-hidden">
         <div className="w-full overflow-x-auto overflow-y-scroll max-h-[calc(100dvh-280px)] relative" style={{ zIndex: 1 }}>
-          <table className="w-full analiza-magazynu-table">
+          <table className="w-full resizable-table">
+            <colgroup>
+              <col style={{ width: '100px' }} />
+              <col style={{ width: `${nazwaWidth}px` }} />
+              <col style={{ width: '120px' }} />
+              <col style={{ width: '90px' }} />
+              <col style={{ width: '140px' }} />
+              <col style={{ width: '90px' }} />
+              <col style={{ width: '110px' }} />
+              <col style={{ width: '140px' }} />
+              <col />
+            </colgroup>
             <thead className="sticky top-0 z-10">
               <tr>
                 <th
@@ -333,7 +365,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                 <th
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('nazwa')}
-                  style={{ width: '250px' }}
+                  style={{ width: `${nazwaWidth}px` }}
                 >
                   <div className="flex items-center gap-1">
                     Nazwa
@@ -398,12 +430,13 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                     <SortIndicator field="dni" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
+                <th className="border-b border-gray-200 bg-gray-50 p-0" />
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+                  <td colSpan={9} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                     Brak towarów na magazynie
                   </td>
                 </tr>
@@ -420,7 +453,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                       </td>
                       <td
                         className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline"
-                        style={{ width: '250px' }}
+                        style={{ width: `${nazwaWidth}px` }}
                       >
                         <div className="break-words leading-tight max-h-12 overflow-hidden">{row.nazwa}</div>
                       </td>
@@ -453,6 +486,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                           {row.dni} dni
                         </span>
                       </td>
+                      <td className="p-0" />
                     </tr>
                   );
                 })
