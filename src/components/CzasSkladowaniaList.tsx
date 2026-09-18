@@ -178,13 +178,6 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
     compareItems: compareCzasSkladowania,
   });
 
-  const oldestDays = sortedItems.reduce((max, row) => Math.max(max, row.dni), 0);
-  const totalQty = sortedItems.reduce((sum, row) => sum + row.ilosc, 0);
-  const uniqueProducts = useMemo(
-    () => new Set(sortedItems.map((row) => row.kod)).size,
-    [sortedItems]
-  );
-
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-8">
@@ -252,25 +245,6 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
             Wyczyść filtry
           </button>
         )}
-      </div>
-
-      <div className="flex flex-wrap gap-4">
-        <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-          <h3 className="text-xs font-medium text-gray-500 font-sora">Liczba partii</h3>
-          <p className="text-2xl font-bold text-gray-900 font-sora">{sortedItems.length}</p>
-        </div>
-        <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-          <h3 className="text-xs font-medium text-gray-500 font-sora">Liczba artykułów</h3>
-          <p className="text-2xl font-bold text-gray-900 font-sora">{uniqueProducts}</p>
-        </div>
-        <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-          <h3 className="text-xs font-medium text-gray-500 font-sora">Łączna ilość</h3>
-          <p className="text-2xl font-bold text-green-600 font-sora">{totalQty}</p>
-        </div>
-        <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-          <h3 className="text-xs font-medium text-gray-500 font-sora">Najstarsza partia</h3>
-          <p className="text-2xl font-bold text-red-600 font-sora">{sortedItems.length > 0 ? `${oldestDays} dni` : '-'}</p>
-        </div>
       </div>
 
       <div className="bg-white shadow-sm rounded-lg overflow-hidden">
