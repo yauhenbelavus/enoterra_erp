@@ -93,6 +93,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTyp, setSelectedTyp] = useState('');
+  const [hideZeroStock, setHideZeroStock] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
@@ -126,7 +127,6 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       for (const product of products) {
         if (!product.kod || product.status === 'samples') continue;
         const remaining = Number(product.ilosc_aktualna) || 0;
-        if (remaining <= 0) continue;
 
         const receipt = product.receipt_id != null ? receiptsById.get(product.receipt_id) : undefined;
         const dataPrzyjecia = receipt?.dataPrzyjecia || product.created_at || null;
@@ -163,11 +163,12 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
   const filteredRows = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     return rows.filter((row) => {
+      if (hideZeroStock && row.ilosc <= 0) return false;
       if (selectedTyp && row.typ !== selectedTyp) return false;
       if (!query) return true;
       return row.kod.toLowerCase().includes(query) || row.nazwa.toLowerCase().includes(query);
     });
-  }, [rows, searchTerm, selectedTyp]);
+  }, [rows, searchTerm, selectedTyp, hideZeroStock]);
 
   const { sortField, sortDirection, handleSort, sortedItems } = useTableSort(filteredRows, {
     defaultField: 'dni',
@@ -218,6 +219,18 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
             className="pl-10 pr-4 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-gray-400 w-full font-sora text-xs"
           />
         </div>
+        <label
+          className="flex items-center gap-1.5 text-xs font-sora text-gray-700 cursor-pointer select-none"
+          title="Ukryj towary z zerowym stanem"
+        >
+          <input
+            type="checkbox"
+            checked={hideZeroStock}
+            onChange={(e) => setHideZeroStock(e.target.checked)}
+            className="cursor-pointer"
+          />
+          Ukryj zerowe
+        </label>
         <select
           value={selectedTyp}
           onChange={(e) => setSelectedTyp(e.target.value)}
