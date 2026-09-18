@@ -168,7 +168,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTyp, setSelectedTyp] = useState('');
+  const [filters, setFilters] = useState({ sprzedawca: '', typ: '' });
   const [hideZeroStock, setHideZeroStock] = useState(true);
   const [nazwaWidth] = useState<number>(() => {
     const saved = localStorage.getItem('columnWidths');
@@ -293,11 +293,16 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
     return Array.from(new Set(rows.map((row) => row.typ).filter((typ): typ is string => Boolean(typ)))).sort();
   }, [rows]);
 
+  const uniqueSprzedawcy = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.sprzedawca).filter(Boolean))).sort();
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     return rows.filter((row) => {
       if (hideZeroStock && row.ilosc <= 0) return false;
-      if (selectedTyp && row.typ !== selectedTyp) return false;
+      if (filters.typ && row.typ !== filters.typ) return false;
+      if (filters.sprzedawca && row.sprzedawca !== filters.sprzedawca) return false;
       if (!query) return true;
       return (
         row.kod.toLowerCase().includes(query) ||
@@ -305,7 +310,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
         row.sprzedawca.toLowerCase().includes(query)
       );
     });
-  }, [rows, searchTerm, selectedTyp, hideZeroStock]);
+  }, [rows, searchTerm, filters, hideZeroStock]);
 
   const { sortField, sortDirection, handleSort, sortedItems } = useTableSort(filteredRows, {
     defaultField: 'dni',
@@ -362,27 +367,48 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
           />
           Ukryj zerowe
         </label>
-        <select
-          value={selectedTyp}
-          onChange={(e) => setSelectedTyp(e.target.value)}
-          className="block px-2 py-1.5 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:border-gray-400"
-        >
-          <option value="">Typ</option>
-          {uniqueTypy.map((typ) => (
-            <option key={typ} value={typ}>
-              {getTypMeta(typ).label}
-            </option>
-          ))}
-        </select>
-        {selectedTyp && (
-          <button
-            type="button"
-            onClick={() => setSelectedTyp('')}
-            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors"
-          >
-            Wyczyść filtry
-          </button>
-        )}
+      </div>
+
+      <div className="flex flex-wrap gap-4 justify-end">
+        <div className="flex flex-col gap-1">
+          <div className="grid grid-cols-2 gap-1">
+            <div className="relative">
+              <select
+                value={filters.sprzedawca}
+                onChange={(e) => setFilters((prev) => ({ ...prev, sprzedawca: e.target.value }))}
+                className="block px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300 truncate"
+                style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', width: '145px', minWidth: '145px', maxWidth: '145px' }}
+              >
+                <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Sprzedawca</option>
+                {uniqueSprzedawcy.map((sprzedawca) => (
+                  <option key={sprzedawca} value={sprzedawca} style={{ fontFamily: 'Sora, sans-serif' }}>{sprzedawca}</option>
+                ))}
+              </select>
+            </div>
+            <div className="relative">
+              <select
+                value={filters.typ}
+                onChange={(e) => setFilters((prev) => ({ ...prev, typ: e.target.value }))}
+                className="block px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300 truncate"
+                style={{ fontFamily: 'Sora, sans-serif', direction: 'ltr', width: '145px', minWidth: '145px', maxWidth: '145px' }}
+              >
+                <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ</option>
+                {uniqueTypy.map((typ) => (
+                  <option key={typ} value={typ} style={{ fontFamily: 'Sora, sans-serif' }}>{getTypMeta(typ).label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {(filters.sprzedawca || filters.typ) && (
+            <button
+              type="button"
+              onClick={() => setFilters({ sprzedawca: '', typ: '' })}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors"
+            >
+              Wyczyść filtry
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white shadow-sm rounded-lg overflow-hidden">
