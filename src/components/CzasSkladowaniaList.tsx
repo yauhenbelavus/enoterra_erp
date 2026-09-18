@@ -110,6 +110,22 @@ const parseLocalDate = (value?: string | null): Date | null => {
 const toDateKey = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
+const startOfToday = (): Date => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+};
+
+const daysOnWarehouseEndDate = (remaining: number, lastIssueDate: Date | null): Date => {
+  const today = startOfToday();
+  if (remaining > 0 || !lastIssueDate) return today;
+  const issueDay = new Date(
+    lastIssueDate.getFullYear(),
+    lastIssueDate.getMonth(),
+    lastIssueDate.getDate()
+  );
+  return issueDay > today ? today : issueDay;
+};
+
 const daysBetween = (fromValue?: string | null, toValue?: string | Date | null): number => {
   const from = parseLocalDate(fromValue);
   if (!from) return 0;
@@ -245,10 +261,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
         const lastIssueDate =
           lastIssueByBatch.get(product.id) || lastSaleByKod.get(product.kod) || null;
         const dataOstatniegoWydania = lastIssueDate ? toDateKey(lastIssueDate) : null;
-        const dni =
-          remaining <= 0 && dataOstatniegoWydania
-            ? daysBetween(dataPrzyjecia, dataOstatniegoWydania)
-            : daysBetween(dataPrzyjecia);
+        const dni = daysBetween(dataPrzyjecia, daysOnWarehouseEndDate(remaining, lastIssueDate));
 
         nextRows.push({
           id: product.id,
