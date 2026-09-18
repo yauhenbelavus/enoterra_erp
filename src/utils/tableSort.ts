@@ -275,6 +275,7 @@ export function compareCzasSkladowania<
   T extends {
     kod?: string;
     nazwa?: string;
+    sprzedawca?: string | null;
     typ?: string | null;
     ilosc?: number;
     dataPrzyjecia?: string | null;
@@ -286,6 +287,8 @@ export function compareCzasSkladowania<
       return compareSortValues(lowerCase(a.kod), lowerCase(b.kod), direction);
     case 'nazwa':
       return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
+    case 'sprzedawca':
+      return compareSortValues(lowerCase(a.sprzedawca), lowerCase(b.sprzedawca), direction);
     case 'typ':
       return compareSortValues(lowerCase(a.typ), lowerCase(b.typ), direction);
     case 'ilosc':

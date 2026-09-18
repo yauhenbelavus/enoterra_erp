@@ -3,17 +3,30 @@ import { Search } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
 import { compareCzasSkladowania, useTableSort } from '../utils/tableSort';
 
-const TYPY_TOWARU: Record<string, { label: string; color: string }> = {
-  czerwone: { label: 'Czerwone', color: 'bg-red-100 text-red-800 border-red-200' },
-  biale: { label: 'Białe', color: 'bg-gray-100 text-gray-800 border-gray-200' },
-  musujace: { label: 'Musujące', color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
-  bezalkoholowe: { label: 'Bezalkoholowe', color: 'bg-green-100 text-green-800 border-green-200' },
-  ferment: { label: 'Ferment', color: 'bg-orange-100 text-orange-800 border-orange-200' },
-  rozowe: { label: 'Różowe', color: 'bg-pink-100 text-pink-800 border-pink-200' },
-  slodkie: { label: 'Słodkie', color: 'bg-purple-100 text-purple-800 border-purple-200' },
-  aksesoria: { label: 'Aksesoria', color: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
-  amber: { label: 'Amber', color: 'bg-amber-100 text-amber-800 border-amber-200' },
-};
+const tableStyles = `
+  .analiza-magazynu-table {
+    table-layout: fixed !important;
+    width: max-content !important;
+    min-width: 100% !important;
+  }
+
+  .analiza-magazynu-table th,
+  .analiza-magazynu-table td {
+    box-sizing: border-box !important;
+  }
+`;
+
+const TYPY_TOWARU = [
+  { value: 'czerwone', label: 'Czerwone', color: 'bg-red-100 text-red-800 border-red-200' },
+  { value: 'biale', label: 'Białe', color: 'bg-gray-100 text-gray-800 border-gray-200' },
+  { value: 'musujace', label: 'Musujące', color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
+  { value: 'bezalkoholowe', label: 'Bezalkoholowe', color: 'bg-green-100 text-green-800 border-green-200' },
+  { value: 'ferment', label: 'Ferment', color: 'bg-orange-100 text-orange-800 border-orange-200' },
+  { value: 'rozowe', label: 'Różowe', color: 'bg-pink-100 text-pink-800 border-pink-200' },
+  { value: 'slodkie', label: 'Słodkie', color: 'bg-purple-100 text-purple-800 border-purple-200' },
+  { value: 'aksesoria', label: 'Aksesoria', color: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+  { value: 'amber', label: 'Amber', color: 'bg-amber-100 text-amber-800 border-amber-200' },
+];
 
 interface ProductBatch {
   id: number;
@@ -29,17 +42,20 @@ interface WorkingSheet {
   kod: string;
   nazwa: string;
   typ?: string | null;
+  sprzedawca?: string | null;
 }
 
 interface ProductReceipt {
   id?: number;
   dataPrzyjecia: string;
+  sprzedawca?: string;
 }
 
 interface StorageRow {
   id: number;
   kod: string;
   nazwa: string;
+  sprzedawca: string;
   typ: string | null;
   ilosc: number;
   dataPrzyjecia: string | null;
@@ -76,7 +92,10 @@ const formatDate = (value?: string | null): string => {
 };
 
 const getTypMeta = (typ?: string | null) =>
-  (typ && TYPY_TOWARU[typ]) || { label: typ || '-', color: 'bg-gray-100 text-gray-800 border-gray-200' };
+  TYPY_TOWARU.find((item) => item.value === typ) || {
+    label: typ || '-',
+    color: 'bg-gray-100 text-gray-800 border-gray-200',
+  };
 
 const getDaysBadgeColor = (days: number): string => {
   if (days >= 365) return 'bg-red-100 text-red-800 border-red-200';
@@ -136,6 +155,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
           id: product.id,
           kod: product.kod,
           nazwa: sheet?.nazwa || product.nazwa,
+          sprzedawca: receipt?.sprzedawca || sheet?.sprzedawca || '',
           typ: sheet?.typ || null,
           ilosc: remaining,
           dataPrzyjecia,
@@ -166,7 +186,11 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       if (hideZeroStock && row.ilosc <= 0) return false;
       if (selectedTyp && row.typ !== selectedTyp) return false;
       if (!query) return true;
-      return row.kod.toLowerCase().includes(query) || row.nazwa.toLowerCase().includes(query);
+      return (
+        row.kod.toLowerCase().includes(query) ||
+        row.nazwa.toLowerCase().includes(query) ||
+        row.sprzedawca.toLowerCase().includes(query)
+      );
     });
   }, [rows, searchTerm, selectedTyp, hideZeroStock]);
 
@@ -202,6 +226,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
 
   return (
     <div className="space-y-4">
+      <style>{tableStyles}</style>
       <div className="mb-2 flex items-center gap-3">
         <div className="relative w-full max-w-xs">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
@@ -248,13 +273,14 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       </div>
 
       <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-        <div className="w-full overflow-x-auto overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
-          <table className="w-full">
+        <div className="w-full overflow-x-auto overflow-y-scroll max-h-[calc(100dvh-280px)] relative" style={{ zIndex: 1 }}>
+          <table className="w-full analiza-magazynu-table">
             <thead className="sticky top-0 z-10">
               <tr>
                 <th
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('kod')}
+                  style={{ width: '100px' }}
                 >
                   <div className="flex items-center gap-1">
                     Kod
@@ -264,6 +290,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                 <th
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                   onClick={() => handleSort('nazwa')}
+                  style={{ width: '250px' }}
                 >
                   <div className="flex items-center gap-1">
                     Nazwa
@@ -272,11 +299,12 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                 </th>
                 <th
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
-                  onClick={() => handleSort('typ')}
+                  onClick={() => handleSort('sprzedawca')}
+                  style={{ width: '120px' }}
                 >
                   <div className="flex items-center gap-1">
-                    Typ
-                    <SortIndicator field="typ" sortField={sortField} sortDirection={sortDirection} />
+                    Sprzedawca
+                    <SortIndicator field="sprzedawca" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
                 <th
@@ -290,19 +318,30 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                 </th>
                 <th
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
-                  onClick={() => handleSort('dataPrzyjecia')}
+                  onClick={() => handleSort('typ')}
                 >
                   <div className="flex items-center gap-1">
-                    Data przyjęcia
+                    Typ
+                    <SortIndicator field="typ" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
+                </th>
+                <th
+                  className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
+                  onClick={() => handleSort('dataPrzyjecia')}
+                  style={{ width: '90px' }}
+                >
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Data<br/>przyjęcia</div>
                     <SortIndicator field="dataPrzyjecia" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
                 <th
-                  className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                  className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('dni')}
+                  style={{ width: '80px' }}
                 >
                   <div className="flex items-center gap-1">
-                    Dni na magazynie
+                    <div className="whitespace-normal">Dni<br/>na magazynie</div>
                     <SortIndicator field="dni" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
@@ -311,7 +350,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+                  <td colSpan={7} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                     Brak towarów na magazynie
                   </td>
                 </tr>
@@ -320,25 +359,41 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                   const typMeta = getTypMeta(row.typ);
                   return (
                     <tr key={row.id} className="hover:bg-gray-50">
-                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
-                        {row.kod}
+                      <td
+                        className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline"
+                        style={{ width: '100px' }}
+                      >
+                        <div className="break-words leading-tight max-h-8 overflow-hidden">{row.kod}</div>
                       </td>
-                      <td className="px-8 py-4 text-left text-xs text-gray-900 font-sora">
-                        {row.nazwa}
+                      <td
+                        className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline"
+                        style={{ width: '250px' }}
+                      >
+                        <div className="break-words leading-tight max-h-12 overflow-hidden">{row.nazwa}</div>
                       </td>
-                      <td className="px-8 py-4 text-left text-xs font-sora whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] font-medium ${typMeta.color}`}>
-                          {typMeta.label}
-                        </span>
+                      <td
+                        className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap"
+                        style={{ width: '120px' }}
+                      >
+                        {row.sprzedawca}
                       </td>
-                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                         {row.ilosc}
                       </td>
-                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
+                        {row.typ ? (
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-sora leading-tight border ${typMeta.color}`}>
+                            {typMeta.label}
+                          </span>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                         {formatDate(row.dataPrzyjecia)}
                       </td>
-                      <td className="px-8 py-4 text-left text-xs font-sora whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] font-medium ${getDaysBadgeColor(row.dni)}`}>
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-sora leading-tight border ${getDaysBadgeColor(row.dni)}`}>
                           {row.dni} dni
                         </span>
                       </td>
