@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
 import { compareCzasSkladowania, useTableSort } from '../utils/tableSort';
 
@@ -29,8 +29,6 @@ interface WorkingSheet {
   kod: string;
   nazwa: string;
   typ?: string | null;
-  sprzedawca?: string | null;
-  objetosc?: string | number | null;
 }
 
 interface ProductReceipt {
@@ -38,22 +36,14 @@ interface ProductReceipt {
   dataPrzyjecia: string;
 }
 
-interface StorageBatch {
-  id: number;
-  ilosc: number;
-  dataPrzyjecia: string | null;
-  dni: number;
-}
-
 interface StorageRow {
+  id: number;
   kod: string;
   nazwa: string;
   typ: string | null;
   ilosc: number;
   dataPrzyjecia: string | null;
   dni: number;
-  partie: number;
-  batches: StorageBatch[];
 }
 
 interface CzasSkladowaniaListProps {
@@ -103,7 +93,6 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTyp, setSelectedTyp] = useState('');
-  const [expandedKod, setExpandedKod] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -132,7 +121,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
           .map((receipt) => [receipt.id as number, receipt])
       );
 
-      const grouped = new Map<string, StorageRow>();
+      const nextRows: StorageRow[] = [];
 
       for (const product of products) {
         if (!product.kod || product.status === 'samples') continue;
@@ -141,44 +130,18 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
 
         const receipt = product.receipt_id != null ? receiptsById.get(product.receipt_id) : undefined;
         const dataPrzyjecia = receipt?.dataPrzyjecia || product.created_at || null;
-        const dni = daysOnWarehouse(dataPrzyjecia);
         const sheet = sheetsByKod.get(product.kod);
 
-        const batch: StorageBatch = {
+        nextRows.push({
           id: product.id,
+          kod: product.kod,
+          nazwa: sheet?.nazwa || product.nazwa,
+          typ: sheet?.typ || null,
           ilosc: remaining,
           dataPrzyjecia,
-          dni,
-        };
-
-        const existing = grouped.get(product.kod);
-        if (!existing) {
-          grouped.set(product.kod, {
-            kod: product.kod,
-            nazwa: sheet?.nazwa || product.nazwa,
-            typ: sheet?.typ || null,
-            ilosc: remaining,
-            dataPrzyjecia,
-            dni,
-            partie: 1,
-            batches: [batch],
-          });
-          continue;
-        }
-
-        existing.ilosc += remaining;
-        existing.batches.push(batch);
-        existing.partie = existing.batches.length;
-        if (dni > existing.dni) {
-          existing.dni = dni;
-          existing.dataPrzyjecia = dataPrzyjecia;
-        }
+          dni: daysOnWarehouse(dataPrzyjecia),
+        });
       }
-
-      const nextRows = Array.from(grouped.values()).map((row) => ({
-        ...row,
-        batches: [...row.batches].sort((a, b) => b.dni - a.dni),
-      }));
 
       setRows(nextRows);
     } catch (err) {
@@ -210,12 +173,16 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
     defaultField: 'dni',
     defaultDirection: 'desc',
     persistKeys: { field: 'czasSkladowaniaSortField', direction: 'czasSkladowaniaSortDirection' },
-    directionForField: (field) => (field === 'dni' || field === 'ilosc' || field === 'partie' ? 'desc' : 'asc'),
+    directionForField: (field) => (field === 'dni' || field === 'ilosc' ? 'desc' : 'asc'),
     compareItems: compareCzasSkladowania,
   });
 
   const oldestDays = sortedItems.reduce((max, row) => Math.max(max, row.dni), 0);
   const totalQty = sortedItems.reduce((sum, row) => sum + row.ilosc, 0);
+  const uniqueProducts = useMemo(
+    () => new Set(sortedItems.map((row) => row.kod)).size,
+    [sortedItems]
+  );
 
   if (isLoading) {
     return (
@@ -276,15 +243,19 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
 
       <div className="flex flex-wrap gap-4">
         <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-          <h3 className="text-xs font-medium text-gray-500 font-sora">Liczba artykułów</h3>
+          <h3 className="text-xs font-medium text-gray-500 font-sora">Liczba partii</h3>
           <p className="text-2xl font-bold text-gray-900 font-sora">{sortedItems.length}</p>
+        </div>
+        <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
+          <h3 className="text-xs font-medium text-gray-500 font-sora">Liczba artykułów</h3>
+          <p className="text-2xl font-bold text-gray-900 font-sora">{uniqueProducts}</p>
         </div>
         <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
           <h3 className="text-xs font-medium text-gray-500 font-sora">Łączna ilość</h3>
           <p className="text-2xl font-bold text-green-600 font-sora">{totalQty}</p>
         </div>
         <div className="bg-white p-2 rounded-lg border max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-          <h3 className="text-xs font-medium text-gray-500 font-sora">Najstarszy towar</h3>
+          <h3 className="text-xs font-medium text-gray-500 font-sora">Najstarsza partia</h3>
           <p className="text-2xl font-bold text-red-600 font-sora">{sortedItems.length > 0 ? `${oldestDays} dni` : '-'}</p>
         </div>
       </div>
@@ -348,91 +319,43 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                     <SortIndicator field="dni" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
-                <th
-                  className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
-                  onClick={() => handleSort('partie')}
-                >
-                  <div className="flex items-center gap-1">
-                    Partie
-                    <SortIndicator field="partie" sortField={sortField} sortDirection={sortDirection} />
-                  </div>
-                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+                  <td colSpan={6} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                     Brak towarów na magazynie
                   </td>
                 </tr>
               ) : (
                 sortedItems.map((row) => {
                   const typMeta = getTypMeta(row.typ);
-                  const canExpand = row.partie > 1;
-                  const isExpanded = expandedKod === row.kod;
-
                   return (
-                    <React.Fragment key={row.kod}>
-                      <tr
-                        className={`hover:bg-gray-50 ${canExpand ? 'cursor-pointer' : ''}`}
-                        onClick={() => {
-                          if (!canExpand) return;
-                          setExpandedKod((current) => (current === row.kod ? null : row.kod));
-                        }}
-                      >
-                        <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
-                          {row.kod}
-                        </td>
-                        <td className="px-8 py-4 text-left text-xs text-gray-900 font-sora">
-                          {row.nazwa}
-                        </td>
-                        <td className="px-8 py-4 text-left text-xs font-sora whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] font-medium ${typMeta.color}`}>
-                            {typMeta.label}
-                          </span>
-                        </td>
-                        <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
-                          {row.ilosc}
-                        </td>
-                        <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
-                          {formatDate(row.dataPrzyjecia)}
-                        </td>
-                        <td className="px-8 py-4 text-left text-xs font-sora whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] font-medium ${getDaysBadgeColor(row.dni)}`}>
-                            {row.dni} dni
-                          </span>
-                        </td>
-                        <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            {canExpand && (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
-                            {row.partie}
-                          </div>
-                        </td>
-                      </tr>
-                      {isExpanded &&
-                        row.batches.map((batch) => (
-                          <tr key={`${row.kod}-${batch.id}`} className="bg-gray-50">
-                            <td className="px-8 py-2 text-left text-xs text-gray-400 font-sora whitespace-nowrap" />
-                            <td className="px-8 py-2 text-left text-xs text-gray-500 font-sora">
-                              Partia #{batch.id}
-                            </td>
-                            <td className="px-8 py-2" />
-                            <td className="px-8 py-2 text-left text-xs text-gray-500 font-sora whitespace-nowrap">
-                              {batch.ilosc}
-                            </td>
-                            <td className="px-8 py-2 text-left text-xs text-gray-500 font-sora whitespace-nowrap">
-                              {formatDate(batch.dataPrzyjecia)}
-                            </td>
-                            <td className="px-8 py-2 text-left text-xs font-sora whitespace-nowrap">
-                              <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] font-medium ${getDaysBadgeColor(batch.dni)}`}>
-                                {batch.dni} dni
-                              </span>
-                            </td>
-                            <td className="px-8 py-2" />
-                          </tr>
-                        ))}
-                    </React.Fragment>
+                    <tr key={row.id} className="hover:bg-gray-50">
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
+                        {row.kod}
+                      </td>
+                      <td className="px-8 py-4 text-left text-xs text-gray-900 font-sora">
+                        {row.nazwa}
+                      </td>
+                      <td className="px-8 py-4 text-left text-xs font-sora whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] font-medium ${typMeta.color}`}>
+                          {typMeta.label}
+                        </span>
+                      </td>
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
+                        {row.ilosc}
+                      </td>
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora whitespace-nowrap">
+                        {formatDate(row.dataPrzyjecia)}
+                      </td>
+                      <td className="px-8 py-4 text-left text-xs font-sora whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] font-medium ${getDaysBadgeColor(row.dni)}`}>
+                          {row.dni} dni
+                        </span>
+                      </td>
+                    </tr>
                   );
                 })
               )}

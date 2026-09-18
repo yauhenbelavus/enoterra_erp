@@ -279,7 +279,6 @@ export function compareCzasSkladowania<
     ilosc?: number;
     dataPrzyjecia?: string | null;
     dni?: number;
-    partie?: number;
   }
 >(a: T, b: T, field: string, direction: SortDirection): number {
   switch (field) {
@@ -295,8 +294,6 @@ export function compareCzasSkladowania<
       return compareSortValues(parseSortDate(a.dataPrzyjecia), parseSortDate(b.dataPrzyjecia), direction);
     case 'dni':
       return compareSortValues(a.dni ?? 0, b.dni ?? 0, direction);
-    case 'partie':
-      return compareSortValues(a.partie ?? 0, b.partie ?? 0, direction);
     default:
       return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
   }
