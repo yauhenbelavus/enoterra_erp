@@ -383,7 +383,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
               <col style={{ width: '140px' }} />
               <col style={{ width: '90px' }} />
               <col style={{ width: '110px' }} />
-              <col style={{ width: '140px' }} />
+              <col style={{ width: '160px' }} />
               <col />
             </colgroup>
             <thead className="sticky top-0 z-10">
@@ -457,12 +457,15 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                   </div>
                 </th>
                 <th
-                  className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
+                  className="px-4 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('dni')}
-                  style={{ width: '140px' }}
+                  style={{ width: '160px' }}
                 >
                   <div className="flex items-center gap-1">
-                    <div className="whitespace-normal">Dni<br/>na magazynie</div>
+                    <div className="leading-tight">
+                      <div className="whitespace-nowrap">Dni na</div>
+                      <div className="whitespace-nowrap">magazynie</div>
+                    </div>
                     <SortIndicator field="dni" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
