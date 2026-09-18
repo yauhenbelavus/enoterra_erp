@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
-import { compareCzasSkladowania, useTableSort } from '../utils/tableSort';
+import { compareCzasSkladowania, extractDateFromOrderNumber, useTableSort } from '../utils/tableSort';
 
 const tableStyles = `
   .analiza-magazynu-table {
@@ -51,6 +51,13 @@ interface ProductReceipt {
   sprzedawca?: string;
 }
 
+interface OrderConsumption {
+  batch_id: number;
+  numer_zamowienia?: string;
+  data_utworzenia?: string;
+  created_at?: string;
+}
+
 interface StorageRow {
   id: number;
   kod: string;
@@ -59,6 +66,7 @@ interface StorageRow {
   typ: string | null;
   ilosc: number;
   dataPrzyjecia: string | null;
+  dataOstatniegoWydania: string | null;
   dni: number;
 }
 
@@ -78,17 +86,29 @@ const parseLocalDate = (value?: string | null): Date | null => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const daysOnWarehouse = (value?: string | null, today = new Date()): number => {
-  const date = parseLocalDate(value);
-  if (!date) return 0;
-  const from = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const to = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  return Math.max(0, Math.round((to - from) / 86400000));
+const toDateKey = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const daysBetween = (fromValue?: string | null, toValue?: string | Date | null): number => {
+  const from = parseLocalDate(fromValue);
+  if (!from) return 0;
+  const to = toValue instanceof Date ? toValue : parseLocalDate(toValue) || new Date();
+  const fromTime = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  const toTime = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  return Math.max(0, Math.round((toTime - fromTime) / 86400000));
 };
 
 const formatDate = (value?: string | null): string => {
   const date = parseLocalDate(value);
   return date ? date.toLocaleDateString('pl-PL') : '-';
+};
+
+const getIssueDate = (consumption: OrderConsumption): Date | null => {
+  if (consumption.numer_zamowienia) {
+    const fromNumber = extractDateFromOrderNumber(consumption.numer_zamowienia);
+    if (fromNumber) return fromNumber;
+  }
+  return parseLocalDate(consumption.data_utworzenia) || parseLocalDate(consumption.created_at);
 };
 
 const getTypMeta = (typ?: string | null) =>
@@ -119,9 +139,10 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       setIsLoading(true);
       setError(null);
 
-      const [productsRes, sheetsRes] = await Promise.all([
+      const [productsRes, sheetsRes, consumptionsRes] = await Promise.all([
         fetch('/api/products'),
         fetch('/api/working-sheets'),
+        fetch('/api/order-consumptions'),
       ]);
 
       if (!productsRes.ok) {
@@ -130,9 +151,23 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       if (!sheetsRes.ok) {
         throw new Error(`HTTP error! status: ${sheetsRes.status}`);
       }
+      if (!consumptionsRes.ok) {
+        throw new Error(`HTTP error! status: ${consumptionsRes.status}`);
+      }
 
       const products: ProductBatch[] = await productsRes.json();
       const sheets: WorkingSheet[] = await sheetsRes.json();
+      const consumptions: OrderConsumption[] = await consumptionsRes.json();
+
+      const lastIssueByBatch = new Map<number, Date>();
+      for (const consumption of consumptions) {
+        const issueDate = getIssueDate(consumption);
+        if (!issueDate || consumption.batch_id == null) continue;
+        const previous = lastIssueByBatch.get(consumption.batch_id);
+        if (!previous || issueDate > previous) {
+          lastIssueByBatch.set(consumption.batch_id, issueDate);
+        }
+      }
 
       const sheetsByKod = new Map(sheets.map((sheet) => [sheet.kod, sheet]));
       const receiptsById = new Map(
@@ -151,6 +186,13 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
         const dataPrzyjecia = receipt?.dataPrzyjecia || product.created_at || null;
         const sheet = sheetsByKod.get(product.kod);
 
+        const lastIssueDate = lastIssueByBatch.get(product.id) || null;
+        const dataOstatniegoWydania = lastIssueDate ? toDateKey(lastIssueDate) : null;
+        const dni =
+          remaining <= 0 && dataOstatniegoWydania
+            ? daysBetween(dataPrzyjecia, dataOstatniegoWydania)
+            : daysBetween(dataPrzyjecia);
+
         nextRows.push({
           id: product.id,
           kod: product.kod,
@@ -159,7 +201,8 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
           typ: sheet?.typ || null,
           ilosc: remaining,
           dataPrzyjecia,
-          dni: daysOnWarehouse(dataPrzyjecia),
+          dataOstatniegoWydania,
+          dni,
         });
       }
 
@@ -337,6 +380,16 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                 </th>
                 <th
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
+                  onClick={() => handleSort('dataOstatniegoWydania')}
+                  style={{ width: '110px' }}
+                >
+                  <div className="flex items-center gap-1">
+                    <div className="whitespace-normal">Data ostatniego<br/>wydania</div>
+                    <SortIndicator field="dataOstatniegoWydania" sortField={sortField} sortDirection={sortDirection} />
+                  </div>
+                </th>
+                <th
+                  className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('dni')}
                   style={{ width: '80px' }}
                 >
@@ -350,7 +403,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+                  <td colSpan={8} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                     Brak towarów na magazynie
                   </td>
                 </tr>
@@ -391,6 +444,9 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                       </td>
                       <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                         {formatDate(row.dataPrzyjecia)}
+                      </td>
+                      <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
+                        {formatDate(row.dataOstatniegoWydania)}
                       </td>
                       <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-sora leading-tight border ${getDaysBadgeColor(row.dni)}`}>

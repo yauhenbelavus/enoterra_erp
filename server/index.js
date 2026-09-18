@@ -7069,6 +7069,7 @@ app.get('/api/order-consumptions', (req, res) => {
     SELECT 
       oc.*,
       o.numer_zamowienia,
+      o.data_utworzenia,
       COALESCE(c.nazwa, o.klient) AS klient,
       p.nazwa as product_name,
       p.cena as batch_price
@@ -7099,6 +7100,7 @@ app.get('/api/order-consumptions/search', (req, res) => {
     SELECT 
       oc.*,
       o.numer_zamowienia,
+      o.data_utworzenia,
       COALESCE(c.nazwa, o.klient) AS klient,
       p.nazwa as product_name,
       p.cena as batch_price

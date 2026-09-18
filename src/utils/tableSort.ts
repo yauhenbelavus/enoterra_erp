@@ -279,6 +279,7 @@ export function compareCzasSkladowania<
     typ?: string | null;
     ilosc?: number;
     dataPrzyjecia?: string | null;
+    dataOstatniegoWydania?: string | null;
     dni?: number;
   }
 >(a: T, b: T, field: string, direction: SortDirection): number {
@@ -295,6 +296,8 @@ export function compareCzasSkladowania<
       return compareSortValues(a.ilosc ?? 0, b.ilosc ?? 0, direction);
     case 'dataPrzyjecia':
       return compareSortValues(parseSortDate(a.dataPrzyjecia), parseSortDate(b.dataPrzyjecia), direction);
+    case 'dataOstatniegoWydania':
+      return compareSortValues(parseSortDate(a.dataOstatniegoWydania), parseSortDate(b.dataOstatniegoWydania), direction);
     case 'dni':
       return compareSortValues(a.dni ?? 0, b.dni ?? 0, direction);
     default:
