@@ -126,6 +126,12 @@ const daysOnWarehouseEndDate = (remaining: number, lastIssueDate: Date | null): 
   return issueDay > today ? today : issueDay;
 };
 
+const laterDate = (a: Date | null, b: Date | null): Date | null => {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+};
+
 const daysBetween = (fromValue?: string | null, toValue?: string | Date | null): number => {
   const from = parseLocalDate(fromValue);
   if (!from) return 0;
@@ -153,13 +159,6 @@ const getTypMeta = (typ?: string | null) =>
     label: typ || '-',
     color: 'bg-gray-100 text-gray-800 border-gray-200',
   };
-
-const getDaysBadgeColor = (days: number): string => {
-  if (days >= 365) return 'bg-red-100 text-red-800 border-red-200';
-  if (days >= 180) return 'bg-orange-100 text-orange-800 border-orange-200';
-  if (days >= 90) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-  return 'bg-green-100 text-green-800 border-green-200';
-};
 
 export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
   productReceipts = [],
@@ -248,18 +247,55 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
           .map((receipt) => [receipt.id as number, receipt])
       );
 
-      const nextRows: StorageRow[] = [];
+      const lotGroups = new Map<
+        string,
+        { display: ProductBatch; qty: number; batchIds: number[] }
+      >();
 
       for (const product of products) {
-        if (!product.kod || product.status === 'samples') continue;
-        const remaining = Number(product.ilosc_aktualna) || 0;
+        if (!product.kod) continue;
 
+        const isSample = product.status === 'samples';
+        const key =
+          product.receipt_id != null
+            ? `r:${product.receipt_id}:${product.kod}`
+            : isSample
+              ? null
+              : `p:${product.id}`;
+        if (!key) continue;
+
+        const existing = lotGroups.get(key);
+        if (!existing) {
+          lotGroups.set(key, {
+            display: product,
+            qty: Number(product.ilosc_aktualna) || 0,
+            batchIds: [product.id],
+          });
+          continue;
+        }
+
+        existing.qty += Number(product.ilosc_aktualna) || 0;
+        existing.batchIds.push(product.id);
+        if (existing.display.status === 'samples' && !isSample) {
+          existing.display = product;
+        }
+      }
+
+      const nextRows: StorageRow[] = [];
+
+      for (const group of lotGroups.values()) {
+        const product = group.display;
+        const remaining = group.qty;
         const receipt = product.receipt_id != null ? receiptsById.get(product.receipt_id) : undefined;
         const dataPrzyjecia = receipt?.dataPrzyjecia || product.created_at || null;
         const sheet = sheetsByKod.get(product.kod);
 
-        const lastIssueDate =
-          lastIssueByBatch.get(product.id) || lastSaleByKod.get(product.kod) || null;
+        let lastIssueDate: Date | null = null;
+        for (const batchId of group.batchIds) {
+          lastIssueDate = laterDate(lastIssueDate, lastIssueByBatch.get(batchId) || null);
+        }
+        lastIssueDate = lastIssueDate || lastSaleByKod.get(product.kod) || null;
+
         const dataOstatniegoWydania = lastIssueDate ? toDateKey(lastIssueDate) : null;
         const dni = daysBetween(dataPrzyjecia, daysOnWarehouseEndDate(remaining, lastIssueDate));
 
@@ -560,9 +596,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                         {formatDate(row.dataOstatniegoWydania)}
                       </td>
                       <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-sora leading-tight border ${getDaysBadgeColor(row.dni)}`}>
-                          {row.dni} dni
-                        </span>
+                        {row.dni}
                       </td>
                       <td className="p-0" />
                     </tr>
