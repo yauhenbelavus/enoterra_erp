@@ -1,5 +1,6 @@
 import React from 'react';
 import { InventoryStatus } from '../components/InventoryStatus';
+import { CzasSkladowaniaList } from '../components/CzasSkladowaniaList';
 
 interface ProductReceipt {
   id?: number;
@@ -30,16 +31,55 @@ interface ProductReceipt {
   transportInvoice?: string;
 }
 
+type StanyMagazynoweSubTab = 'towary' | 'analiza_magazynu';
+
 interface StanyMagazynowePageProps {
+  activeSubTab: string | null;
+  setActiveSubTab: (tab: StanyMagazynoweSubTab) => void;
   productReceipts: ProductReceipt[];
 }
 
 export const StanyMagazynowePage: React.FC<StanyMagazynowePageProps> = ({
+  activeSubTab,
+  setActiveSubTab,
   productReceipts,
 }) => {
   return (
     <div className="flex flex-col gap-4 mt-4 w-full">
-      <InventoryStatus productReceipts={productReceipts} />
+      <div className="flex">
+        <button
+          onClick={() => setActiveSubTab('towary')}
+          className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
+            activeSubTab === 'towary'
+              ? 'text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Towary
+        </button>
+        <button
+          onClick={() => setActiveSubTab('analiza_magazynu')}
+          className={`px-4 py-2 text-sm font-medium font-sora transition-colors ${
+            activeSubTab === 'analiza_magazynu'
+              ? 'text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Analiza magazynu
+        </button>
+      </div>
+
+      {activeSubTab === 'towary' && (
+        <div className="flex flex-col gap-4 mt-6">
+          <InventoryStatus productReceipts={productReceipts} />
+        </div>
+      )}
+
+      {activeSubTab === 'analiza_magazynu' && (
+        <div className="flex flex-col gap-4 mt-6">
+          <CzasSkladowaniaList productReceipts={productReceipts} />
+        </div>
+      )}
     </div>
   );
 };

@@ -89,7 +89,7 @@ interface AppState {
   products: Product[];
   productReceipts: ProductReceipt[];
   activeTab: 'inventory' | 'clients' | 'orders' | 'inventoryStatus';
-  activeSubTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'analiza_wydan' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom' | null;
+  activeSubTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'analiza_wydan' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom' | 'towary' | 'analiza_magazynu' | null;
   isDbInitialized: boolean;
 }
 
@@ -111,7 +111,7 @@ function App() {
     const savedActiveSubTab = localStorage.getItem('activeSubTab');
     
     const validTabs = ['inventory', 'clients', 'orders', 'inventoryStatus'] as const;
-    const validSubTabs = ['przyjecie', 'analiza', 'kalendarz', 'wydanie', 'rezerwacje', 'analiza_towarow', 'analiza_wydan', 'faktury', 'komis', 'baza_klientow', 'sprzedaz_klientom'] as const;
+    const validSubTabs = ['przyjecie', 'analiza', 'kalendarz', 'wydanie', 'rezerwacje', 'analiza_towarow', 'analiza_wydan', 'faktury', 'komis', 'baza_klientow', 'sprzedaz_klientom', 'towary', 'analiza_magazynu'] as const;
 
     let activeTab: AppState['activeTab'];
     if (tabFromPath) {
@@ -129,7 +129,8 @@ function App() {
       validSubTabs.includes(savedActiveSubTab as typeof validSubTabs[number]) &&
       ((activeTab === 'inventory' && ['przyjecie', 'analiza', 'kalendarz'].includes(savedActiveSubTab)) ||
         (activeTab === 'orders' && ['wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis', 'analiza_wydan'].includes(savedActiveSubTab)) ||
-        (activeTab === 'clients' && ['baza_klientow', 'sprzedaz_klientom'].includes(savedActiveSubTab)));
+        (activeTab === 'clients' && ['baza_klientow', 'sprzedaz_klientom'].includes(savedActiveSubTab)) ||
+        (activeTab === 'inventoryStatus' && ['towary', 'analiza_magazynu'].includes(savedActiveSubTab)));
     
     const activeSubTab = (savedSubTabValid
       ? savedActiveSubTab 
@@ -369,7 +370,7 @@ function App() {
     }
   };
 
-  const setActiveSubTab = (subTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'analiza_wydan' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom') => {
+  const setActiveSubTab = (subTab: 'przyjecie' | 'analiza' | 'kalendarz' | 'wydanie' | 'rezerwacje' | 'analiza_towarow' | 'analiza_wydan' | 'faktury' | 'komis' | 'baza_klientow' | 'sprzedaz_klientom' | 'towary' | 'analiza_magazynu') => {
     localStorage.setItem('activeSubTab', subTab);
     setAppState(prev => ({ ...prev, activeSubTab: subTab }));
   };
@@ -571,7 +572,11 @@ function App() {
               />
             )}
             {appState.activeTab === 'inventoryStatus' && (
-              <StanyMagazynowePage productReceipts={appState.productReceipts} />
+              <StanyMagazynowePage
+                activeSubTab={appState.activeSubTab}
+                setActiveSubTab={setActiveSubTab as (tab: 'towary' | 'analiza_magazynu') => void}
+                productReceipts={appState.productReceipts}
+              />
             )}
           </div>
         </div>

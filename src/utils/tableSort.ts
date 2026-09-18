@@ -271,6 +271,37 @@ export function compareAnalizaWydanProducts<
   }
 }
 
+export function compareCzasSkladowania<
+  T extends {
+    kod?: string;
+    nazwa?: string;
+    typ?: string | null;
+    ilosc?: number;
+    dataPrzyjecia?: string | null;
+    dni?: number;
+    partie?: number;
+  }
+>(a: T, b: T, field: string, direction: SortDirection): number {
+  switch (field) {
+    case 'kod':
+      return compareSortValues(lowerCase(a.kod), lowerCase(b.kod), direction);
+    case 'nazwa':
+      return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
+    case 'typ':
+      return compareSortValues(lowerCase(a.typ), lowerCase(b.typ), direction);
+    case 'ilosc':
+      return compareSortValues(a.ilosc ?? 0, b.ilosc ?? 0, direction);
+    case 'dataPrzyjecia':
+      return compareSortValues(parseSortDate(a.dataPrzyjecia), parseSortDate(b.dataPrzyjecia), direction);
+    case 'dni':
+      return compareSortValues(a.dni ?? 0, b.dni ?? 0, direction);
+    case 'partie':
+      return compareSortValues(a.partie ?? 0, b.partie ?? 0, direction);
+    default:
+      return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
+  }
+}
+
 export function compareAnalysisProducts<
   T extends { ilosc?: number; ilosc_wydane?: number; product_kod?: string; product_nazwa?: string }
 >(a: T, b: T, field: string, direction: SortDirection): number {

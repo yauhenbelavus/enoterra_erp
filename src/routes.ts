@@ -12,6 +12,8 @@ export type AppSubTab =
   | 'komis'
   | 'baza_klientow'
   | 'sprzedaz_klientom'
+  | 'towary'
+  | 'analiza_magazynu'
   | null;
 
 export const HOME_PATH = '/';
@@ -31,12 +33,14 @@ const SUB_TABS_BY_TAB: Partial<Record<AppTab, readonly AppSubTab[]>> = {
   inventory: ['przyjecie', 'analiza', 'kalendarz'],
   clients: ['baza_klientow', 'sprzedaz_klientom'],
   orders: ['wydanie', 'rezerwacje', 'analiza_towarow', 'faktury', 'komis', 'analiza_wydan'],
+  inventoryStatus: ['towary', 'analiza_magazynu'],
 };
 
 export const getDefaultSubTab = (tab: AppTab): AppSubTab => {
   if (tab === 'orders') return 'wydanie';
   if (tab === 'clients') return 'baza_klientow';
   if (tab === 'inventory') return 'przyjecie';
+  if (tab === 'inventoryStatus') return 'towary';
   return null;
 };
 
