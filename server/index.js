@@ -2312,136 +2312,155 @@ async function generateOrderPDF(order, products, res) {
     
     yPosition = clientBlockY - 58; // Увеличен отступ на 1 см (28 пикселей дополнительно)
 
-    // Таблица товаров
+    // ===== Таблица товаров (современный стиль) =====
     const tableX = containerMargin + 10;
-    const tableYTop = yPosition;
+    const rightEdge = width - containerMargin;
+    const qtyRightX = rightEdge - 10; // правый край колонки Ilość
     const colWidths = [100, 260, 140, 30]; // Kod, Nazwa, Kod kreskowy, Ilość
-    const headers = ['Kod', 'Nazwa', 'Kod kreskowy', 'Ilość'];
-    let cursorX = tableX;
-    headers.forEach((h, idx) => {
-      page.drawText(h, { x: cursorX + 2, y: tableYTop, size: 10, font: soraFont, color: colors.text });
-      cursorX += colWidths[idx];
-    });
+    const kodX = tableX + 2;
+    const nazwaX = tableX + colWidths[0] + 2;
+    const barcodeX = tableX + colWidths[0] + colWidths[1] + 2;
+    const headersDef = [
+      { label: 'KOD', x: kodX, align: 'left' },
+      { label: 'NAZWA', x: nazwaX, align: 'left' },
+      { label: 'KOD KRESKOWY', x: barcodeX, align: 'left' },
+      { label: 'ILOŚĆ', x: qtyRightX, align: 'right' },
+    ];
 
-    let rowY = tableYTop - 28; // Увеличен отступ после линии (0.5 см = ~14 пикселей дополнительно)
-    
-    // Линия под заголовками
-    page.drawLine({
-      start: { x: containerMargin, y: tableYTop - 4 },
-      end: { x: width - containerMargin, y: tableYTop - 4 },
-      thickness: 0.5,
-             color: rgb(0, 0, 0)
-           });
+    // Палитра таблицы
+    const tableColors = {
+      headerBg: rgb(0.945, 0.949, 0.960),
+      headerText: rgb(0.294, 0.333, 0.388),
+      row: rgb(0.176, 0.196, 0.235),
+      zebra: rgb(0.972, 0.976, 0.984),
+      line: rgb(0.886, 0.898, 0.918),
+      totalLine: rgb(0.74, 0.75, 0.78),
+    };
+
+    const bodySize = 9.5;
+    const lineHeight = 12;
+    const rowPadV = 7;
+    const minBandH = 24;
+    const headerBandH = 22;
+
+    // Псевдо-жирный (Sora поставляется только Regular): двойная отрисовка со сдвигом,
+    // работает и с польскими символами (в отличие от helveticaBold + WinAnsi).
+    const drawSemiBold = (pg, text, x, y, size, color) => {
+      pg.drawText(text, { x, y, size, font: soraFont, color });
+      pg.drawText(text, { x: x + 0.35, y, size, font: soraFont, color });
+    };
+    const drawRightSemiBold = (pg, text, xRight, y, size, color) => {
+      const w = soraFont.widthOfTextAtSize(text, size);
+      drawSemiBold(pg, text, xRight - w, y, size, color);
+    };
+    const drawRight = (pg, text, xRight, y, size, color) => {
+      const w = soraFont.widthOfTextAtSize(text, size);
+      pg.drawText(text, { x: xRight - w, y, size, font: soraFont, color });
+    };
+
+    // Шапка таблицы: серая плашка + подписи; возвращает y нижней границы шапки
+    const drawTableHeader = (pg, topY) => {
+      pg.drawRectangle({
+        x: containerMargin,
+        y: topY - headerBandH,
+        width: rightEdge - containerMargin,
+        height: headerBandH,
+        color: tableColors.headerBg,
+      });
+      const baseline = topY - headerBandH / 2 - 3;
+      headersDef.forEach((h) => {
+        if (h.align === 'right') {
+          drawRightSemiBold(pg, h.label, h.x, baseline, 8.5, tableColors.headerText);
+        } else {
+          drawSemiBold(pg, h.label, h.x, baseline, 8.5, tableColors.headerText);
+        }
+      });
+      return topY - headerBandH;
+    };
 
     console.log(`🧾 PDF(main) products count: ${products?.length || 0}`);
     let currentPage = page;
+    let bandTop = drawTableHeader(currentPage, yPosition);
+
     (products || []).forEach((p, index) => {
       const kod = p.kod || '-';
       const name = p.nazwa || p.product_name || '-';
       const barcode = p.kod_kreskowy || '-';
       const qty = Number(p.ilosc || p.qty || 0);
 
-      // Разбиваем название на строки если оно слишком длинное (ширина колонки Nazwa = 210)
-      const nameLines = wrapText(name, soraFont, 10, colWidths[1] - 4);
-      const rowHeight = nameLines.length * 12; // Высота строки товара зависит от количества строк в названии
-      
-      // Проверка: если строка не помещается, создаём новую страницу
-      if (rowY - rowHeight < containerMargin + 60) {
+      // Перенос названия по ширине колонки Nazwa
+      const nameLines = wrapText(name, soraFont, bodySize, colWidths[1] - 6);
+      const contentH = Math.max(lineHeight, nameLines.length * lineHeight);
+      const bandH = Math.max(minBandH, contentH + rowPadV * 2);
+
+      // Перенос на новую страницу с повторной отрисовкой шапки
+      if (bandTop - bandH < containerMargin + 70) {
         currentPage = pdfDoc.addPage([595.28, 841.89]);
-        rowY = height - containerMargin - 40;
-        
-        // Рисуем заголовки на новой странице
-        let cursorX = tableX;
-        headers.forEach((h, idx) => {
-          currentPage.drawText(h, { x: cursorX + 2, y: rowY, size: 10, font: soraFont, color: colors.text });
-          cursorX += colWidths[idx];
-        });
-        
-        // Линия под заголовками
-        currentPage.drawLine({
-          start: { x: containerMargin, y: rowY - 4 },
-          end: { x: width - containerMargin, y: rowY - 4 },
-          thickness: 0.5,
-             color: rgb(0, 0, 0)
-           });
-        
-        rowY -= 28;
+        bandTop = drawTableHeader(currentPage, height - containerMargin - 28);
       }
-      
-      // Рисуем kod (первая колонка)
-      currentPage.drawText(kod, { 
-        x: tableX + 2, 
-        y: rowY, 
-        size: 10, 
-        font: soraFont, 
-        color: colors.text 
+
+      const bandBottom = bandTop - bandH;
+      const centerY = bandTop - bandH / 2;
+
+      // Зебра для нечётных строк
+      if (index % 2 === 1) {
+        currentPage.drawRectangle({
+          x: containerMargin,
+          y: bandBottom,
+          width: rightEdge - containerMargin,
+          height: bandH,
+          color: tableColors.zebra,
+        });
+      }
+
+      // Тонкий разделитель снизу строки
+      currentPage.drawLine({
+        start: { x: containerMargin, y: bandBottom },
+        end: { x: rightEdge, y: bandBottom },
+        thickness: 0.5,
+        color: tableColors.line,
       });
-      
-      // Рисуем название (может быть многострочным, вторая колонка)
-      let nameY = rowY;
-      nameLines.forEach((line, lineIdx) => {
-        currentPage.drawText(line, { 
-          x: tableX + colWidths[0] + 2, 
-          y: nameY - (lineIdx * 12), 
-              size: 10,
-          font: soraFont, 
-          color: colors.text 
-            });
-          });
-      
-      // Рисуем код крескowy (третья колонка)
-      currentPage.drawText(barcode, { 
-        x: tableX + colWidths[0] + colWidths[1] + 2, 
-        y: rowY, 
-        size: 10, 
-        font: soraFont, 
-        color: colors.text 
+
+      // Вертикальное центрирование содержимого строки
+      const singleBaseline = centerY - bodySize * 0.34;
+      const firstNameBaseline = centerY + ((nameLines.length - 1) * lineHeight) / 2 - bodySize * 0.34;
+
+      // Kod
+      currentPage.drawText(kod, { x: kodX, y: singleBaseline, size: bodySize, font: soraFont, color: tableColors.row });
+
+      // Nazwa (многострочная, по центру по вертикали)
+      nameLines.forEach((line, i) => {
+        currentPage.drawText(line, {
+          x: nazwaX,
+          y: firstNameBaseline - i * lineHeight,
+          size: bodySize,
+          font: soraFont,
+          color: tableColors.row,
+        });
       });
-      
-      // Рисуем количество (четвёртая колонка)
-      currentPage.drawText(String(qty), { 
-        x: tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, 
-        y: rowY, 
-        size: 10, 
-        font: soraFont, 
-        color: colors.text 
-      });
-      
-      rowY -= rowHeight + 6; // Переходим к следующему товару с учетом высоты + отступ
+
+      // Kod kreskowy
+      currentPage.drawText(barcode, { x: barcodeX, y: singleBaseline, size: bodySize, font: soraFont, color: tableColors.row });
+
+      // Ilość — выравнивание по правому краю
+      drawRight(currentPage, String(qty), qtyRightX, singleBaseline, bodySize, tableColors.row);
+
+      bandTop = bandBottom;
     });
-    
-    // Линия под всеми товарами (на последней странице) - сразу после последнего товара
-    const lineY = rowY + 14; // Небольшой отступ как сверху (14 пикселей)
+
+    // Итоговая линия + Razem
     currentPage.drawLine({
-      start: { x: containerMargin, y: lineY },
-      end: { x: width - containerMargin, y: lineY },
-      thickness: 0.5,
-              color: rgb(0, 0, 0)
-            });
-            
-    // Итого - Razem под линией (на последней странице)
-    yPosition = lineY - 18;
-    
-    // Метка Razem с двоеточием
-    currentPage.drawText('Razem:', {
-      x: tableX + colWidths[0] + colWidths[1] + colWidths[2] - 55,
-              y: yPosition,
-      size: 10,
-      font: soraFont,
-      color: colors.textDark
+      start: { x: containerMargin, y: bandTop },
+      end: { x: rightEdge, y: bandTop },
+      thickness: 1,
+      color: tableColors.totalLine,
     });
-    
-    // Значение выровнено с колонкой Ilość, жирным шрифтом
-    const razemValueX = tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2; // Точное выравнивание с колонкой Ilość
+
+    const razemBaseline = bandTop - 18;
     const razemValue = String(order.laczna_ilosc || 0);
-    
-    currentPage.drawText(razemValue, {
-      x: razemValueX,
-             y: yPosition,
-      size: 9,
-             font: helveticaBold,
-      color: colors.textDark
-    });
+    const razemValueWidth = soraFont.widthOfTextAtSize(razemValue, 12);
+    drawRightSemiBold(currentPage, 'RAZEM', qtyRightX - razemValueWidth - 14, razemBaseline, 9.5, colors.textDark);
+    drawRight(currentPage, razemValue, qtyRightX, razemBaseline, 12, colors.textDark);
 
     // Убрали подписи снизу
         
