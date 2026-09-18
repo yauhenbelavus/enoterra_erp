@@ -2214,7 +2214,7 @@ async function generateOrderPDF(order, products, res) {
     const clientBlockGap = 28;
 
     // Блок с информацией о клиенте: мягкая розовая подложка, без рамки, один столбец
-    const clientBlockBg = rgb(0.98, 0.88, 0.88); // фирменный розовый (бледный)
+    const clientBlockBg = rgb(0.99, 0.94, 0.94); // фирменный розовый (очень бледный)
     const clientLabelSize = 7.5;
     const clientValueSize = 9;
     const clientRowGap = 17;
