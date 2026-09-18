@@ -2181,8 +2181,8 @@ async function generateOrderPDF(order, products, res) {
 
         console.log('✅ logo embedded dims:', logoDims.width, logoDims.height);
 
-        // Центрируем логотип в левой половине
-        const logoX = containerMargin + (middleX - containerMargin - logoDims.width) / 2;
+        // Логотип по левому полю контента (в одну сетку с таблицей и блоком клиента)
+        const logoX = containerMargin;
         const logoY = headerY + (headerHeight - logoDims.height) / 2;
 
         // Рисуем логотип
@@ -2200,7 +2200,7 @@ async function generateOrderPDF(order, products, res) {
     // Номер заказа справа (Sora, псевдо-жирный, выравнивание по правому краю)
     const orderNumber = order.numer_zamowienia || order.id || '';
     const orderNumberY = headerY + headerHeight / 2 - 5;
-    drawRightSemiBold(page, String(orderNumber), width - containerMargin - 4, orderNumberY, 15, colors.textDark);
+    drawRightSemiBold(page, String(orderNumber), width - containerMargin, orderNumberY, 15, colors.textDark);
 
     // Тонкая серая линия под хедером — в стиле разделителей таблицы
     page.drawLine({
@@ -2210,12 +2210,29 @@ async function generateOrderPDF(order, products, res) {
       color: colors.hairline,
     });
     
-    yPosition = headerY - 30; // Уменьшен отступ от рамки с номером заказа
-    
-    // Блок с информацией о клиенте (мягкая розовая подложка, без рамки)
-    const clientBlockHeight = 60;
-    const clientBlockY = yPosition - clientBlockHeight;
+    // Единый вертикальный отступ вокруг блока клиента (сверху и снизу одинаковый)
+    const clientBlockGap = 28;
+
+    // Блок с информацией о клиенте: мягкая розовая подложка, без рамки, один столбец
     const clientBlockBg = rgb(0.98, 0.88, 0.88); // фирменный розовый (бледный)
+    const clientLabelSize = 7.5;
+    const clientValueSize = 9;
+    const clientRowGap = 17;
+    const clientPadTop = 18;
+    const clientPadBottom = 13;
+
+    // Только заполненные поля — блок подстраивается под контент, без пустых строк
+    const clientFields = [
+      ['KLIENT', order.client_name || order.klient || '-'],
+      ['FIRMA', order.firma],
+      ['ADRES', order.adres],
+      ['CZAS DOSTAWY', order.czas_dostawy],
+    ].filter(([, value]) => value != null && String(value).trim() !== '');
+
+    const clientBlockHeight =
+      clientPadTop + Math.max(0, clientFields.length - 1) * clientRowGap + clientPadBottom;
+    const clientBlockTop = headerY - clientBlockGap;
+    const clientBlockY = clientBlockTop - clientBlockHeight;
 
     page.drawRectangle({
       x: containerMargin,
@@ -2225,37 +2242,24 @@ async function generateOrderPDF(order, products, res) {
       color: clientBlockBg,
     });
 
-    // Двухколоночная верстка: серые подписи капсом + тёмные значения (стиль таблицы)
+    // Один столбец: серая подпись капсом + тёмное значение, поля друг под другом
     const clientTextX = containerMargin + 15;
-    const clientRightX = middleX + 10;
-    const clientLabelSize = 7.5;
-    const clientValueSize = 9;
-    let clientY = clientBlockY + clientBlockHeight - 15;
-
-    const drawClientField = (label, value, x, y) => {
-      if (value == null || value === '') return;
-      drawSemiBold(page, label, x, y, clientLabelSize, colors.headerText);
+    let clientY = clientBlockTop - clientPadTop;
+    clientFields.forEach(([label, value]) => {
+      drawSemiBold(page, label, clientTextX, clientY, clientLabelSize, colors.headerText);
       const lw = soraFont.widthOfTextAtSize(label, clientLabelSize);
       page.drawText(String(value), {
-        x: x + lw + 6,
-        y,
+        x: clientTextX + lw + 6,
+        y: clientY,
         size: clientValueSize,
         font: soraFont,
         color: colors.textDark,
       });
-    };
+      clientY -= clientRowGap;
+    });
 
-    // Первая строка: KLIENT слева, FIRMA справа
-    drawClientField('KLIENT', order.client_name || order.klient || '-', clientTextX, clientY);
-    drawClientField('FIRMA', order.firma, clientRightX, clientY);
-
-    clientY -= 22;
-
-    // Вторая строка: ADRES слева, CZAS DOSTAWY справа
-    drawClientField('ADRES', order.adres, clientTextX, clientY);
-    drawClientField('CZAS DOSTAWY', order.czas_dostawy, clientRightX, clientY);
-    
-    yPosition = clientBlockY - 58; // Увеличен отступ на 1 см (28 пикселей дополнительно)
+    // Снизу такой же отступ, как сверху — блок ровно между линией хедера и шапкой таблицы
+    yPosition = clientBlockY - clientBlockGap;
 
     // ===== Таблица товаров (современный стиль) =====
     const tableX = containerMargin + 10;
