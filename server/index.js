@@ -2118,6 +2118,24 @@ async function generateOrderPDF(order, products, res) {
       textDark: rgb(0.12, 0.12, 0.12), // #1f2937
       textLight: rgb(0.61, 0.64, 0.69), // #9ca3af
     };
+
+    // Мягкая серая палитра (единый стиль с таблицей товаров)
+    colors.headerText = rgb(0.294, 0.333, 0.388); // серые подписи капсом
+    colors.hairline = rgb(0.886, 0.898, 0.918);   // тонкие линии-разделители
+
+    // Псевдо-жирный на Sora (поддерживает польские символы) + выравнивание по правому краю
+    const drawSemiBold = (pg, text, x, y, size, color) => {
+      pg.drawText(text, { x, y, size, font: soraFont, color });
+      pg.drawText(text, { x: x + 0.35, y, size, font: soraFont, color });
+    };
+    const drawRightSemiBold = (pg, text, xRight, y, size, color) => {
+      const w = soraFont.widthOfTextAtSize(text, size);
+      drawSemiBold(pg, text, xRight - w, y, size, color);
+    };
+    const drawRight = (pg, text, xRight, y, size, color) => {
+      const w = soraFont.widthOfTextAtSize(text, size);
+      pg.drawText(text, { x: xRight - w, y, size, font: soraFont, color });
+    };
     
     // Белый фон страницы (без контейнеров и теней)
     page.drawRectangle({
@@ -2134,24 +2152,7 @@ async function generateOrderPDF(order, products, res) {
     const headerHeight = 80;
     const headerY = height - containerMargin - headerHeight - 28;
     
-    // Внешняя рамка (тонкая, той же длины что и блоки ниже)
-    page.drawRectangle({
-      x: containerMargin,
-      y: headerY,
-      width: width - 2 * containerMargin,
-      height: headerHeight,
-      borderColor: rgb(0, 0, 0),
-      borderWidth: 0.5
-    });
-    
-    // Вертикальная линия посередине
-    const middleX = width / 2;
-    page.drawLine({
-      start: { x: middleX, y: headerY },
-      end: { x: middleX, y: headerY + headerHeight },
-      thickness: 0.5,
-      color: rgb(0, 0, 0)
-    });
+    const middleX = width / 2; // граница левой (логотип) и правой (номер) частей
     
     // Левая половина: логотип
     try {
@@ -2196,119 +2197,63 @@ async function generateOrderPDF(order, products, res) {
       console.warn('⚠️ Logo not embedded:', e?.message || e);
     }
     
-    // Правая половина: номер заказа (жирным шрифтом)
+    // Номер заказа справа (Sora, псевдо-жирный, выравнивание по правому краю)
     const orderNumber = order.numer_zamowienia || order.id || '';
-    const textWidth = helveticaBold.widthOfTextAtSize(orderNumber, 14);
-    const textX = middleX + (width - middleX - containerMargin - textWidth) / 2;
-    const textY = headerY + headerHeight / 2 - 7;
-    
-    page.drawText(orderNumber, {
-      x: textX,
-      y: textY,
-        size: 14,
-        font: helveticaBold,
-        color: colors.textDark
-      });
+    const orderNumberY = headerY + headerHeight / 2 - 5;
+    drawRightSemiBold(page, String(orderNumber), width - containerMargin - 4, orderNumberY, 15, colors.textDark);
+
+    // Тонкая серая линия под хедером — в стиле разделителей таблицы
+    page.drawLine({
+      start: { x: containerMargin, y: headerY },
+      end: { x: width - containerMargin, y: headerY },
+      thickness: 0.5,
+      color: colors.hairline,
+    });
     
     yPosition = headerY - 30; // Уменьшен отступ от рамки с номером заказа
     
-    // Блок с информацией о клиенте
+    // Блок с информацией о клиенте (мягкая розовая подложка, без рамки)
     const clientBlockHeight = 60;
     const clientBlockY = yPosition - clientBlockHeight;
-    const clientBlockBg = rgb(0.98, 0.88, 0.88); // Более бледный розовый цвет
-    
-    // Фон блока с рамкой
-          page.drawRectangle({
+    const clientBlockBg = rgb(0.98, 0.88, 0.88); // фирменный розовый (бледный)
+
+    page.drawRectangle({
       x: containerMargin,
       y: clientBlockY,
       width: width - 2 * containerMargin,
       height: clientBlockHeight,
       color: clientBlockBg,
-      borderColor: rgb(0, 0, 0),
-      borderWidth: 0.5
     });
-    
-    // Информация о клиенте - двухколоночная верстка
+
+    // Двухколоночная верстка: серые подписи капсом + тёмные значения (стиль таблицы)
     const clientTextX = containerMargin + 15;
     const clientRightX = middleX + 10;
+    const clientLabelSize = 7.5;
+    const clientValueSize = 9;
     let clientY = clientBlockY + clientBlockHeight - 15;
-    
-    // Первая строка: klient слева, firma справа (метки жирным)
-    const clientName = order.client_name || order.klient || '-';
-    // klient: жирным
-    const klientLabelWidth = helveticaBold.widthOfTextAtSize('klient:', 9);
-    page.drawText('klient:', {
-      x: clientTextX,
-      y: clientY,
-          size: 9,
-      font: helveticaBold,
-      color: rgb(0, 0, 0)
-        });
-    page.drawText(` ${clientName}`, {
-      x: clientTextX + klientLabelWidth,
-      y: clientY,
-          size: 9,
-      font: soraFont,
-      color: rgb(0, 0, 0)
-        });
-        
-    if (order.firma) {
-      // firma: жирным
-      const firmaLabelWidth = helveticaBold.widthOfTextAtSize('firma:', 9);
-      page.drawText('firma:', {
-        x: clientRightX,
-        y: clientY,
-          size: 9,
-        font: helveticaBold,
-        color: rgb(0, 0, 0)
-        });
-      page.drawText(` ${order.firma}`, {
-        x: clientRightX + firmaLabelWidth,
-        y: clientY,
-          size: 9,
+
+    const drawClientField = (label, value, x, y) => {
+      if (value == null || value === '') return;
+      drawSemiBold(page, label, x, y, clientLabelSize, colors.headerText);
+      const lw = soraFont.widthOfTextAtSize(label, clientLabelSize);
+      page.drawText(String(value), {
+        x: x + lw + 6,
+        y,
+        size: clientValueSize,
         font: soraFont,
-        color: rgb(0, 0, 0)
+        color: colors.textDark,
       });
-    }
-    
-    clientY -= 22; // Увеличен межстрочный интервал с 18 до 22
-    
-    // Вторая строка: adres слева, czas dostawy справа (метки жирным)
-    if (order.adres) {
-      const adresLabelWidth = helveticaBold.widthOfTextAtSize('adres:', 9);
-      page.drawText('adres:', {
-        x: clientTextX,
-        y: clientY,
-        size: 9,
-        font: helveticaBold,
-        color: rgb(0, 0, 0)
-      });
-      page.drawText(` ${order.adres}`, {
-        x: clientTextX + adresLabelWidth,
-        y: clientY,
-        size: 9,
-        font: soraFont,
-        color: rgb(0, 0, 0)
-      });
-    }
-    
-    if (order.czas_dostawy) {
-      const czasLabelWidth = helveticaBold.widthOfTextAtSize('czas dostawy:', 9);
-      page.drawText('czas dostawy:', {
-        x: clientRightX,
-        y: clientY,
-        size: 9,
-           font: helveticaBold,
-           color: rgb(0, 0, 0)
-         });
-      page.drawText(` ${order.czas_dostawy}`, {
-        x: clientRightX + czasLabelWidth,
-        y: clientY,
-        size: 9,
-        font: soraFont,
-           color: rgb(0, 0, 0)
-         });
-    }
+    };
+
+    // Первая строка: KLIENT слева, FIRMA справа
+    drawClientField('KLIENT', order.client_name || order.klient || '-', clientTextX, clientY);
+    drawClientField('FIRMA', order.firma, clientRightX, clientY);
+
+    clientY -= 22;
+
+    // Вторая строка: ADRES слева, CZAS DOSTAWY справа
+    drawClientField('ADRES', order.adres, clientTextX, clientY);
+    drawClientField('CZAS DOSTAWY', order.czas_dostawy, clientRightX, clientY);
     
     yPosition = clientBlockY - 58; // Увеличен отступ на 1 см (28 пикселей дополнительно)
 
@@ -2342,21 +2287,6 @@ async function generateOrderPDF(order, products, res) {
     const rowPadV = 7;
     const minBandH = 24;
     const headerBandH = 22;
-
-    // Псевдо-жирный (Sora поставляется только Regular): двойная отрисовка со сдвигом,
-    // работает и с польскими символами (в отличие от helveticaBold + WinAnsi).
-    const drawSemiBold = (pg, text, x, y, size, color) => {
-      pg.drawText(text, { x, y, size, font: soraFont, color });
-      pg.drawText(text, { x: x + 0.35, y, size, font: soraFont, color });
-    };
-    const drawRightSemiBold = (pg, text, xRight, y, size, color) => {
-      const w = soraFont.widthOfTextAtSize(text, size);
-      drawSemiBold(pg, text, xRight - w, y, size, color);
-    };
-    const drawRight = (pg, text, xRight, y, size, color) => {
-      const w = soraFont.widthOfTextAtSize(text, size);
-      pg.drawText(text, { x: xRight - w, y, size, font: soraFont, color });
-    };
 
     // Шапка таблицы: серая плашка + подписи; возвращает y нижней границы шапки
     const drawTableHeader = (pg, topY) => {
