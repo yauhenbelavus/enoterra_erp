@@ -79,6 +79,18 @@ interface StorageRow {
   dni: number;
 }
 
+interface OrderWithProducts {
+  typ?: string;
+  numer_zamowienia?: string;
+  data_utworzenia?: string;
+  products?: Array<{
+    kod?: string;
+    created_at?: string;
+  }>;
+}
+
+const ISSUE_SKIP_ORDER_TYPES = new Set(['zwrot', 'przychod', 'przesuniecie']);
+
 interface CzasSkladowaniaListProps {
   productReceipts?: ProductReceipt[];
 }
@@ -112,12 +124,12 @@ const formatDate = (value?: string | null): string => {
   return date ? date.toLocaleDateString('pl-PL') : '-';
 };
 
-const getIssueDate = (consumption: OrderConsumption): Date | null => {
-  if (consumption.numer_zamowienia) {
-    const fromNumber = extractDateFromOrderNumber(consumption.numer_zamowienia);
+const getKodIssueDate = (numerZamowienia?: string, dataUtworzenia?: string, createdAt?: string): Date | null => {
+  if (numerZamowienia) {
+    const fromNumber = extractDateFromOrderNumber(numerZamowienia);
     if (fromNumber) return fromNumber;
   }
-  return parseLocalDate(consumption.data_utworzenia) || parseLocalDate(consumption.created_at);
+  return parseLocalDate(dataUtworzenia) || parseLocalDate(createdAt);
 };
 
 const getTypMeta = (typ?: string | null) =>
@@ -160,10 +172,11 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       setIsLoading(true);
       setError(null);
 
-      const [productsRes, sheetsRes, consumptionsRes] = await Promise.all([
+      const [productsRes, sheetsRes, consumptionsRes, ordersRes] = await Promise.all([
         fetch('/api/products'),
         fetch('/api/working-sheets'),
         fetch('/api/order-consumptions'),
+        fetch('/api/orders-with-products'),
       ]);
 
       if (!productsRes.ok) {
@@ -175,18 +188,40 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       if (!consumptionsRes.ok) {
         throw new Error(`HTTP error! status: ${consumptionsRes.status}`);
       }
+      if (!ordersRes.ok) {
+        throw new Error(`HTTP error! status: ${ordersRes.status}`);
+      }
 
       const products: ProductBatch[] = await productsRes.json();
       const sheets: WorkingSheet[] = await sheetsRes.json();
       const consumptions: OrderConsumption[] = await consumptionsRes.json();
+      const ordersWithProducts: OrderWithProducts[] = await ordersRes.json();
 
       const lastIssueByBatch = new Map<number, Date>();
       for (const consumption of consumptions) {
-        const issueDate = getIssueDate(consumption);
+        const issueDate = getKodIssueDate(
+          consumption.numer_zamowienia,
+          consumption.data_utworzenia,
+          consumption.created_at
+        );
         if (!issueDate || consumption.batch_id == null) continue;
         const previous = lastIssueByBatch.get(consumption.batch_id);
         if (!previous || issueDate > previous) {
           lastIssueByBatch.set(consumption.batch_id, issueDate);
+        }
+      }
+
+      const lastSaleByKod = new Map<string, Date>();
+      for (const order of ordersWithProducts) {
+        if (ISSUE_SKIP_ORDER_TYPES.has(order.typ || '')) continue;
+        for (const product of order.products || []) {
+          if (!product.kod) continue;
+          const saleDate = getKodIssueDate(order.numer_zamowienia, order.data_utworzenia, product.created_at);
+          if (!saleDate) continue;
+          const previous = lastSaleByKod.get(product.kod);
+          if (!previous || saleDate > previous) {
+            lastSaleByKod.set(product.kod, saleDate);
+          }
         }
       }
 
@@ -207,7 +242,8 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
         const dataPrzyjecia = receipt?.dataPrzyjecia || product.created_at || null;
         const sheet = sheetsByKod.get(product.kod);
 
-        const lastIssueDate = lastIssueByBatch.get(product.id) || null;
+        const lastIssueDate =
+          lastIssueByBatch.get(product.id) || lastSaleByKod.get(product.kod) || null;
         const dataOstatniegoWydania = lastIssueDate ? toDateKey(lastIssueDate) : null;
         const dni =
           remaining <= 0 && dataOstatniegoWydania
