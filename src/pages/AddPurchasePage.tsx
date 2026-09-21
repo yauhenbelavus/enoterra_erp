@@ -503,15 +503,31 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Koszt dostawy</label>
-            <div className="relative">
-              <PlMoneyInput
-                value={kosztDostawy}
-                onChange={setKosztDostawy}
-                className="w-[120px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                placeholder="0,00"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">€</span>
-            </div>
+            <PlMoneyInput
+              value={kosztDostawy}
+              onChange={setKosztDostawy}
+              className="w-[120px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+              placeholder="0,00"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Waluta</label>
+            <select
+              value={walutaFaktury}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); setAktualnyKurs(''); return; }
+                const next = normalizeWalutaFaktury(raw);
+                setWalutaFaktury(next);
+                if (!isKursFakturyActive(next)) setKursFaktury('');
+                if (!isKursEurPlnActive(next)) setAktualnyKurs('');
+              }}
+              className="w-[80px] px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white"
+            >
+              <option value="">—</option>
+              {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
+            </select>
           </div>
 
           {/* Faktura towarowa */}
@@ -557,27 +573,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Koszt dostawy / butelkę</label>
             <div className="w-[140px] px-3 py-1.5 border border-gray-300 rounded-md bg-gray-50 font-sora text-xs text-gray-600">
-              {calculateDeliveryCostPerUnit().replace('.', ',')} €
+              {calculateDeliveryCostPerUnit().replace('.', ',')} {getWalutaSymbol(walutaFaktury)}
             </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Waluta</label>
-            <select
-              value={walutaFaktury}
-              onChange={(e) => {
-                const raw = e.target.value;
-                if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); setAktualnyKurs(''); return; }
-                const next = normalizeWalutaFaktury(raw);
-                setWalutaFaktury(next);
-                if (!isKursFakturyActive(next)) setKursFaktury('');
-                if (!isKursEurPlnActive(next)) setAktualnyKurs('');
-              }}
-              className="w-[80px] px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white"
-            >
-              <option value="">—</option>
-              {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
-            </select>
           </div>
 
           <div>
