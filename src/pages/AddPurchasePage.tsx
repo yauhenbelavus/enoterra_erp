@@ -214,6 +214,38 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const transportFileInputRef = useRef<HTMLInputElement>(null);
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
   const skipBruttoSyncRef = useRef(false);
+  const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pickInvoiceFile = (input: HTMLInputElement | null) => {
+    if (!input) return;
+    input.value = '';
+    input.click();
+  };
+
+  const openInvoiceFile = (file: File) => {
+    const url = URL.createObjectURL(file);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleInvoiceButtonClick = (file: File | null, input: HTMLInputElement | null) => {
+    if (!file) {
+      pickInvoiceFile(input);
+      return;
+    }
+    if (invoiceClickTimerRef.current) clearTimeout(invoiceClickTimerRef.current);
+    invoiceClickTimerRef.current = setTimeout(() => {
+      openInvoiceFile(file);
+      invoiceClickTimerRef.current = null;
+    }, 250);
+  };
+
+  const handleInvoiceButtonDoubleClick = (input: HTMLInputElement | null) => {
+    if (invoiceClickTimerRef.current) {
+      clearTimeout(invoiceClickTimerRef.current);
+      invoiceClickTimerRef.current = null;
+    }
+    pickInvoiceFile(input);
+  };
 
   const calculateDeliveryCostPerUnit = () => {
     const totalBottles = productRows.reduce(
@@ -567,18 +599,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (productFileInputRef.current) {
-                      productFileInputRef.current.value = '';
-                      productFileInputRef.current.click();
-                    }
-                  }}
+                  onClick={() => handleInvoiceButtonClick(productInvoice, productFileInputRef.current)}
+                  onDoubleClick={() => handleInvoiceButtonDoubleClick(productFileInputRef.current)}
                   className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     productInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
                   }`}
-                  title={productInvoice ? productInvoice.name : 'Dodaj fakturę za towar'}
+                  title={productInvoice ? 'Kliknij, aby otworzyć. Kliknij dwukrotnie, aby zamienić.' : 'Dodaj fakturę za towar'}
                 >
                   <Grape className={`h-4 w-4 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
@@ -593,18 +621,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (transportFileInputRef.current) {
-                      transportFileInputRef.current.value = '';
-                      transportFileInputRef.current.click();
-                    }
-                  }}
+                  onClick={() => handleInvoiceButtonClick(transportInvoice, transportFileInputRef.current)}
+                  onDoubleClick={() => handleInvoiceButtonDoubleClick(transportFileInputRef.current)}
                   className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     transportInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
                   }`}
-                  title={transportInvoice ? transportInvoice.name : 'Dodaj fakturę za transport'}
+                  title={transportInvoice ? 'Kliknij, aby otworzyć. Kliknij dwukrotnie, aby zamienić.' : 'Dodaj fakturę za transport'}
                 >
                   <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
@@ -673,7 +697,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               )}
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyzowy /l</label>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
               <div className="relative">
                 <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[140px] ${HEADER_FIELD} pr-10`} />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
