@@ -8,22 +8,17 @@ import '../components/DatePicker.css';
 import toast from 'react-hot-toast';
 import {
   WALUTY_FAKTURY,
-  WalutaFaktury,
   WalutaFakturySelection,
-  getKursEurPlnForDelivery,
-  getPrimaryKursLabel,
-  getSecondaryKursLabel,
+  getKursToPlnLabel,
   getWalutaSymbol,
-  isKursEurPlnActive,
-  isKursFakturyActive,
-  isPrimaryKursActive,
-  isSecondaryKursActive,
+  isKursDostawyInputActive,
+  isKursFakturyInputActive,
   isWalutaSelected,
+  needsKursToPln,
   normalizeWalutaFaktury,
-  toStandardKursEurPln,
-  toStandardKursFaktury,
-  usesPrimaryKursFakturyState,
-  validateRequiredKurs,
+  sharesKursToPlnPair,
+  toKursToPln,
+  validatePurchaseKursPair,
 } from '../utils/receiptCurrency';
 import { PlMoneyInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
@@ -203,7 +198,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [transportInvoice, setTransportInvoice] = useState<File | null>(null);
   const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
   const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
-  const [aktualnyKurs, setAktualnyKurs] = useState('0,00');
+  const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('0,00');
   const [rabat, setRabat] = useState('0,00');
   const [walutaFaktury, setWalutaFaktury] = useState<WalutaFakturySelection>('');
@@ -227,12 +222,6 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     );
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
     return totalBottles > 0 ? (deliveryCost / totalBottles).toFixed(2) : '0,00';
-  };
-
-  const primaryKursValue = usesPrimaryKursFakturyState(walutaFaktury) ? kursFaktury : aktualnyKurs;
-  const setPrimaryKursValue = (value: string) => {
-    if (usesPrimaryKursFakturyState(walutaFaktury)) setKursFaktury(value);
-    else setAktualnyKurs(value);
   };
 
   const addNewRow = () => setProductRows([...productRows, emptyRow()]);
@@ -352,11 +341,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     return () => { document.removeEventListener('mousedown', handleClickOutside); document.removeEventListener('keydown', handleEscape); };
   }, [openDropdownIndex, openObjetoscDropdownIndex, productRows]);
 
+  const kurs1Active = isKursDostawyInputActive(walutaDostawy);
+  const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
+
   const hasValidProducts = productRows.some(row => row.kod && row.nazwa && row.ilosc && row.cena);
   const canSubmit =
     Boolean(selectedDate) &&
     hasValidProducts &&
-    !validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+    !validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
 
   const handleSubmit = async () => {
     if (!selectedDate || !hasValidProducts) return;
@@ -365,16 +357,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       toast.error('Wybierz walutę dostawy');
       return;
     }
-    if (validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury)) return;
+    const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
+    if (kursError) { toast.error(kursError); return; }
 
-    const kursNumber = getKursEurPlnForDelivery(
-      isWalutaSelected(walutaDostawy) ? walutaDostawy : walutaFaktury,
-      aktualnyKurs,
-      kursFaktury
-    );
+    const kursDostawyNumber = toKursToPln(walutaDostawy, kursDostawy);
     const totalBottles = productRows.reduce((t, r) => t + (parseFloat(r.ilosc) || 0), 0);
     const deliveryCostPerUnitPln = totalBottles > 0
-      ? (parseFloat(kosztDostawy.replace(',', '.')) / totalBottles) * kursNumber
+      ? (parseFloat(kosztDostawy.replace(',', '.')) / totalBottles) * kursDostawyNumber
       : 0;
 
     const formattedProducts = productRows
@@ -394,24 +383,31 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
     const razem = parsePlNumber(sumaBrutto) || (parsePlNumber(kwotaNetto) + parsePlNumber(kwotaVat));
+    const kursFakturyNumber = toKursToPln(
+      walutaFaktury,
+      sharesKursToPlnPair(walutaDostawy, walutaFaktury) ? kursDostawy : kursFaktury
+    );
+    const receiptPayload = {
+      date: selectedDate.toLocaleDateString('en-CA'),
+      sprzedawca,
+      wartosc: razem,
+      kosztDostawy: deliveryCost,
+      aktualnyKurs: String(kursDostawyNumber),
+      podatekAkcyzowy,
+      rabat,
+      walutaFaktury,
+      walutaDostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
+      kursFaktury: kursFakturyNumber,
+      kursMode: 'toPln' as const,
+      products: formattedProducts,
+    };
 
     setIsSaving(true);
     try {
       let response: Response;
       if (productInvoice || transportInvoice) {
         const formData = new FormData();
-        formData.append('data', JSON.stringify({
-          date: selectedDate.toLocaleDateString('en-CA'),
-          sprzedawca,
-          wartosc: razem,
-          kosztDostawy: deliveryCost,
-          aktualnyKurs: String(toStandardKursEurPln(walutaFaktury, aktualnyKurs)),
-          podatekAkcyzowy,
-          rabat,
-          walutaFaktury,
-          kursFaktury: toStandardKursFaktury(walutaFaktury, kursFaktury),
-          products: formattedProducts,
-        }));
+        formData.append('data', JSON.stringify(receiptPayload));
         if (productInvoice) formData.append('productInvoice', productInvoice);
         if (transportInvoice) formData.append('transportInvoice', transportInvoice);
         response = await fetch(`${API_URL}/api/product-receipts`, { method: 'POST', body: formData });
@@ -419,18 +415,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         response = await fetch(`${API_URL}/api/product-receipts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: selectedDate.toLocaleDateString('en-CA'),
-            sprzedawca,
-            wartosc: razem,
-            kosztDostawy: deliveryCost,
-            aktualnyKurs: String(toStandardKursEurPln(walutaFaktury, aktualnyKurs)),
-            podatekAkcyzowy,
-            rabat,
-            walutaFaktury,
-            kursFaktury: toStandardKursFaktury(walutaFaktury, kursFaktury),
-            products: formattedProducts,
-          }),
+          body: JSON.stringify(receiptPayload),
         });
       }
 
@@ -543,7 +528,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 value={walutaDostawy}
                 onChange={(e) => {
                   const raw = e.target.value;
-                  setWalutaDostawy(raw === '' ? '' : normalizeWalutaFaktury(raw));
+                  const next = raw === '' ? '' : normalizeWalutaFaktury(raw);
+                  setWalutaDostawy(next);
+                  if (!needsKursToPln(next)) {
+                    setKursDostawy('');
+                    return;
+                  }
+                  if (next === walutaFaktury && !kursDostawy && kursFaktury) {
+                    setKursDostawy(kursFaktury);
+                  }
                 }}
                 className={HEADER_SELECT}
               >
@@ -554,7 +547,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
 
-          <div className="flex gap-8 min-w-0">
+          <div className="flex gap-8 min-w-0 items-end">
+            <div className="w-[96px] shrink-0">
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
+              {kurs1Active ? (
+                <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+              ) : (
+                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+              )}
+            </div>
             <div className="w-[150px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Faktura towaru</label>
               <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }} className="hidden" ref={productFileInputRef} />
@@ -611,11 +612,17 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 value={walutaFaktury}
                 onChange={(e) => {
                   const raw = e.target.value;
-                  if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); setAktualnyKurs(''); return; }
+                  if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); return; }
                   const next = normalizeWalutaFaktury(raw);
                   setWalutaFaktury(next);
-                  if (!isKursFakturyActive(next)) setKursFaktury('');
-                  if (!isKursEurPlnActive(next)) setAktualnyKurs('');
+                  if (!needsKursToPln(next)) {
+                    setKursFaktury('');
+                    return;
+                  }
+                  if (next === walutaDostawy) {
+                    if (!kursDostawy && kursFaktury) setKursDostawy(kursFaktury);
+                    setKursFaktury('');
+                  }
                 }}
                 className={HEADER_SELECT}
               >
@@ -626,43 +633,30 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-x-8 gap-y-5 items-end min-w-0">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getPrimaryKursLabel(walutaFaktury)}</label>
-            {isPrimaryKursActive(walutaFaktury) ? (
-              <div className="relative">
-                <PlMoneyInput value={primaryKursValue} onChange={setPrimaryKursValue} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
-              </div>
-            ) : (
-              <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
-            )}
-          </div>
-
-          {isSecondaryKursActive(walutaFaktury) && (
+          <div className="flex gap-8 min-w-0 items-end">
+            <div className="w-[96px] shrink-0">
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
+              {kurs2Active ? (
+                <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+              ) : (
+                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+              )}
+            </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getSecondaryKursLabel(walutaFaktury)}</label>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Pod. akcyz. (l)</label>
               <div className="relative">
-                <PlMoneyInput value={aktualnyKurs} onChange={setAktualnyKurs} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
               </div>
             </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Pod. akcyz. (l)</label>
-            <div className="relative">
-              <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
+              <div className="relative">
+                <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">%</span>
+              </div>
             </div>
           </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
-            <div className="relative">
-              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">%</span>
-            </div>
-          </div>
-        </div>
         </div>
         </div>
 

@@ -317,6 +317,64 @@ export function getSecondaryKursLabel(waluta: WalutaFakturySelection): string {
   return `${KURS_SECONDARY_LABEL} ${getSecondaryKursSuffix()}`;
 }
 
+/** Kurs 1 / Kurs 2 na nowym przyjęciu: waluta → PLN. PLN nie wymaga kursu. */
+export function needsKursToPln(waluta: WalutaFakturySelection): boolean {
+  return waluta === 'EUR' || waluta === 'DKK';
+}
+
+export function getKursToPlnSuffix(waluta: WalutaFakturySelection): string {
+  if (waluta === 'EUR') return 'PLN/EUR';
+  if (waluta === 'DKK') return 'PLN/DKK';
+  return '';
+}
+
+export function getKursToPlnLabel(index: 1 | 2, waluta: WalutaFakturySelection): string {
+  const suffix = getKursToPlnSuffix(waluta);
+  return suffix ? `Kurs ${index} ${suffix}` : `Kurs ${index}`;
+}
+
+/** Oba pola dotyczą tej samej pary walutowej (np. EUR i EUR) — jeden kurs. */
+export function sharesKursToPlnPair(
+  walutaDostawy: WalutaFakturySelection,
+  walutaFaktury: WalutaFakturySelection
+): boolean {
+  return needsKursToPln(walutaDostawy) && walutaDostawy === walutaFaktury;
+}
+
+export function isKursDostawyInputActive(walutaDostawy: WalutaFakturySelection): boolean {
+  return needsKursToPln(walutaDostawy);
+}
+
+export function isKursFakturyInputActive(
+  walutaDostawy: WalutaFakturySelection,
+  walutaFaktury: WalutaFakturySelection
+): boolean {
+  return needsKursToPln(walutaFaktury) && walutaFaktury !== walutaDostawy;
+}
+
+export function toKursToPln(waluta: WalutaFakturySelection, displayValue: string): number {
+  if (!needsKursToPln(waluta)) return 1;
+  return roundKursValue(parsePlNumber(displayValue));
+}
+
+export function validatePurchaseKursPair(
+  walutaDostawy: WalutaFakturySelection,
+  kursDostawyDisplay: string,
+  walutaFaktury: WalutaFakturySelection,
+  kursFakturyDisplay: string
+): string | null {
+  if (needsKursToPln(walutaDostawy) && !isKursValueFilled(kursDostawyDisplay)) {
+    return `Wprowadź kurs 1 ${getKursToPlnSuffix(walutaDostawy)}`;
+  }
+  if (!isWalutaSelected(walutaFaktury)) {
+    return 'Wybierz walutę faktury';
+  }
+  if (needsKursToPln(walutaFaktury) && walutaFaktury !== walutaDostawy && !isKursValueFilled(kursFakturyDisplay)) {
+    return `Wprowadź kurs 2 ${getKursToPlnSuffix(walutaFaktury)}`;
+  }
+  return null;
+}
+
 /** Czy wartość kursu w polu formularza jest wypełniona i > 0. */
 export function isKursValueFilled(value: string | number | null | undefined): boolean {
   if (value == null) return false;

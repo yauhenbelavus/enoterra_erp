@@ -215,6 +215,27 @@ function validateRequiredKurs(waluta, aktualnyKurs, kursFaktury) {
   return 'Wybierz walutę faktury';
 }
 
+function needsKursToPln(waluta) {
+  const w = String(waluta || '').trim().toUpperCase();
+  return w === 'EUR' || w === 'DKK';
+}
+
+function parseKursToPln(waluta, value) {
+  if (!needsKursToPln(waluta)) return 1;
+  return parseKursValue(value);
+}
+
+function withCenaPln(products, walutaFaktury, kursFakturyToPln) {
+  if (!Array.isArray(products)) return products;
+  const waluta = normalizeWalutaFaktury(walutaFaktury);
+  const rate = parseKursValue(kursFakturyToPln);
+  return products.map((p) => {
+    const orig = parseFloat(String(p.cena == null ? '0' : p.cena).replace(',', '.')) || 0;
+    const cenaPln = waluta === 'PLN' ? orig : Math.round(orig * rate * 100) / 100;
+    return { ...p, cena: cenaPln, cenaOryginalna: cenaPln };
+  });
+}
+
 // Пересчёт цены одной позиции из валюты фактуры в EUR.
 //  - EUR: цена как есть
 //  - PLN / DKK: делим на kursFaktury (курс EUR→валюта фактуры)
@@ -7717,7 +7738,7 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
+  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, kursMode, walutaDostawy;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -7734,6 +7755,8 @@ app.post('/api/product-receipts', upload.fields([
       rabat = jsonData.rabat;
       walutaFaktury = jsonData.walutaFaktury;
       kursFaktury = jsonData.kursFaktury;
+      kursMode = jsonData.kursMode;
+      walutaDostawy = jsonData.walutaDostawy;
       productInvoice = req.files.productInvoice ? req.files.productInvoice[0].filename : null;
       transportInvoice = req.files.transportInvoice ? req.files.transportInvoice[0].filename : null;
       console.log('📎 Files processed:', { productInvoice, transportInvoice });
@@ -7753,21 +7776,42 @@ app.post('/api/product-receipts', upload.fields([
     rabat = req.body.rabat;
     walutaFaktury = req.body.walutaFaktury;
     kursFaktury = req.body.kursFaktury;
+    kursMode = req.body.kursMode;
+    walutaDostawy = req.body.walutaDostawy;
     productInvoice = req.body.productInvoice;
     transportInvoice = req.body.transportInvoice;
   }
 
-  // Нормализуем валюту фактуры и курс EUR→валюта (для EUR/PLN курс фактуры не нужен).
+  // Нормализуем валюту фактуры и курсы.
   walutaFaktury = normalizeWalutaFaktury(walutaFaktury);
-  const kursValidationError = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
-  if (kursValidationError) {
-    console.log(`❌ Validation failed: ${kursValidationError}`);
-    return res.status(400).json({ error: kursValidationError });
-  }
-  kursFaktury = parseKursValue(kursFaktury);
-  
-  // Парсим kosztDostawy с заменой запятой на точку
   kosztDostawy = parseFloat(String(kosztDostawy || '0').replace(',', '.')) || 0;
+
+  let kursEurPln;
+  let aktualnyKursForDb;
+  if (kursMode === 'toPln') {
+    const dostawy = String(walutaDostawy || '').trim().toUpperCase();
+    if (kosztDostawy > 0 && dostawy !== 'EUR' && dostawy !== 'PLN' && dostawy !== 'DKK') {
+      return res.status(400).json({ error: 'Wybierz walutę dostawy' });
+    }
+    if (needsKursToPln(dostawy) && !isKursValueFilled(aktualnyKurs)) {
+      return res.status(400).json({ error: `Wprowadź kurs 1 PLN/${dostawy}` });
+    }
+    if (needsKursToPln(walutaFaktury) && !isKursValueFilled(kursFaktury)) {
+      return res.status(400).json({ error: `Wprowadź kurs 2 PLN/${walutaFaktury}` });
+    }
+    kursFaktury = parseKursToPln(walutaFaktury, kursFaktury);
+    aktualnyKursForDb = parseKursToPln(dostawy, aktualnyKurs);
+    kursEurPln = aktualnyKursForDb;
+  } else {
+    const kursValidationError = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+    if (kursValidationError) {
+      console.log(`❌ Validation failed: ${kursValidationError}`);
+      return res.status(400).json({ error: kursValidationError });
+    }
+    kursFaktury = parseKursValue(kursFaktury);
+    kursEurPln = getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury);
+    aktualnyKursForDb = normalizeWalutaFaktury(walutaFaktury) === 'PLN' ? 1 : parseKursValue(aktualnyKurs);
+  }
 
   if (!date) {
     date = getTodayDateString();
@@ -7793,10 +7837,11 @@ app.post('/api/product-receipts', upload.fields([
     return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
   }
 
-  const kursEurPln = getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury);
-  const aktualnyKursForDb = normalizeWalutaFaktury(walutaFaktury) === 'PLN' ? 1 : parseKursValue(aktualnyKurs);
-  const kurs = kursEurPln;
-  const { productsForJson, productsInternal } = prepareReceiptProducts(products, walutaFaktury, aktualnyKursForDb, kursFaktury);
+  const kurs = kursMode === 'toPln' ? 1 : kursEurPln;
+  const productsForJson = products.map((p) => ({ ...p }));
+  const productsInternal = kursMode === 'toPln'
+    ? withCenaPln(products, walutaFaktury, kursFaktury)
+    : withCenaEur(products, walutaFaktury, aktualnyKursForDb, kursFaktury);
   
   console.log(`🔄 Processing ${productsInternal.length} products for receipt (waluta: ${walutaFaktury})`);
 
