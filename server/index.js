@@ -11439,7 +11439,7 @@ app.post('/api/ocr/purchase-invoice', ocrUpload.single('pdf'), async (req, res) 
     }
 
     console.log('📄 OCR purchase invoice:', req.file.originalname, req.file.size, 'bytes');
-    const result = await parsePurchaseInvoicePdf(req.file.buffer);
+    const result = await parsePurchaseInvoicePdf(req.file.buffer, db);
 
     if (!result.success) {
       return res.status(422).json(result);

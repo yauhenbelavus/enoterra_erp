@@ -65,6 +65,11 @@ interface ParsedPurchaseProduct {
   ilosc: string;
   cena: string;
   cenaPelna?: number;
+  kod?: string;
+  kod_kreskowy?: string;
+  typ?: string;
+  objetosc?: string;
+  catalog_matched?: boolean;
 }
 
 interface ProductRow {
@@ -263,16 +268,16 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     if (payload.products.length > 0) {
       setProductRows(
         payload.products.map((product) => ({
-          kod: '',
+          kod: product.kod?.trim() || '',
           nazwa: product.nazwa || '',
-          kod_kreskowy: '',
+          kod_kreskowy: product.kod_kreskowy?.trim() || '',
           ilosc: product.ilosc || '',
           cena: product.cena || '',
           cenaPelna: product.cenaPelna,
           dataWaznosci: null,
           showDataWaznosci: false,
-          typ: '',
-          objetosc: '',
+          typ: product.typ?.trim() || '',
+          objetosc: product.objetosc?.trim() || '',
         }))
       );
     }

@@ -16,6 +16,8 @@ async function extractTextFromPdfBuffer(buffer) {
 // gemini-2.5-flash is unavailable for new API keys; gemini-3.7-flash is frequently
 // overloaded on free tier (500/429), so use the stable gemini-3.6-flash via Interactions API.
 
+const { enrichOcrProducts } = require('./purchaseInvoiceCatalogMatch');
+
 async function parseWithGemini(text) {
   const apiKey = (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
@@ -550,7 +552,7 @@ function mapProduct(product, waluta = 'EUR') {
 
 // ─── Main entry point ────────────────────────────────────────────────────────
 
-async function parsePurchaseInvoicePdf(buffer) {
+async function parsePurchaseInvoicePdf(buffer, db) {
   let text = '';
   try {
     text = await extractTextFromPdfBuffer(buffer);
@@ -570,16 +572,19 @@ async function parsePurchaseInvoicePdf(buffer) {
     }
 
     const waluta = normalizeWaluta(parsed.waluta);
+    const sprzedawca = cleanSupplierName(parsed.sprzedawca);
+    const mappedProducts = (parsed.products || []).map((product) => mapProduct(product, waluta));
+    const products = await enrichOcrProducts(mappedProducts, sprzedawca, db);
 
     return {
       success: true,
       data: {
-        sprzedawca: cleanSupplierName(parsed.sprzedawca),
+        sprzedawca,
         waluta,
         suma_netto: formatPrice(parseNumber(parsed.suma_netto)),
         suma_vat: formatPrice(parseNumber(parsed.suma_vat)),
         suma_brutto: formatPrice(parseNumber(parsed.suma_brutto)),
-        products: (parsed.products || []).map((product) => mapProduct(product, waluta)),
+        products,
       },
     };
   } catch (err) {
