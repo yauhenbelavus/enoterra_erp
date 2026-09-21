@@ -485,8 +485,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
         </div>
 
-        <div className="flex-1 px-8 py-6">
-      <div className="space-y-4">
+        <div className="shrink-0 px-8 py-6 space-y-4">
         {/* Row 1: date, koszt dostawy, files */}
         <div className="flex flex-wrap gap-4 items-end">
           <div>
@@ -617,9 +616,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
         </div>
+        </div>
 
+        <div className="border-t border-gray-200" />
+
+        <div className="flex-1 px-8 py-6">
         {/* ── PRODUCT TABLE ─────────────────────────────────────────────── */}
-        <div className="mt-2">
+        <div>
           {/* Column headers */}
           <div className="grid grid-cols-12 gap-1 mb-2 pr-2">
             <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
