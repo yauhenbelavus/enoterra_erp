@@ -58,6 +58,9 @@ const ALL_MONTHS = [
 const getTypMeta = (typ: string) =>
   TYP_LABELS[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
 
+const formatBottles = (value: number) =>
+  new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 }).format(value);
+
 const buildFilterQuery = (filters: {
   klient: string;
   typ: string;
@@ -301,6 +304,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     await loadDetails(kod);
   };
 
+  const totalButelki = products.reduce((sum, product) => sum + (product.ilosc || 0), 0);
   const hasActiveFilters = selectedKlient || selectedTyp || selectedYear || selectedMonth;
 
   const clearFilters = () => {
@@ -408,6 +412,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
           </button>
         )}
         </div>
+      </div>
+
+      <div className="flex w-full justify-center items-center px-4">
+        <span className="text-sm text-gray-600 font-sora">
+          Butelki:{' '}
+          <span className="font-bold">{formatBottles(totalButelki)}</span>
+        </span>
       </div>
 
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">

@@ -14,8 +14,7 @@ const tableStyles = `
 
   .resizable-table {
     table-layout: fixed !important;
-    width: max-content !important;
-    min-width: 100% !important;
+    width: 100% !important;
   }
 
   .resizable-table th,
@@ -435,15 +434,17 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
               </select>
             </div>
           </div>
-          {(filters.sprzedawca || filters.typ) && (
-            <button
-              type="button"
-              onClick={() => setFilters({ sprzedawca: '', typ: '' })}
-              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors"
-            >
-              Wyczyść filtry
-            </button>
-          )}
+          <div className="h-[34px]">
+            {(filters.sprzedawca || filters.typ) && (
+              <button
+                type="button"
+                onClick={() => setFilters({ sprzedawca: '', typ: '' })}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors"
+              >
+                Wyczyść filtry
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -459,7 +460,6 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
               <col style={{ width: '90px' }} />
               <col style={{ width: '110px' }} />
               <col style={{ width: '160px' }} />
-              <col />
             </colgroup>
             <thead className="sticky top-0 z-10">
               <tr>
@@ -544,13 +544,12 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                     <SortIndicator field="dni" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
-                <th className="border-b border-gray-200 bg-gray-50 p-0" />
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+                  <td colSpan={8} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                     Brak towarów na magazynie
                   </td>
                 </tr>
@@ -598,7 +597,6 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                       <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                         {row.dni}
                       </td>
-                      <td className="p-0" />
                     </tr>
                   );
                 })
