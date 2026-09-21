@@ -437,7 +437,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
                   <Plus size={16} />
                 </button>
                 <div className="px-2">
-                  <span className="text-gray-900 font-sora text-[13px]">Dodaj towar</span>
+                  <span className="text-gray-900 font-sora text-[13px]">Dodaj przyjęcie</span>
                 </div>
               </div>
               <div
