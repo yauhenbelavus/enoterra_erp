@@ -803,7 +803,6 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
         </div>
-      </div>
         </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 py-3 flex items-center justify-end gap-3">
