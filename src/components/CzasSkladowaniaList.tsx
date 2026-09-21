@@ -47,8 +47,10 @@ interface ProductBatch {
 }
 
 interface WorkingSheet {
+  id: number;
   kod: string;
   nazwa: string;
+  ilosc?: number;
   typ?: string | null;
   sprzedawca?: string | null;
 }
@@ -57,6 +59,7 @@ interface ProductReceipt {
   id?: number;
   dataPrzyjecia: string;
   sprzedawca?: string;
+  products?: Array<{ kod?: string }>;
 }
 
 interface OrderConsumption {
@@ -239,71 +242,63 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
         }
       }
 
-      const sheetsByKod = new Map(sheets.map((sheet) => [sheet.kod, sheet]));
-      const receiptsById = new Map(
-        productReceipts
-          .filter((receipt) => receipt.id != null)
-          .map((receipt) => [receipt.id as number, receipt])
-      );
-
-      const lotGroups = new Map<
-        string,
-        { display: ProductBatch; qty: number; batchIds: number[] }
-      >();
-
+      const lastIssueByKod = new Map<string, Date>();
+      const newestBatchDateByKod = new Map<string, string>();
       for (const product of products) {
         if (!product.kod) continue;
-
-        const isSample = product.status === 'samples';
-        const key =
-          product.receipt_id != null
-            ? `r:${product.receipt_id}:${product.kod}`
-            : isSample
-              ? null
-              : `p:${product.id}`;
-        if (!key) continue;
-
-        const existing = lotGroups.get(key);
-        if (!existing) {
-          lotGroups.set(key, {
-            display: product,
-            qty: Number(product.ilosc_aktualna) || 0,
-            batchIds: [product.id],
-          });
-          continue;
+        const previousIssue = lastIssueByKod.get(product.kod) || null;
+        const batchIssue = laterDate(previousIssue, lastIssueByBatch.get(product.id) || null);
+        if (batchIssue) lastIssueByKod.set(product.kod, batchIssue);
+        if (product.created_at) {
+          const previous = newestBatchDateByKod.get(product.kod);
+          const currentDate = parseLocalDate(product.created_at);
+          const previousDate = parseLocalDate(previous);
+          if (currentDate && (!previousDate || currentDate > previousDate)) {
+            newestBatchDateByKod.set(product.kod, product.created_at);
+          }
         }
+      }
 
-        existing.qty += Number(product.ilosc_aktualna) || 0;
-        existing.batchIds.push(product.id);
-        if (existing.display.status === 'samples' && !isSample) {
-          existing.display = product;
+      const newestReceiptByKod = new Map<string, { dataPrzyjecia: string; date: Date; id: number }>();
+      for (const receipt of productReceipts) {
+        const receiptDate = parseLocalDate(receipt.dataPrzyjecia);
+        if (!receiptDate) continue;
+        const receiptId = receipt.id || 0;
+        for (const item of receipt.products || []) {
+          if (!item.kod) continue;
+          const previous = newestReceiptByKod.get(item.kod);
+          if (
+            !previous ||
+            receiptDate > previous.date ||
+            (receiptDate.getTime() === previous.date.getTime() && receiptId > previous.id)
+          ) {
+            newestReceiptByKod.set(item.kod, {
+              dataPrzyjecia: receipt.dataPrzyjecia,
+              date: receiptDate,
+              id: receiptId,
+            });
+          }
         }
       }
 
       const nextRows: StorageRow[] = [];
 
-      for (const group of lotGroups.values()) {
-        const product = group.display;
-        const remaining = group.qty;
-        const receipt = product.receipt_id != null ? receiptsById.get(product.receipt_id) : undefined;
-        const dataPrzyjecia = receipt?.dataPrzyjecia || product.created_at || null;
-        const sheet = sheetsByKod.get(product.kod);
-
-        let lastIssueDate: Date | null = null;
-        for (const batchId of group.batchIds) {
-          lastIssueDate = laterDate(lastIssueDate, lastIssueByBatch.get(batchId) || null);
-        }
-        lastIssueDate = lastIssueDate || lastSaleByKod.get(product.kod) || null;
-
+      for (const sheet of sheets) {
+        if (!sheet.kod) continue;
+        const remaining = Number(sheet.ilosc) || 0;
+        const dataPrzyjecia =
+          newestReceiptByKod.get(sheet.kod)?.dataPrzyjecia || newestBatchDateByKod.get(sheet.kod) || null;
+        const lastIssueDate =
+          lastIssueByKod.get(sheet.kod) || lastSaleByKod.get(sheet.kod) || null;
         const dataOstatniegoWydania = lastIssueDate ? toDateKey(lastIssueDate) : null;
         const dni = daysBetween(dataPrzyjecia, daysOnWarehouseEndDate(remaining, lastIssueDate));
 
         nextRows.push({
-          id: product.id,
-          kod: product.kod,
-          nazwa: sheet?.nazwa || product.nazwa,
-          sprzedawca: receipt?.sprzedawca || sheet?.sprzedawca || '',
-          typ: sheet?.typ || null,
+          id: sheet.id,
+          kod: sheet.kod,
+          nazwa: sheet.nazwa,
+          sprzedawca: sheet.sprzedawca || '',
+          typ: sheet.typ || null,
           ilosc: remaining,
           dataPrzyjecia,
           dataOstatniegoWydania,
