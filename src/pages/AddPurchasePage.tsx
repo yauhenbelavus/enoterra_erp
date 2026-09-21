@@ -586,7 +586,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but (średnie)</label>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
             <div className={`w-full ${HEADER_FIELD} flex items-center bg-gray-50 text-gray-600`}>
               {calculateDeliveryCostPerUnit().replace('.', ',')}
             </div>
@@ -812,55 +812,63 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <Plus size={14} /> Dodaj pozycję
           </button>
         </div>
+        </div>
 
-        {/* ── TOTALS ────────────────────────────────────────────────────── */}
-        <div className="flex justify-end mt-4">
-          <div className="flex flex-col items-end gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-700">Kwota netto:</span>
-              <div className="relative w-[100px]">
-                <PlMoneyInput value={calculateTotal()} onChange={() => {}} disabled placeholder="0,00" className="w-full px-2 py-1 border border-gray-300 rounded-md font-sora text-xs text-right pr-6 bg-gray-100 text-gray-600 cursor-not-allowed" />
-                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 pointer-events-none">{getWalutaSymbol(walutaFaktury)}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-700">Kwota VAT:</span>
-              <div className="relative w-[100px]">
-                <PlMoneyInput value={kwotaVat} onChange={handleKwotaVatChange} placeholder="0,00" className="w-full px-2 py-1 border border-gray-300 rounded-md font-sora text-xs text-right pr-6" />
-                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 pointer-events-none">{getWalutaSymbol(walutaFaktury)}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-gray-700">Razem:</span>
-              <div className="relative w-[100px]">
-                <PlMoneyInput value={sumaBrutto} onChange={handleSumaBruttoChange} placeholder="0,00" className="w-full px-2 py-1 border border-gray-300 rounded-md font-sora text-xs text-right pr-6 font-semibold" />
-                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 pointer-events-none">{getWalutaSymbol(walutaFaktury)}</span>
-              </div>
-            </div>
+        <div className="shrink-0 border-t border-gray-200 px-8 min-h-[72px] py-4 flex items-center justify-between gap-6">
+          <div className="flex items-center flex-wrap gap-x-6 gap-y-2 text-xs text-gray-600 font-sora">
+            <span>
+              Netto: <span className="text-gray-800">{calculateTotal() || '0,00'} {getWalutaSymbol(walutaFaktury)}</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              Brutto:
+              <span className="relative w-[88px]">
+                <PlMoneyInput
+                  value={sumaBrutto}
+                  onChange={handleSumaBruttoChange}
+                  placeholder="0,00"
+                  className="w-full h-[30px] box-border px-2 py-0 pr-7 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-right font-semibold"
+                />
+                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 pointer-events-none">
+                  {getWalutaSymbol(walutaFaktury)}
+                </span>
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              VAT:
+              <span className="relative w-[88px]">
+                <PlMoneyInput
+                  value={kwotaVat}
+                  onChange={handleKwotaVatChange}
+                  placeholder="0,00"
+                  className="w-full h-[30px] box-border px-2 py-0 pr-7 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-right"
+                />
+                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 pointer-events-none">
+                  {getWalutaSymbol(walutaFaktury)}
+                </span>
+              </span>
+            </span>
           </div>
-        </div>
-        </div>
-
-        <div className="shrink-0 border-t border-gray-200 px-8 py-3 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => navigate(ZAKUP_PATH)}
-            className="px-4 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
-          >
-            Anuluj
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit || isSaving}
-            className={`px-4 py-1.5 text-xs font-medium rounded-md border transition-colors font-sora ${
-              !canSubmit || isSaving
-                ? 'border-gray-300 text-gray-400 cursor-not-allowed bg-white'
-                : 'border-blue-600 text-blue-600 hover:bg-blue-50 bg-white'
-            }`}
-          >
-            {isSaving ? 'Zapisywanie…' : 'Zapisz'}
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate(ZAKUP_PATH)}
+              className="px-4 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
+            >
+              Anuluj
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit || isSaving}
+              className={`px-4 py-1.5 text-xs font-medium rounded-md border transition-colors font-sora ${
+                !canSubmit || isSaving
+                  ? 'border-gray-300 text-gray-400 cursor-not-allowed bg-white'
+                  : 'border-blue-600 text-blue-600 hover:bg-blue-50 bg-white'
+              }`}
+            >
+              {isSaving ? 'Zapisywanie…' : 'Zapisz'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
