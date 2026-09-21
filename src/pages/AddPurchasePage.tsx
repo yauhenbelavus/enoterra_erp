@@ -448,14 +448,17 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     <div className="font-sora min-h-screen w-full bg-gray-200">
       <div className="min-h-screen mx-10 lg:mx-16 bg-white flex flex-col shadow-sm">
         <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100 shrink-0">
-          <button
-            type="button"
-            onClick={() => navigate(ZAKUP_PATH)}
-            className="inline-flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors"
-          >
-            <ArrowLeft size={18} />
-            <span className="text-lg font-medium">Nowe przyjęcie</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate(ZAKUP_PATH)}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-full text-gray-600 hover:bg-gray-100 hover:text-gray-800 transition-colors"
+              title="Wróć"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <span className="text-lg font-medium text-gray-800 select-none">Nowe przyjęcie</span>
+          </div>
 
           <div className="flex items-center gap-2">
             <input
