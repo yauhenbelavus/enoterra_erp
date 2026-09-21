@@ -586,9 +586,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt dostawy / butelkę</label>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but (średnie)</label>
             <div className={`w-full ${HEADER_FIELD} flex items-center bg-gray-50 text-gray-600`}>
-              {calculateDeliveryCostPerUnit().replace('.', ',')} {getWalutaSymbol(walutaDostawy)}
+              {calculateDeliveryCostPerUnit().replace('.', ',')}
             </div>
           </div>
 
