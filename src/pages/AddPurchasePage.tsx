@@ -558,26 +558,56 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
             <div className="ml-auto flex gap-2 shrink-0">
               <div className="w-[75px]">
-                <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }} className="hidden" ref={productFileInputRef} />
-                <button type="button" onClick={() => productFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-full border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za towar">
-                  <Grape className="h-4 w-4 text-gray-500" />
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }}
+                  className="hidden"
+                  ref={productFileInputRef}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (productFileInputRef.current) {
+                      productFileInputRef.current.value = '';
+                      productFileInputRef.current.click();
+                    }
+                  }}
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                    productInvoice
+                      ? 'border border-green-500 hover:bg-green-50'
+                      : 'border border-gray-300 hover:bg-gray-50'
+                  }`}
+                  title={productInvoice ? productInvoice.name : 'Dodaj fakturę za towar'}
+                >
+                  <Grape className={`h-4 w-4 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
-                {productInvoice && (
-                  <a href={URL.createObjectURL(productInvoice)} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-blue-600 hover:text-blue-800 underline truncate" title={productInvoice.name}>
-                    {productInvoice.name}
-                  </a>
-                )}
               </div>
               <div className="w-[75px]">
-                <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }} className="hidden" ref={transportFileInputRef} />
-                <button type="button" onClick={() => transportFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-full border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za transport">
-                  <Car className="h-4 w-4 text-gray-500" />
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }}
+                  className="hidden"
+                  ref={transportFileInputRef}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (transportFileInputRef.current) {
+                      transportFileInputRef.current.value = '';
+                      transportFileInputRef.current.click();
+                    }
+                  }}
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                    transportInvoice
+                      ? 'border border-green-500 hover:bg-green-50'
+                      : 'border border-gray-300 hover:bg-gray-50'
+                  }`}
+                  title={transportInvoice ? transportInvoice.name : 'Dodaj fakturę za transport'}
+                >
+                  <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
-                {transportInvoice && (
-                  <a href={URL.createObjectURL(transportInvoice)} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-blue-600 hover:text-blue-800 underline truncate" title={transportInvoice.name}>
-                    {transportInvoice.name}
-                  </a>
-                )}
               </div>
             </div>
           </div>
