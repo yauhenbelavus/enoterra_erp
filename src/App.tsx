@@ -486,8 +486,10 @@ function App() {
     }
   };
 
+  const isAddPurchaseRoute = location.pathname === ZAKUP_NOWE_PATH;
+
   return (
-    <div className="min-h-screen bg-white">
+    <div className={isAddPurchaseRoute ? 'min-h-screen bg-gray-200' : 'min-h-screen bg-white'}>
       <Toaster position="top-right" containerStyle={{ zIndex: 99999 }} />
       
       <ProductDetailsModal
@@ -495,7 +497,14 @@ function App() {
         onClose={() => setIsProductDetailsOpen(false)}
         product={null}
       />
-      
+
+      {isAddPurchaseRoute ? (
+        <AddPurchasePage
+          onReceiptsChange={(receipts) => setAppState(prev => ({ ...prev, productReceipts: receipts }))}
+          onProductsChange={(products) => setAppState(prev => ({ ...prev, products }))}
+        />
+      ) : (
+        <>
       <div className="bg-white border-b border-gray-200">
         <div className="w-full px-4 py-3">
           <img
@@ -539,13 +548,7 @@ function App() {
       <div className="bg-white min-h-screen">
         <div className="w-full px-4 py-6">
           <div className="flex items-start -mt-2">
-            {appState.activeTab === 'inventory' && location.pathname === ZAKUP_NOWE_PATH && (
-              <AddPurchasePage
-                onReceiptsChange={(receipts) => setAppState(prev => ({ ...prev, productReceipts: receipts }))}
-                onProductsChange={(products) => setAppState(prev => ({ ...prev, products }))}
-              />
-            )}
-            {appState.activeTab === 'inventory' && location.pathname !== ZAKUP_NOWE_PATH && (
+            {appState.activeTab === 'inventory' && (
               <ZakupTowarowPage
                 activeSubTab={appState.activeSubTab}
                 setActiveSubTab={setActiveSubTab as (tab: 'przyjecie' | 'analiza' | 'kalendarz') => void}
@@ -589,6 +592,8 @@ function App() {
           </div>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -445,65 +445,44 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   };
 
   return (
-    <div className="font-sora w-full">
-      {/* ── PAGE HEADER ─────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-6 select-none">
-        <button
-          type="button"
-          onClick={() => navigate(ZAKUP_PATH)}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"
-        >
-          <ArrowLeft size={16} />
-          <span>Przyjęcie towarów</span>
-        </button>
-
-        <div className="flex items-center gap-3">
-          {/* OCR button */}
-          <input
-            type="file"
-            accept=".pdf,application/pdf"
-            onChange={handleOcrPdfChange}
-            className="hidden"
-            ref={ocrFileInputRef}
-          />
-          <button
-            type="button"
-            onClick={() => ocrFileInputRef.current?.click()}
-            disabled={isOcrLoading}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border focus:outline-none transition-colors font-sora ${
-              isOcrLoading
-                ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-wait'
-                : 'border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100'
-            }`}
-            title="Wczytaj dane z faktury zakupu (PDF)"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            {isOcrLoading ? 'Rozpoznawanie…' : 'Wypełnij z PDF'}
-          </button>
-
+    <div className="font-sora min-h-screen w-full bg-gray-200">
+      <div className="min-h-screen mx-10 lg:mx-16 bg-white flex flex-col shadow-sm">
+        <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100 shrink-0">
           <button
             type="button"
             onClick={() => navigate(ZAKUP_PATH)}
-            className="px-4 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors font-sora"
+            className="inline-flex items-center gap-2 text-gray-800 hover:text-gray-600 transition-colors"
           >
-            Anuluj
+            <ArrowLeft size={18} />
+            <span className="text-lg font-medium">Nowe przyjęcie</span>
           </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit || isSaving}
-            className={`px-4 py-1.5 text-xs font-medium rounded-md text-white transition-colors font-sora ${
-              !canSubmit || isSaving
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {isSaving ? 'Zapisywanie…' : 'Zapisz'}
-          </button>
-        </div>
-      </div>
 
-      {/* ── FORM ────────────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-2">
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handleOcrPdfChange}
+              className="hidden"
+              ref={ocrFileInputRef}
+            />
+            <button
+              type="button"
+              onClick={() => ocrFileInputRef.current?.click()}
+              disabled={isOcrLoading}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border focus:outline-none transition-colors font-sora ${
+                isOcrLoading
+                  ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-wait'
+                  : 'border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100'
+              }`}
+              title="Wczytaj dane z faktury zakupu (PDF)"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {isOcrLoading ? 'Rozpoznawanie…' : 'Wypełnij z PDF'}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 px-8 py-6">
       <div className="space-y-4">
         {/* Row 1: date, koszt dostawy, files */}
         <div className="flex flex-wrap gap-4 items-end">
@@ -817,6 +796,30 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      </div>
+        </div>
+
+        <div className="shrink-0 border-t border-gray-200 px-8 py-3 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(ZAKUP_PATH)}
+            className="px-4 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
+          >
+            Anuluj
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!canSubmit || isSaving}
+            className={`px-4 py-1.5 text-xs font-medium rounded-md border transition-colors font-sora ${
+              !canSubmit || isSaving
+                ? 'border-gray-300 text-gray-400 cursor-not-allowed bg-white'
+                : 'border-blue-600 text-blue-600 hover:bg-blue-50 bg-white'
+            }`}
+          >
+            {isSaving ? 'Zapisywanie…' : 'Zapisz'}
+          </button>
         </div>
       </div>
     </div>
