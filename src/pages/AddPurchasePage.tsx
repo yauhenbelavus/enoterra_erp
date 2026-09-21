@@ -467,8 +467,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   };
 
   return (
-    <div className="font-sora min-h-screen w-full bg-gray-200">
-      <div className="min-h-screen mx-10 lg:mx-16 bg-white flex flex-col shadow-sm">
+    <div className="font-sora h-screen w-full bg-gray-200 overflow-hidden">
+      <div className="h-full mx-10 lg:mx-16 bg-white flex flex-col shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
             <button
@@ -524,12 +524,17 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Wartość dostawy</label>
-            <PlMoneyInput
-              value={kosztDostawy}
-              onChange={setKosztDostawy}
-              className={`w-full ${HEADER_FIELD}`}
-              placeholder="0,00"
-            />
+            <div className="relative">
+              <PlMoneyInput
+                value={kosztDostawy}
+                onChange={setKosztDostawy}
+                className={`w-full ${HEADER_FIELD} pr-9`}
+                placeholder="0,00"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
+                {getWalutaSymbol(walutaDostawy)}
+              </span>
+            </div>
           </div>
 
           <div>
@@ -590,8 +595,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
-            <div className={`w-full ${HEADER_FIELD} flex items-center bg-gray-50 text-gray-600`}>
-              {calculateDeliveryCostPerUnit().replace('.', ',')}
+            <div className="relative">
+              <div className={`w-full ${HEADER_FIELD} pr-9 flex items-center bg-gray-50 text-gray-600`}>
+                {calculateDeliveryCostPerUnit().replace('.', ',')}
+              </div>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
+                {getWalutaSymbol(walutaDostawy)}
+              </span>
             </div>
           </div>
 
@@ -659,11 +669,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="border-t border-gray-200" />
 
-        <div className="flex-1 px-8 py-6">
+        <div className="flex-1 min-h-0 px-8 py-6 flex flex-col">
         {/* ── PRODUCT TABLE ─────────────────────────────────────────────── */}
-        <div>
-          {/* Column headers */}
-          <div className="grid grid-cols-12 gap-1 mb-2 pr-2">
+        <div className="shrink-0 grid grid-cols-12 gap-1 mb-2 pr-2">
             <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
             <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
             <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
@@ -676,7 +684,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           {/* Product rows */}
-          <div className="space-y-1">
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            <div className="space-y-1">
             {productRows.map((row, index) => (
               <div key={index} className="grid grid-cols-12 gap-1 relative items-center">
                 {/* Kod */}
@@ -808,25 +817,25 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 )}
               </div>
             ))}
+            </div>
           </div>
 
           {/* Add row */}
-          <button onClick={addNewRow} className="mt-3 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
+          <button onClick={addNewRow} className="mt-3 shrink-0 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
             <Plus size={14} /> Dodaj pozycję
           </button>
         </div>
-        </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
-          <div className="flex items-center flex-wrap gap-x-5 gap-y-2 text-sm text-gray-700 font-sora">
+          <div className="flex items-center flex-nowrap gap-x-4 text-sm text-gray-700 font-sora">
             <span className="inline-flex items-center gap-2">
               Netto:
-              <span className="relative w-[128px]">
+              <span className="relative w-[148px]">
                 <PlMoneyInput
                   value={kwotaNetto}
                   onChange={handleKwotaNettoChange}
                   placeholder="0,00"
-                  className="w-full h-[36px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
+                  className="w-full h-[36px] box-border px-3 py-0 pr-12 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right !font-bold placeholder:font-bold placeholder:text-gray-900"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
                   {getWalutaSymbol(walutaFaktury)}
@@ -835,12 +844,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </span>
             <span className="inline-flex items-center gap-2">
               Brutto:
-              <span className="relative w-[128px]">
+              <span className="relative w-[148px]">
                 <PlMoneyInput
                   value={sumaBrutto}
                   onChange={handleSumaBruttoChange}
                   placeholder="0,00"
-                  className="w-full h-[36px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
+                  className="w-full h-[36px] box-border px-3 py-0 pr-12 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right !font-bold placeholder:font-bold placeholder:text-gray-900"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
                   {getWalutaSymbol(walutaFaktury)}
@@ -849,12 +858,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </span>
             <span className="inline-flex items-center gap-2">
               VAT:
-              <span className="relative w-[128px]">
+              <span className="relative w-[148px]">
                 <PlMoneyInput
                   value={kwotaVat}
                   onChange={handleKwotaVatChange}
                   placeholder="0,00"
-                  className="w-full h-[36px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
+                  className="w-full h-[36px] box-border px-3 py-0 pr-12 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right !font-bold placeholder:font-bold placeholder:text-gray-900"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
                   {getWalutaSymbol(walutaFaktury)}

@@ -489,7 +489,7 @@ function App() {
   const isAddPurchaseRoute = location.pathname === ZAKUP_NOWE_PATH;
 
   return (
-    <div className={isAddPurchaseRoute ? 'min-h-screen bg-gray-200' : 'min-h-screen bg-white'}>
+    <div className={isAddPurchaseRoute ? 'h-screen overflow-hidden bg-gray-200' : 'min-h-screen bg-white'}>
       <Toaster position="top-right" containerStyle={{ zIndex: 99999 }} />
       
       <ProductDetailsModal
