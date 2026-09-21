@@ -477,7 +477,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               title="Wczytaj dane z faktury zakupu (PDF)"
             >
               <FileText className="h-3.5 w-3.5" />
-              {isOcrLoading ? 'Rozpoznawanie…' : 'Wypełnij z PDF'}
+              {isOcrLoading ? 'Importowanie…' : 'Import z PDF'}
             </button>
           </div>
         </div>
