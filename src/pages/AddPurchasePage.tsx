@@ -495,7 +495,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         </div>
 
         <div className="shrink-0 px-8 py-6">
-        <div className="grid grid-cols-[300px_170px_120px_1fr] gap-x-8 gap-y-5 items-end">
+        <div className="grid grid-cols-[300px_170px_170px_1fr] gap-x-8 gap-y-5 items-end">
           <div className="w-[300px]">
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Data zakupu</label>
             <DatePicker
