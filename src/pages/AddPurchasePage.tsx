@@ -488,7 +488,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         <div className="shrink-0 px-8 py-6 space-y-4">
         {/* Row 1: date, koszt dostawy, files */}
         <div className="flex flex-wrap gap-4 items-end">
-          <div>
+          <div className="w-[300px]">
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Data zakupu</label>
             <DatePicker
               selected={selectedDate}
@@ -543,7 +543,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         {/* Row 2: sprzedawca, kurs fields, waluta */}
         <div className="flex flex-wrap gap-4 items-end">
-          <div>
+          <div className="w-[300px]">
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Sprzedawca</label>
             <input
               type="text"
