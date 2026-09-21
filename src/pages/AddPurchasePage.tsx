@@ -547,7 +547,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
 
-          <div className="flex gap-8 min-w-0 items-end">
+          <div className="flex gap-8 min-w-0 items-end w-full">
             <div className="w-[96px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
               {kurs1Active ? (
@@ -556,29 +556,29 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
-            <div className="w-[150px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Faktura towaru</label>
-              <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }} className="hidden" ref={productFileInputRef} />
-              <button type="button" onClick={() => productFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-full border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za towar">
-                <Grape className="h-4 w-4 text-gray-500" />
-              </button>
-              {productInvoice && (
-                <a href={URL.createObjectURL(productInvoice)} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-blue-600 hover:text-blue-800 underline truncate" title={productInvoice.name}>
-                  {productInvoice.name}
-                </a>
-              )}
-            </div>
-            <div className="w-[150px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Faktura transportu</label>
-              <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }} className="hidden" ref={transportFileInputRef} />
-              <button type="button" onClick={() => transportFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-full border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za transport">
-                <Car className="h-4 w-4 text-gray-500" />
-              </button>
-              {transportInvoice && (
-                <a href={URL.createObjectURL(transportInvoice)} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-blue-600 hover:text-blue-800 underline truncate" title={transportInvoice.name}>
-                  {transportInvoice.name}
-                </a>
-              )}
+            <div className="ml-auto flex gap-2 shrink-0">
+              <div className="w-[75px]">
+                <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }} className="hidden" ref={productFileInputRef} />
+                <button type="button" onClick={() => productFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-full border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za towar">
+                  <Grape className="h-4 w-4 text-gray-500" />
+                </button>
+                {productInvoice && (
+                  <a href={URL.createObjectURL(productInvoice)} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-blue-600 hover:text-blue-800 underline truncate" title={productInvoice.name}>
+                    {productInvoice.name}
+                  </a>
+                )}
+              </div>
+              <div className="w-[75px]">
+                <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }} className="hidden" ref={transportFileInputRef} />
+                <button type="button" onClick={() => transportFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-full border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za transport">
+                  <Car className="h-4 w-4 text-gray-500" />
+                </button>
+                {transportInvoice && (
+                  <a href={URL.createObjectURL(transportInvoice)} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-blue-600 hover:text-blue-800 underline truncate" title={transportInvoice.name}>
+                    {transportInvoice.name}
+                  </a>
+                )}
+              </div>
             </div>
           </div>
 
@@ -643,18 +643,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               )}
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Pod. akcyz. (l)</label>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyzowy /l</label>
               <div className="relative">
-                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[140px] ${HEADER_FIELD} pr-10`} />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
               </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
-              <div className="relative">
-                <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">%</span>
-              </div>
+              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD}`} />
             </div>
           </div>
         </div>
