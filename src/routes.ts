@@ -18,6 +18,7 @@ export type AppSubTab =
 
 export const HOME_PATH = '/';
 export const ZAKUP_PATH = '/zakup';
+export const ZAKUP_NOWE_PATH = '/zakup/nowe';
 export const KLIENCI_PATH = '/klienci';
 export const STANY_PATH = '/stany';
 export const PRE_ROUTED_TAB_KEY = 'preRoutedTab';

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileSpreadsheet, Plus } from 'lucide-react';
 import { ExcelFileUploadModal } from '../components/ExcelFileUploadModal';
 import { ReplaceFileModal } from '../components/ReplaceFileModal';
-import { AddProductModal } from '../components/AddProductModal';
 import { ReceiptDetailsModal } from '../components/ReceiptDetailsModal';
 import { EditReceiptModal, EditReceiptSubmitResult } from '../components/EditReceiptModal';
 import { ProductReceiptsList } from '../components/ProductReceiptsList';
@@ -10,6 +10,7 @@ import { DataTable } from '../components/DataTable';
 import { openExcelModal } from '../utils/modalUtils';
 import toast from 'react-hot-toast';
 import { Product } from '../types/Product';
+import { ZAKUP_NOWE_PATH } from '../routes';
 
 const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
@@ -129,7 +130,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
   activeSheet,
   onSheetsChange,
 }) => {
-  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const navigate = useNavigate();
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
   const [isEditReceiptModalOpen, setIsEditReceiptModalOpen] = useState(false);
@@ -214,7 +215,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
 
       const updatedReceipts = await loadProductReceiptsFromDb();
       onReceiptsChange(updatedReceipts);
-      setIsAddProductModalOpen(false);
     } catch (error) {
       console.error('❌ Error adding product:', error);
       toast.error('Wystąpił błąd podczas dodawania towaru');
@@ -375,11 +375,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         onConfirm={handleReplaceConfirm}
       />
 
-      <AddProductModal
-        isOpen={isAddProductModalOpen}
-        onClose={() => setIsAddProductModalOpen(false)}
-        onSubmit={handleAddProduct}
-      />
 
       <ReceiptDetailsModal
         isOpen={isReceiptDetailsModalOpen}
@@ -432,7 +427,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             <div className="flex items-center gap-4">
               <div
                 className="inline-flex items-center cursor-pointer border border-transparent rounded-md px-2 py-1 hover:bg-gray-50 hover:border-gray-200 bg-white w-fit"
-                onClick={() => setIsAddProductModalOpen(true)}
+                onClick={() => navigate(ZAKUP_NOWE_PATH)}
               >
                 <button
                   type="button"

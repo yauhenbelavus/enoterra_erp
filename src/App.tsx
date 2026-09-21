@@ -7,6 +7,7 @@ import './index.css';
 import { ProductDetailsModal } from './components/ProductDetailsModal';
 import { Product } from './types/Product';
 import { ZakupTowarowPage } from './pages/ZakupTowarowPage';
+import { AddPurchasePage } from './pages/AddPurchasePage';
 import { KlienciPage } from './pages/KlienciPage';
 import { SprzedazPage } from './pages/SprzedazPage';
 import { StanyMagazynowePage } from './pages/StanyMagazynowePage';
@@ -16,6 +17,7 @@ import {
   getTabFromPathname,
   PRE_ROUTED_TAB_KEY,
   resolveSubTabForTab,
+  ZAKUP_NOWE_PATH,
 } from './routes';
 
 // Set the app element for react-modal
@@ -537,7 +539,13 @@ function App() {
       <div className="bg-white min-h-screen">
         <div className="w-full px-4 py-6">
           <div className="flex items-start -mt-2">
-            {appState.activeTab === 'inventory' && (
+            {appState.activeTab === 'inventory' && location.pathname === ZAKUP_NOWE_PATH && (
+              <AddPurchasePage
+                onReceiptsChange={(receipts) => setAppState(prev => ({ ...prev, productReceipts: receipts }))}
+                onProductsChange={(products) => setAppState(prev => ({ ...prev, products }))}
+              />
+            )}
+            {appState.activeTab === 'inventory' && location.pathname !== ZAKUP_NOWE_PATH && (
               <ZakupTowarowPage
                 activeSubTab={appState.activeSubTab}
                 setActiveSubTab={setActiveSubTab as (tab: 'przyjecie' | 'analiza' | 'kalendarz') => void}
