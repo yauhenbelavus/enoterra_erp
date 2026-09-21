@@ -149,6 +149,16 @@ const emptyRow = (): ProductRow => ({
   objetosc: '',
 });
 
+const HEADER_H = 'h-[30px] box-border';
+const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
+const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
+
+const SelectChevron = () => (
+  <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+  </svg>
+);
+
 const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
   try {
     const response = await fetch(`${API_URL}/api/product-receipts`);
@@ -503,7 +513,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               onChange={(date: Date | null) => setSelectedDate(date)}
               locale="pl"
               dateFormat="dd/MM/yyyy"
-              className="w-[200px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+              className={`w-[200px] ${HEADER_FIELD}`}
               placeholderText="Wybierz datę"
               popperClassName="z-50"
             />
@@ -514,24 +524,27 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <PlMoneyInput
               value={kosztDostawy}
               onChange={setKosztDostawy}
-              className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+              className={`w-full ${HEADER_FIELD}`}
               placeholder="0,00"
             />
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta dostawy</label>
-            <select
-              value={walutaDostawy}
-              onChange={(e) => {
-                const raw = e.target.value;
-                setWalutaDostawy(raw === '' ? '' : normalizeWalutaFaktury(raw));
-              }}
-              className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white"
-            >
-              <option value="">—</option>
-              {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
-            </select>
+            <div className="relative">
+              <select
+                value={walutaDostawy}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setWalutaDostawy(raw === '' ? '' : normalizeWalutaFaktury(raw));
+                }}
+                className={HEADER_SELECT}
+              >
+                <option value="">—</option>
+                {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+              <SelectChevron />
+            </div>
           </div>
 
           <div className="flex gap-8 min-w-0">
@@ -568,34 +581,37 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               value={sprzedawca}
               onChange={(e) => setSprzedawca(e.target.value)}
               placeholder="Wprowadź imię sprzedawcy"
-              className="w-[300px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+              className={`w-[300px] ${HEADER_FIELD}`}
             />
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt dostawy / butelkę</label>
-            <div className="w-full px-3 py-1.5 border border-gray-300 rounded-md bg-gray-50 font-sora text-xs text-gray-600">
+            <div className={`w-full ${HEADER_FIELD} flex items-center bg-gray-50 text-gray-600`}>
               {calculateDeliveryCostPerUnit().replace('.', ',')} {getWalutaSymbol(walutaDostawy)}
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
-            <select
-              value={walutaFaktury}
-              onChange={(e) => {
-                const raw = e.target.value;
-                if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); setAktualnyKurs(''); return; }
-                const next = normalizeWalutaFaktury(raw);
-                setWalutaFaktury(next);
-                if (!isKursFakturyActive(next)) setKursFaktury('');
-                if (!isKursEurPlnActive(next)) setAktualnyKurs('');
-              }}
-              className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white"
-            >
-              <option value="">—</option>
-              {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
-            </select>
+            <div className="relative">
+              <select
+                value={walutaFaktury}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); setAktualnyKurs(''); return; }
+                  const next = normalizeWalutaFaktury(raw);
+                  setWalutaFaktury(next);
+                  if (!isKursFakturyActive(next)) setKursFaktury('');
+                  if (!isKursEurPlnActive(next)) setAktualnyKurs('');
+                }}
+                className={HEADER_SELECT}
+              >
+                <option value="">—</option>
+                {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+              <SelectChevron />
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-x-8 gap-y-5 items-end min-w-0">
@@ -603,7 +619,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getPrimaryKursLabel(walutaFaktury)}</label>
             {isPrimaryKursActive(walutaFaktury) ? (
               <div className="relative">
-                <PlMoneyInput value={primaryKursValue} onChange={setPrimaryKursValue} placeholder="0,00" className="w-[96px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs" />
+                <PlMoneyInput value={primaryKursValue} onChange={setPrimaryKursValue} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
               </div>
             ) : (
               <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
@@ -614,7 +630,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getSecondaryKursLabel(walutaFaktury)}</label>
               <div className="relative">
-                <PlMoneyInput value={aktualnyKurs} onChange={setAktualnyKurs} placeholder="0,00" className="w-[96px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs" />
+                <PlMoneyInput value={aktualnyKurs} onChange={setAktualnyKurs} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
               </div>
             </div>
           )}
@@ -622,7 +638,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Pod. akcyz. (l)</label>
             <div className="relative">
-              <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className="w-[96px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs" />
+              <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">zł</span>
             </div>
           </div>
@@ -630,7 +646,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
             <div className="relative">
-              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className="w-[96px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs" />
+              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">%</span>
             </div>
           </div>
