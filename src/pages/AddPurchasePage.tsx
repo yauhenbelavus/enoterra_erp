@@ -211,6 +211,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [walutaDostawy, setWalutaDostawy] = useState<WalutaFakturySelection>('');
   const [kursFaktury, setKursFaktury] = useState('');
   const [kwotaVat, setKwotaVat] = useState('');
+  const [kwotaNetto, setKwotaNetto] = useState('');
   const [sumaBrutto, setSumaBrutto] = useState('');
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -255,6 +256,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     skipBruttoSyncRef.current = true;
     if (payload.sprzedawca) setSprzedawca(payload.sprzedawca);
     if (payload.waluta) setWalutaFaktury(normalizeWalutaFaktury(payload.waluta));
+    if (payload.suma_netto != null && String(payload.suma_netto).trim() !== '') setKwotaNetto(String(payload.suma_netto));
     if (payload.suma_vat != null && String(payload.suma_vat).trim() !== '') setKwotaVat(String(payload.suma_vat));
     if (payload.suma_brutto != null && String(payload.suma_brutto).trim() !== '') setSumaBrutto(String(payload.suma_brutto));
     if (payload.products.length > 0) {
@@ -306,7 +308,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     return formatPlMoney(subtotal * (1 - rabatValue / 100));
   };
 
-  const kwotaNettoNumber = parsePlNumber(calculateTotal());
+  const kwotaNettoNumber = parsePlNumber(kwotaNetto);
+
+  const handleKwotaNettoChange = (value: string) => {
+    setKwotaNetto(value);
+    setSumaBrutto(formatPlMoney(parsePlNumber(value) + parsePlNumber(kwotaVat)));
+  };
 
   const handleKwotaVatChange = (value: string) => {
     setKwotaVat(value);
@@ -320,10 +327,11 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   useEffect(() => {
     if (skipBruttoSyncRef.current) { skipBruttoSyncRef.current = false; return; }
-    const vat = parsePlNumber(kwotaVat);
-    setSumaBrutto(formatPlMoney(kwotaNettoNumber + vat));
+    const fromRows = calculateTotal();
+    setKwotaNetto(fromRows);
+    setSumaBrutto(formatPlMoney(parsePlNumber(fromRows) + parsePlNumber(kwotaVat)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productRows, rabat, kwotaNettoNumber]);
+  }, [productRows, rabat]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -385,13 +393,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         podatekAkcyzowyPerLiter: parseFloat(podatekAkcyzowy.replace(',', '.')) || 0,
       }));
 
-    const totalValue = productRows
-      .filter(row => row.kod && row.nazwa && row.ilosc && row.cena)
-      .reduce((sum, row) => sum + getRowLineValue(row), 0);
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
-    const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
-    const wartoscZRabatem = totalValue * (1 - rabatValue / 100);
-    const razem = parsePlNumber(sumaBrutto) || (wartoscZRabatem + parsePlNumber(kwotaVat));
+    const razem = parsePlNumber(sumaBrutto) || (parsePlNumber(kwotaNetto) + parsePlNumber(kwotaVat));
 
     setIsSaving(true);
     try {
@@ -814,57 +817,56 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         </div>
         </div>
 
-        <div className="shrink-0 border-t border-gray-200 px-8 min-h-[108px] py-5 flex items-center justify-between gap-6">
-          <div className="flex items-center flex-wrap gap-x-6 gap-y-2 text-sm font-bold text-gray-800 font-sora">
+        <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
+          <div className="flex items-center flex-wrap gap-x-5 gap-y-2 text-sm text-gray-700 font-sora">
             <span className="inline-flex items-center gap-2">
               Netto:
-              <span className="relative w-[140px]">
+              <span className="relative w-[128px]">
                 <PlMoneyInput
-                  value={calculateTotal()}
-                  onChange={() => {}}
-                  disabled
+                  value={kwotaNetto}
+                  onChange={handleKwotaNettoChange}
                   placeholder="0,00"
-                  className="w-full h-[45px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md font-sora text-sm text-right font-bold bg-gray-50 text-gray-800 cursor-not-allowed"
+                  className="w-full h-[36px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
                 />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none font-bold">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
                   {getWalutaSymbol(walutaFaktury)}
                 </span>
               </span>
             </span>
             <span className="inline-flex items-center gap-2">
               Brutto:
-              <span className="relative w-[140px]">
+              <span className="relative w-[128px]">
                 <PlMoneyInput
                   value={sumaBrutto}
                   onChange={handleSumaBruttoChange}
                   placeholder="0,00"
-                  className="w-full h-[45px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
+                  className="w-full h-[36px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
                 />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none font-bold">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
                   {getWalutaSymbol(walutaFaktury)}
                 </span>
               </span>
             </span>
             <span className="inline-flex items-center gap-2">
               VAT:
-              <span className="relative w-[140px]">
+              <span className="relative w-[128px]">
                 <PlMoneyInput
                   value={kwotaVat}
                   onChange={handleKwotaVatChange}
                   placeholder="0,00"
-                  className="w-full h-[45px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
+                  className="w-full h-[36px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
                 />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none font-bold">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
                   {getWalutaSymbol(walutaFaktury)}
                 </span>
               </span>
             </span>
           </div>
-          <div className="flex items-center gap-4 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               type="button"
               onClick={() => navigate(ZAKUP_PATH)}
-              className="px-6 py-2.5 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
+              className="px-5 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
             >
               Anuluj
             </button>
@@ -872,7 +874,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               type="button"
               onClick={handleSubmit}
               disabled={!canSubmit || isSaving}
-              className={`px-6 py-2.5 text-sm font-medium rounded-md border transition-colors font-sora ${
+              className={`px-5 py-2 text-sm font-medium rounded-md border transition-colors font-sora ${
                 !canSubmit || isSaving
                   ? 'border-gray-300 text-gray-400 cursor-not-allowed bg-white'
                   : 'border-blue-600 text-blue-600 hover:bg-blue-50 bg-white'
