@@ -731,7 +731,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
               <div className="w-[200px] flex items-start">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                    Koszt dostawy
+                    Wartość dostawy
                   </label>
                   <div className="relative">
                     <PlMoneyInput
@@ -867,7 +867,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
             </div>
             <div className="shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                Koszt dostawy butelki
+                Koszt dostawy / butelkę
               </label>
               <div className="w-[140px] px-3 py-1.5 border border-gray-300 rounded-md bg-gray-50 font-sora text-xs text-gray-600">
                 {calculateDeliveryCostPerUnit().replace('.', ',')} €

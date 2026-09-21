@@ -334,7 +334,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 onClick={() => handleSort('kosztDostawy')}
               >
                 <div className="flex items-center gap-1">
-                  Koszt dostawy
+                  Wartość dostawy
                   <SortIndicator field="kosztDostawy" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>

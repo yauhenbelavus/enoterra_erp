@@ -494,9 +494,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
         </div>
 
-        <div className="shrink-0 px-8 py-6 space-y-4">
-        {/* Row 1: date, koszt dostawy, files */}
-        <div className="flex flex-wrap gap-4 items-end">
+        <div className="shrink-0 px-8 py-6">
+        <div className="grid grid-cols-[300px_140px_80px_auto_1fr] gap-x-4 gap-y-4 items-end">
           <div className="w-[300px]">
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Data zakupu</label>
             <DatePicker
@@ -511,11 +510,11 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Koszt dostawy</label>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Wartość dostawy</label>
             <PlMoneyInput
               value={kosztDostawy}
               onChange={setKosztDostawy}
-              className="w-[120px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+              className="w-[140px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
               placeholder="0,00"
             />
           </div>
@@ -535,35 +534,23 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </select>
           </div>
 
-          {/* Faktura towarowa */}
-          <div className="flex items-center gap-2">
-            <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }} className="hidden" ref={productFileInputRef} />
-            <button type="button" onClick={() => productFileInputRef.current?.click()} className="inline-flex items-center justify-center w-8 h-8 border border-gray-300 rounded-md shadow-sm text-sm text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za towar">
-              <Grape className="h-4 w-4 text-gray-500" />
-            </button>
-            {productInvoice && (
-              <a href={URL.createObjectURL(productInvoice)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline truncate max-w-[120px]" title={productInvoice.name}>
-                {productInvoice.name}
-              </a>
-            )}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Faktura towaru</label>
+            <div className="flex items-center gap-2">
+              <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }} className="hidden" ref={productFileInputRef} />
+              <button type="button" onClick={() => productFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-[30px] border border-gray-300 rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za towar">
+                <Grape className="h-4 w-4 text-gray-500" />
+              </button>
+              {productInvoice && (
+                <a href={URL.createObjectURL(productInvoice)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline truncate max-w-[120px]" title={productInvoice.name}>
+                  {productInvoice.name}
+                </a>
+              )}
+            </div>
           </div>
 
-          {/* Faktura transportowa */}
-          <div className="flex items-center gap-2">
-            <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }} className="hidden" ref={transportFileInputRef} />
-            <button type="button" onClick={() => transportFileInputRef.current?.click()} className="inline-flex items-center justify-center w-8 h-8 border border-gray-300 rounded-md shadow-sm text-sm text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za transport">
-              <Car className="h-4 w-4 text-gray-500" />
-            </button>
-            {transportInvoice && (
-              <a href={URL.createObjectURL(transportInvoice)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline truncate max-w-[120px]" title={transportInvoice.name}>
-                {transportInvoice.name}
-              </a>
-            )}
-          </div>
-        </div>
+          <div className="min-w-0" />
 
-        {/* Row 2: sprzedawca, kurs fields, waluta */}
-        <div className="flex flex-wrap gap-4 items-end">
           <div className="w-[300px]">
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Sprzedawca</label>
             <input
@@ -602,6 +589,22 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Faktura transportu</label>
+            <div className="flex items-center gap-2">
+              <input type="file" accept=".pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }} className="hidden" ref={transportFileInputRef} />
+              <button type="button" onClick={() => transportFileInputRef.current?.click()} className="inline-flex items-center justify-center h-[30px] w-[30px] border border-gray-300 rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50" title="Dodaj fakturę za transport">
+                <Car className="h-4 w-4 text-gray-500" />
+              </button>
+              {transportInvoice && (
+                <a href={URL.createObjectURL(transportInvoice)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline truncate max-w-[120px]" title={transportInvoice.name}>
+                  {transportInvoice.name}
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-4 items-end min-w-0">
+          <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">{getPrimaryKursLabel(walutaFaktury)}</label>
             {isPrimaryKursActive(walutaFaktury) ? (
               <div className="relative">
@@ -636,6 +639,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">%</span>
             </div>
           </div>
+        </div>
         </div>
         </div>
 

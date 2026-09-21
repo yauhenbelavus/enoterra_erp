@@ -161,7 +161,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
               <div className="text-xs text-gray-900 ml-2">{receipt.wartosc} {walutaSymbol}</div>
             </div>
             <div className="flex items-center">
-              <label className="block text-xs font-bold text-gray-700 font-sora w-32">Koszt dostawy</label>
+              <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość dostawy</label>
               <div className="text-xs text-gray-900 ml-2">{receipt.kosztDostawy} €</div>
             </div>
           </div>
