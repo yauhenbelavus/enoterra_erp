@@ -10,7 +10,6 @@ import {
   WALUTY_FAKTURY,
   WalutaFaktury,
   WalutaFakturySelection,
-  getCenaColumnLabel,
   getKursEurPlnForDelivery,
   getPrimaryKursLabel,
   getSecondaryKursLabel,
@@ -676,7 +675,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
             <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
             <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
-            <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">{getCenaColumnLabel(walutaFaktury)}</span></div>
+            <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
             <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
             <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
             <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
@@ -818,12 +817,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               </div>
             ))}
             </div>
+              <button
+                type="button"
+                onClick={addNewRow}
+                className="mt-1.5 text-gray-400 hover:text-gray-600"
+                title="Dodaj nową pozycję"
+              >
+                <Plus size={16} />
+              </button>
           </div>
-
-          {/* Add row */}
-          <button onClick={addNewRow} className="mt-3 shrink-0 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
-            <Plus size={14} /> Dodaj pozycję
-          </button>
         </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
