@@ -1319,9 +1319,9 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           : '-',
         Rezerwacje: reservationsCount[item.kod] || 0,
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
-        'Cena fakturowa': toExcelMoney(item.cena),
+        'Cena zakupu': toExcelMoney(item.cena),
         'Koszt własny': toExcelMoney(item.koszt_wlasny),
-        'Cena w sprzedaży': toExcelMoney(item.cena_sprzedazy),
+        'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy),
         'Data ważności': formatDate(item.data_waznosci),
         'Data przyjęcia': formatStorageDate(storageAgeMap.get(item.kod)?.dataPrzyjecia ?? null),
         'Data ostatniego wydania': formatStorageDate(
@@ -1453,7 +1453,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
             </p>
           </div>
           <div className="bg-white p-2 rounded-lg border rounded-lg max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-            <h3 className="text-xs font-medium text-gray-500 font-sora">Wartość towaru fakturowa</h3>
+            <h3 className="text-xs font-medium text-gray-500 font-sora">Wartość towaru zakupu</h3>
             <p className="text-2xl font-bold text-blue-600 font-sora">
               {selectedInventory.length > 0 ? selectedInventory.reduce((sum, item) => {
                 return sum + (wartoscTowaru[item.kod] || 0);
@@ -1461,7 +1461,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
             </p>
           </div>
           <div className="bg-white p-2 rounded-lg border rounded-lg max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-            <h3 className="text-xs font-medium text-gray-500 font-sora">Wartość towaru w sprzedaży</h3>
+            <h3 className="text-xs font-medium text-gray-500 font-sora">Wartość towaru sprzedaży</h3>
             <p className="text-2xl font-bold text-red-600 font-sora">
               {selectedInventory.length > 0 ? selectedInventory.reduce((sum, item) => {
                 const cenaSprzedazy = item.cena_sprzedazy || 0;
@@ -1644,7 +1644,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                   style={{ width: '90px' }}
                 >
                   <div className="flex items-center gap-1">
-                    <div className="whitespace-normal">Cena<br/>fakturowa</div>
+                    <div className="whitespace-normal">Cena<br/>zakupu</div>
                     <SortIndicator field="cena" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
@@ -1664,7 +1664,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                   style={{ width: '90px' }}
                 >
                   <div className="flex items-center gap-1">
-                    <div className="whitespace-normal">Cena w<br/>sprzedaży</div>
+                    <div className="whitespace-normal">Cena<br/>sprzedaży</div>
                     <SortIndicator field="cena_sprzedazy" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>

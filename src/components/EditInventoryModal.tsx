@@ -479,7 +479,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
             <div className="flex gap-4">
               <div className="flex-1">
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                  Cena fakturowa (€)
+                  Cena zakupu (€)
                 </label>
                 <input
                   type="number"
@@ -493,7 +493,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
               </div>
               <div className="flex-1">
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                  Cena w sprzedaży (zł)
+                  Cena sprzedaży (zł)
                 </label>
                 <input
                   type="number"
