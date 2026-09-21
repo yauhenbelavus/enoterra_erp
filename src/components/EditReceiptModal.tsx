@@ -740,7 +740,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                       className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                       placeholder="0,00"
                     />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">€</span>
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">EUR</span>
                   </div>
                 </div>
               </div>
@@ -901,7 +901,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   placeholder="0,00"
                   className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                 />
-                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">zł</span>
+                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
               </div>
             </div>
             <div className="shrink-0">

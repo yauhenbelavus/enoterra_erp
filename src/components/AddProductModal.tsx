@@ -642,7 +642,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                       className="w-[70%] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                       placeholder="0,00"
                     />
-                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-gray-500 pointer-events-none">€</span>
+                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-gray-500 pointer-events-none">EUR</span>
                   </div>
                 </div>
               </div>
@@ -779,7 +779,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                   placeholder="0,00"
                   className="w-[96px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                 />
-                <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-500 pointer-events-none">zł</span>
+                <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
               </div>
              </div>
              <div className="shrink-0">

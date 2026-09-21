@@ -639,7 +639,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Pod. akcyz. (l)</label>
             <div className="relative">
               <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">zł</span>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
             </div>
           </div>
 
@@ -814,45 +814,57 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         </div>
         </div>
 
-        <div className="shrink-0 border-t border-gray-200 px-8 min-h-[72px] py-4 flex items-center justify-between gap-6">
-          <div className="flex items-center flex-wrap gap-x-6 gap-y-2 text-xs text-gray-600 font-sora">
-            <span>
-              Netto: <span className="text-gray-800">{calculateTotal() || '0,00'} {getWalutaSymbol(walutaFaktury)}</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              Brutto:
-              <span className="relative w-[88px]">
+        <div className="shrink-0 border-t border-gray-200 px-8 min-h-[108px] py-5 flex items-center justify-between gap-6">
+          <div className="flex items-center flex-wrap gap-x-6 gap-y-2 text-sm font-bold text-gray-800 font-sora">
+            <span className="inline-flex items-center gap-2">
+              Netto:
+              <span className="relative w-[140px]">
                 <PlMoneyInput
-                  value={sumaBrutto}
-                  onChange={handleSumaBruttoChange}
+                  value={calculateTotal()}
+                  onChange={() => {}}
+                  disabled
                   placeholder="0,00"
-                  className="w-full h-[30px] box-border px-2 py-0 pr-7 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-right font-semibold"
+                  className="w-full h-[45px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md font-sora text-sm text-right font-bold bg-gray-50 text-gray-800 cursor-not-allowed"
                 />
-                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 pointer-events-none">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none font-bold">
                   {getWalutaSymbol(walutaFaktury)}
                 </span>
               </span>
             </span>
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-2">
+              Brutto:
+              <span className="relative w-[140px]">
+                <PlMoneyInput
+                  value={sumaBrutto}
+                  onChange={handleSumaBruttoChange}
+                  placeholder="0,00"
+                  className="w-full h-[45px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none font-bold">
+                  {getWalutaSymbol(walutaFaktury)}
+                </span>
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-2">
               VAT:
-              <span className="relative w-[88px]">
+              <span className="relative w-[140px]">
                 <PlMoneyInput
                   value={kwotaVat}
                   onChange={handleKwotaVatChange}
                   placeholder="0,00"
-                  className="w-full h-[30px] box-border px-2 py-0 pr-7 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-right"
+                  className="w-full h-[45px] box-border px-3 py-0 pr-11 border border-gray-300 rounded-md focus:outline-none font-sora text-sm text-right font-bold"
                 />
-                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 pointer-events-none">
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none font-bold">
                   {getWalutaSymbol(walutaFaktury)}
                 </span>
               </span>
             </span>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-4 shrink-0">
             <button
               type="button"
               onClick={() => navigate(ZAKUP_PATH)}
-              className="px-4 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
+              className="px-6 py-2.5 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
             >
               Anuluj
             </button>
@@ -860,7 +872,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               type="button"
               onClick={handleSubmit}
               disabled={!canSubmit || isSaving}
-              className={`px-4 py-1.5 text-xs font-medium rounded-md border transition-colors font-sora ${
+              className={`px-6 py-2.5 text-sm font-medium rounded-md border transition-colors font-sora ${
                 !canSubmit || isSaving
                   ? 'border-gray-300 text-gray-400 cursor-not-allowed bg-white'
                   : 'border-blue-600 text-blue-600 hover:bg-blue-50 bg-white'

@@ -436,14 +436,7 @@ export function toStandardAktualnyKurs(waluta: WalutaFaktury, displayValue: stri
 
 export function getWalutaSymbol(waluta: WalutaFakturySelection): string {
   if (!isWalutaSelected(waluta)) return '';
-  switch (waluta) {
-    case 'PLN':
-      return 'zł';
-    case 'DKK':
-      return 'kr';
-    default:
-      return '€';
-  }
+  return waluta;
 }
 
 export function getCenaColumnLabel(waluta: WalutaFakturySelection): string {
