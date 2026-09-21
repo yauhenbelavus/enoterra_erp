@@ -7,6 +7,7 @@ import Modal from 'react-modal';
 import { EditInventoryModal } from './EditInventoryModal';
 import { SortIndicator } from './SortIndicator';
 import { compareInventoryItems, useTableSort } from '../utils/tableSort';
+import { computeStorageAgeByKod, formatDate as formatStorageDate } from '../utils/storageAge';
 
 // Глобальные стили для тултипов и таблицы
 const tooltipStyles = `
@@ -87,7 +88,7 @@ const EXCEL_COLUMN = {
   CENA_FAKTUROWA: 7,
   KOSZT_WLASNY: 8,
   CENA_SPRZEDAZY: 9,
-  STATUS: 14,
+  STATUS: 17,
 } as const;
 
 const EXCEL_MONEY_COLUMNS = new Set<number>([
@@ -684,6 +685,10 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [orderProducts, setOrderProducts] = useState<OrderProduct[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  // Сырые данные для расчёта "возраста на складе" (для Excel-рапорта)
+  const [productBatches, setProductBatches] = useState<any[]>([]);
+  const [orderConsumptions, setOrderConsumptions] = useState<any[]>([]);
+  const [ordersWithProductsRaw, setOrdersWithProductsRaw] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
@@ -810,11 +815,26 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
     return cache;
   }, [inventory, orderProducts, currentDate]);
 
+  // Карта "возраста на складе" по коду (data przyjęcia / data ostatniego wydania / dni na magazynie)
+  // — те же значения, что во вкладке "Analiza magazynu"; используется в Excel-рапорте.
+  const storageAgeMap = useMemo(
+    () =>
+      computeStorageAgeByKod({
+        productBatches,
+        workingSheets: inventory,
+        consumptions: orderConsumptions,
+        ordersWithProducts: ordersWithProductsRaw,
+        productReceipts,
+      }),
+    [productBatches, inventory, orderConsumptions, ordersWithProductsRaw, productReceipts]
+  );
+
   const loadAllPriceHistory = async () => {
     try {
       const response = await fetch(`/api/products`);
       if (response.ok) {
         const allProducts = await response.json();
+        setProductBatches(allProducts);
         const newPriceHistory: {[key: string]: any[]} = {};
         
         // Группируем продукты по коду и создаем структуру для tooltip
@@ -889,6 +909,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
       }
       // Собираем все продукты из всех заказов
       const ordersWithProducts = await orderProductsResponse.json();
+      setOrdersWithProductsRaw(ordersWithProducts);
       console.log('Orders with products from server:', ordersWithProducts.length, 'items');
       const allOrderProducts: OrderProduct[] = [];
       ordersWithProducts.forEach((order: any) => {
@@ -905,6 +926,19 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
       });
       console.log('Total order products:', allOrderProducts.length);
       setOrderProducts(allOrderProducts);
+
+      // Загружаем расходы по партиям (для расчёта "daty ostatniego wydania" / "dni na magazynie")
+      try {
+        const consumptionsResponse = await fetch('/api/order-consumptions');
+        if (consumptionsResponse.ok) {
+          const consumptionsData = await consumptionsResponse.json();
+          setOrderConsumptions(consumptionsData);
+        } else {
+          console.error('❌ Failed to load order consumptions:', consumptionsResponse.status);
+        }
+      } catch (error) {
+        console.error('❌ Error loading order consumptions:', error);
+      }
       
       // Загружаем историю цен для всех товаров
       await loadAllPriceHistory();
@@ -1289,6 +1323,11 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         'Koszt własny': toExcelMoney(item.koszt_wlasny),
         'Cena w sprzedaży': toExcelMoney(item.cena_sprzedazy),
         'Data ważności': formatDate(item.data_waznosci),
+        'Data przyjęcia': formatStorageDate(storageAgeMap.get(item.kod)?.dataPrzyjecia ?? null),
+        'Data ostatniego wydania': formatStorageDate(
+          storageAgeMap.get(item.kod)?.dataOstatniegoWydania ?? null
+        ),
+        'Dni na magazynie': storageAgeMap.get(item.kod)?.dni ?? 0,
         'Średnie zużycie/dzień': formatAverageConsumption(
           getDisplayAverage(item, orderProducts, productReceipts, averageSalesCache)
         ),
