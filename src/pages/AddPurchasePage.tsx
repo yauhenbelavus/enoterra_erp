@@ -105,7 +105,7 @@ const TYPY_TOWARU = [
   { value: 'czerwone', label: 'Czerwone', color: 'bg-red-100 text-red-800 border-red-200' },
   { value: 'biale', label: 'Białe', color: 'bg-gray-100 text-gray-800 border-gray-200' },
   { value: 'musujace', label: 'Musujące', color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
-  { value: 'bezalkoholowe', label: 'Bezalkoholowe', color: 'bg-green-100 text-green-800 border-green-200' },
+  { value: 'bezalkoholowe', label: 'Bezalko', color: 'bg-green-100 text-green-800 border-green-200' },
   { value: 'ferment', label: 'Ferment', color: 'bg-orange-100 text-orange-800 border-orange-200' },
   { value: 'rozowe', label: 'Różowe', color: 'bg-pink-100 text-pink-800 border-pink-200' },
   { value: 'slodkie', label: 'Słodkie', color: 'bg-purple-100 text-purple-800 border-purple-200' },
@@ -756,9 +756,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wart. netto</span></div>
             <div className="w-[64px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">VAT</span></div>
             <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wart. brutto</span></div>
-            <div className="w-[143px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
+            <div className="w-[114px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
             <div className="w-[84px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
-            <div className="w-[81px] shrink-0"><span className="block text-xs font-medium text-gray-700 font-sora leading-tight">Koszt/but.<br />(wg. wart.)</span></div>
+            <div className="w-[81px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Koszt/but.</span></div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
@@ -834,7 +834,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   readOnly
                   className="w-[91px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative dropdown-container w-[143px] shrink-0">
+                <div className="relative dropdown-container w-[114px] shrink-0">
                   <button
                     type="button"
                     onClick={() => {
