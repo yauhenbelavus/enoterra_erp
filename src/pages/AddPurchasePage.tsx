@@ -83,6 +83,7 @@ interface ProductRow {
   cenaPelna?: number;
   dataWaznosci?: Date | null;
   showDataWaznosci: boolean;
+  vat: number;
   typ: string;
   objetosc: string;
 }
@@ -121,6 +122,13 @@ const OBJETOSCI_WINA = [
   { value: '3', label: '3l' },
 ];
 
+const VAT_RATES = [
+  { value: 0, label: '0%' },
+  { value: 5, label: '5%' },
+  { value: 8, label: '8%' },
+  { value: 23, label: '23%' },
+];
+
 const getTodayDate = () => new Date();
 const parsePlNumber = (value: string) => parseFloat(value.replace(',', '.')) || 0;
 const formatPlMoney = (value: number) => value.toFixed(2).replace('.', ',');
@@ -131,6 +139,16 @@ const getRowLineValue = (row: ProductRow): number => {
   return ilosc * cenaPelna;
 };
 
+const getRowLineBrutto = (row: ProductRow): number =>
+  getRowLineValue(row) * (1 + (row.vat || 0) / 100);
+
+const getRowKosztButWgWartosci = (row: ProductRow, totalValue: number, deliveryCost: number): number => {
+  const qty = parseFloat(row.ilosc) || 0;
+  const lineValue = getRowLineValue(row);
+  if (totalValue <= 0 || qty <= 0) return 0;
+  return (deliveryCost * lineValue) / (totalValue * qty);
+};
+
 const emptyRow = (): ProductRow => ({
   kod: '',
   nazwa: '',
@@ -139,6 +157,7 @@ const emptyRow = (): ProductRow => ({
   cena: '',
   dataWaznosci: null,
   showDataWaznosci: false,
+  vat: 23,
   typ: '',
   objetosc: '',
 });
@@ -198,6 +217,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [transportInvoice, setTransportInvoice] = useState<File | null>(null);
   const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
   const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
+  const [openVatDropdownIndex, setOpenVatDropdownIndex] = useState<number | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('0,00');
   const [rabat, setRabat] = useState('0,00');
@@ -290,6 +310,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           cenaPelna: p.cenaPelna,
           dataWaznosci: null,
           showDataWaznosci: false,
+          vat: 23,
           typ: p.typ?.trim() || '',
           objetosc: p.objetosc?.trim() || '',
         }))
@@ -364,14 +385,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       }
       if (openDropdownIndex !== null && !target.closest('.dropdown-container')) setOpenDropdownIndex(null);
       if (openObjetoscDropdownIndex !== null && !target.closest('.dropdown-container')) setOpenObjetoscDropdownIndex(null);
+      if (openVatDropdownIndex !== null && !target.closest('.dropdown-container')) setOpenVatDropdownIndex(null);
     };
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setOpenDropdownIndex(null); setOpenObjetoscDropdownIndex(null); }
+      if (e.key === 'Escape') { setOpenDropdownIndex(null); setOpenObjetoscDropdownIndex(null); setOpenVatDropdownIndex(null); }
     };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
     return () => { document.removeEventListener('mousedown', handleClickOutside); document.removeEventListener('keydown', handleEscape); };
-  }, [openDropdownIndex, openObjetoscDropdownIndex, productRows]);
+  }, [openDropdownIndex, openObjetoscDropdownIndex, openVatDropdownIndex, productRows]);
 
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
@@ -407,6 +429,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         ilosc: parseFloat(row.ilosc) || 0,
         cena: parseFloat(row.cena.replace(',', '.')) || 0,
         dataWaznosci: row.dataWaznosci ? row.dataWaznosci.toLocaleDateString('en-CA') : undefined,
+        vat: row.vat,
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
         deliveryCostPerUnitPln,
@@ -468,6 +491,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     }
   };
 
+  const handleVatChange = (index: number, value: number) => {
+    const newRows = [...productRows];
+    newRows[index].vat = value;
+    setProductRows(newRows);
+    setOpenVatDropdownIndex(null);
+  };
+
   const handleTypChange = (index: number, value: string) => {
     const newRows = [...productRows];
     newRows[index].typ = value;
@@ -481,6 +511,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     setProductRows(newRows);
     setOpenObjetoscDropdownIndex(null);
   };
+
+  const totalLineValue = productRows.reduce((sum, row) => sum + getRowLineValue(row), 0);
+  const deliveryCostNumber = parsePlNumber(kosztDostawy);
 
   return (
     <div className="font-sora h-screen w-full bg-gray-200 overflow-hidden">
@@ -699,13 +732,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
               <div className="relative">
-                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[140px] ${HEADER_FIELD} pr-10`} />
+                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[112px] ${HEADER_FIELD} pr-10`} />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
               </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
-              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD}`} />
+              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[77px] ${HEADER_FIELD}`} />
             </div>
           </div>
         </div>
@@ -720,9 +753,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div className="w-[155px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
             <div className="w-[75px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
             <div className="w-[78px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
-            <div className="w-[151px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
+            <div className="w-[151px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość netto</span></div>
+            <div className="w-[80px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">VAT</span></div>
+            <div className="w-[151px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość brutto</span></div>
             <div className="w-[143px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
             <div className="w-[93px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
+            <div className="w-[160px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Koszt/but. (wg. wartości)</span></div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
@@ -769,10 +805,43 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   readOnly
                   className="w-[151px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
+                <div className="relative dropdown-container w-[80px] shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenVatDropdownIndex(openVatDropdownIndex === index ? null : index);
+                      setOpenDropdownIndex(null);
+                      setOpenObjetoscDropdownIndex(null);
+                    }}
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between bg-white"
+                  >
+                    <span className="truncate">{row.vat}%</span>
+                    <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  {openVatDropdownIndex === index && (
+                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
+                      {VAT_RATES.map((vat) => (
+                        <button key={vat.value} type="button" onClick={() => handleVatChange(index, vat.value)} className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50">
+                          {vat.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={formatPlMoney(getRowLineBrutto(row))}
+                  readOnly
+                  className="w-[151px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                />
                 <div className="relative dropdown-container w-[143px] shrink-0">
                   <button
                     type="button"
-                    onClick={() => setOpenDropdownIndex(openDropdownIndex === index ? null : index)}
+                    onClick={() => {
+                      setOpenDropdownIndex(openDropdownIndex === index ? null : index);
+                      setOpenVatDropdownIndex(null);
+                      setOpenObjetoscDropdownIndex(null);
+                    }}
                     className={`w-full px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`}
                   >
                     <span className="truncate">{row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Typ' : 'Typ'}</span>
@@ -791,7 +860,11 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <div className="relative dropdown-container w-[93px] shrink-0">
                   <button
                     type="button"
-                    onClick={() => setOpenObjetoscDropdownIndex(openObjetoscDropdownIndex === index ? null : index)}
+                    onClick={() => {
+                      setOpenObjetoscDropdownIndex(openObjetoscDropdownIndex === index ? null : index);
+                      setOpenVatDropdownIndex(null);
+                      setOpenDropdownIndex(null);
+                    }}
                     className={`w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
                   >
                     <span className="truncate">{row.objetosc || 'Obj.'}</span>
@@ -807,6 +880,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     </div>
                   )}
                 </div>
+                <input
+                  type="text"
+                  value={formatPlMoney(getRowKosztButWgWartosci(row, totalLineValue, deliveryCostNumber))}
+                  readOnly
+                  className="w-[160px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                />
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
