@@ -378,6 +378,85 @@ function ensureWorkingSheetsCenaEurToPln() {
   );
 }
 
+function ensureWorkingSheetsNoReceiptCenaKurs43() {
+  const migrationId = 'working_sheets_cena_no_receipt_kurs_4_3';
+  const kurs = 4.3;
+  db.run(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    (createErr) => {
+      if (createErr) {
+        console.error('❌ Error creating schema_migrations:', createErr.message);
+        return;
+      }
+      db.get(
+        'SELECT id FROM schema_migrations WHERE id = ?',
+        [migrationId],
+        (findErr, row) => {
+          if (findErr) {
+            console.error('❌ Error checking no-receipt cena migration:', findErr.message);
+            return;
+          }
+          if (row) return;
+
+          const selectSql = `
+            SELECT ws.id, ROUND(ws.cena_zakupu_pln * ?, 2) AS cena_pln
+            FROM working_sheets ws
+            WHERE COALESCE(ws.archived, 0) = 0
+              AND COALESCE(ws.cena_zakupu_pln, 0) > 0
+              AND NOT EXISTS (
+                SELECT 1 FROM products p
+                WHERE p.kod = ws.kod AND p.receipt_id IS NOT NULL
+              )
+          `;
+
+          db.all(selectSql, [kurs], (selectErr, rows) => {
+            if (selectErr) {
+              console.error('❌ Error selecting no-receipt cena rows:', selectErr.message);
+              return;
+            }
+
+            const convertRows = async () => {
+              for (const item of rows || []) {
+                await new Promise((resolve, reject) => {
+                  db.run(
+                    'UPDATE working_sheets SET cena_zakupu_pln = ? WHERE id = ?',
+                    [item.cena_pln, item.id],
+                    (updateErr) => {
+                      if (updateErr) reject(updateErr);
+                      else resolve();
+                    }
+                  );
+                });
+              }
+              await new Promise((resolve, reject) => {
+                db.run(
+                  'INSERT INTO schema_migrations (id) VALUES (?)',
+                  [migrationId],
+                  (insertErr) => {
+                    if (insertErr) reject(insertErr);
+                    else resolve();
+                  }
+                );
+              });
+            };
+
+            convertRows()
+              .then(() => {
+                console.log(`✅ Converted working_sheets.cena_zakupu_pln × ${kurs} for ${rows.length} no-receipt rows`);
+              })
+              .catch((convertErr) => {
+                console.error('❌ Error converting no-receipt cena to PLN:', convertErr.message);
+              });
+          });
+        }
+      );
+    }
+  );
+}
+
 function ensureWorkingSheetsRenameCenaColumn(done) {
   db.all('PRAGMA table_info(working_sheets)', (err, columns) => {
     if (err) {
@@ -1119,6 +1198,7 @@ db.serialize(() => {
       ensureWorkingSheetsDropRezerwacjeColumn();
       ensureWorkingSheetsRenameCenaColumn(() => {
         ensureWorkingSheetsCenaEurToPln();
+        ensureWorkingSheetsNoReceiptCenaKurs43();
       });
     }
   });
