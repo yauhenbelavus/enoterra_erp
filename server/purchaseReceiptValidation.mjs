@@ -41,16 +41,6 @@ function isFilled(value) {
 }
 
 /**
- * @param {unknown} value
- * @returns {boolean}
- */
-function isMoneyFieldFilled(value) {
-  if (!isFilled(value)) return false;
-  const n = parsePlNumber(value);
-  return Number.isFinite(n) && n >= 0;
-}
-
-/**
  * @param {unknown} waluta
  * @returns {boolean}
  */
@@ -124,23 +114,6 @@ function getRowValidationError(row, index) {
 }
 
 /**
- * @param {unknown} products
- * @param {unknown} podatekAkcyzowy
- * @returns {string | null}
- */
-function validateAkcyza(products, podatekAkcyzowy) {
-  const rows = Array.isArray(products) ? products : [];
-  const needsAkcyza = rows.some((row) => rowNeedsAkcyza(/** @type {any} */ (row)?.typ));
-  if (needsAkcyza) {
-    const akcyza = parsePlNumber(podatekAkcyzowy);
-    if (!isMoneyFieldFilled(podatekAkcyzowy) || !(akcyza > 0)) {
-      return 'Podatek akcyzowy musi być większy od 0';
-    }
-  }
-  return null;
-}
-
-/**
  * @typedef {{
  *   date: boolean;
  *   sprzedawca: boolean;
@@ -164,7 +137,6 @@ function validateAkcyza(products, podatekAkcyzowy) {
  */
 function getHeaderInvalidFields(input) {
   const data = input || {};
-  const products = Array.isArray(data.products) ? data.products : [];
   return {
     date: !data.hasDate,
     sprzedawca: !isFilled(data.sprzedawca),
@@ -172,7 +144,7 @@ function getHeaderInvalidFields(input) {
     walutaDostawy: data.skipDelivery
       ? false
       : parsePlNumber(data.kosztDostawy) > 0 && !isWalutaSelected(data.walutaDostawy),
-    akcyza: Boolean(validateAkcyza(products, data.podatekAkcyzowy)),
+    akcyza: false,
   };
 }
 
@@ -194,7 +166,7 @@ const PURCHASE_INCOMPLETE_MESSAGE = 'Wypełnij wszystkie wymagane pola';
 function validatePurchaseReceipt(input) {
   const data = input || {};
   const header = getHeaderInvalidFields(data);
-  if (header.date || header.sprzedawca || header.walutaDostawy || header.akcyza) {
+  if (header.date || header.sprzedawca || header.walutaDostawy) {
     return PURCHASE_INCOMPLETE_MESSAGE;
   }
   if (data.kursError) return PURCHASE_INCOMPLETE_MESSAGE;
