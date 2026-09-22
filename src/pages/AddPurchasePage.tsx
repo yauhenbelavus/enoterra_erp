@@ -142,6 +142,9 @@ const getRowLineValue = (row: ProductRow): number => {
 const getRowLineBrutto = (row: ProductRow): number =>
   getRowLineValue(row) * (1 + (row.vat || 0) / 100);
 
+const getRowLineVat = (row: ProductRow): number =>
+  getRowLineValue(row) * (row.vat || 0) / 100;
+
 const getRowKosztButWgWartosci = (row: ProductRow, totalValue: number, deliveryCost: number): number => {
   const qty = parseFloat(row.ilosc) || 0;
   const lineValue = getRowLineValue(row);
@@ -349,6 +352,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     return formatPlMoney(subtotal * (1 - rabatValue / 100));
   };
 
+  const calculateTotalVat = () => {
+    const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
+    const factor = 1 - rabatValue / 100;
+    return productRows.reduce((sum, row) => sum + getRowLineVat(row) * factor, 0);
+  };
+
   const kwotaNettoNumber = parsePlNumber(kwotaNetto);
 
   const handleKwotaNettoChange = (value: string) => {
@@ -369,8 +378,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   useEffect(() => {
     if (skipBruttoSyncRef.current) { skipBruttoSyncRef.current = false; return; }
     const fromRows = calculateTotal();
+    const vatFromRows = calculateTotalVat();
     setKwotaNetto(fromRows);
-    setSumaBrutto(formatPlMoney(parsePlNumber(fromRows) + parsePlNumber(kwotaVat)));
+    setKwotaVat(formatPlMoney(vatFromRows));
+    setSumaBrutto(formatPlMoney(parsePlNumber(fromRows) + vatFromRows));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productRows, rabat]);
 
@@ -501,6 +512,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const handleTypChange = (index: number, value: string) => {
     const newRows = [...productRows];
     newRows[index].typ = value;
+    if (value !== 'ferment') {
+      newRows[index].dataWaznosci = null;
+      newRows[index].showDataWaznosci = false;
+    }
     setProductRows(newRows);
     setOpenDropdownIndex(null);
   };
@@ -887,20 +902,22 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   className="w-[81px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
                 <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => toggleDataWaznosci(index)}
-                    className={`p-1 focus:outline-none ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-600'}`}
-                    title={row.dataWaznosci ? `Termin ważności: ${row.dataWaznosci.toLocaleDateString('pl-PL')}` : 'Dodaj termin ważności'}
-                  >
-                    <Calendar size={16} />
-                  </button>
+                  {row.typ === 'ferment' && (
+                    <button
+                      type="button"
+                      onClick={() => toggleDataWaznosci(index)}
+                      className={`p-1 focus:outline-none ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-600'}`}
+                      title={row.dataWaznosci ? `Termin ważności: ${row.dataWaznosci.toLocaleDateString('pl-PL')}` : 'Dodaj termin ważności'}
+                    >
+                      <Calendar size={16} />
+                    </button>
+                  )}
                   <button onClick={() => deleteRow(index)} className="p-1 text-red-400 hover:text-red-600">
                     <X size={16} />
                   </button>
                 </div>
 
-                {row.showDataWaznosci && (
+                {row.typ === 'ferment' && row.showDataWaznosci && (
                   <div className="absolute top-full left-0 mt-1 z-50" style={{ left: 'calc(100% - 280px)' }}>
                     <DatePicker
                       selected={row.dataWaznosci}
