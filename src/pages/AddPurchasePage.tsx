@@ -558,7 +558,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   return (
     <div className="font-sora h-screen w-full bg-gray-200 overflow-hidden">
-      <div className="h-full mx-10 lg:mx-16 bg-white flex flex-col shadow-sm overflow-hidden">
+      <div className="h-full mx-6 lg:mx-10 bg-white flex flex-col shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
             <button
@@ -795,10 +795,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="border-t border-gray-200" />
 
-        <div className="flex-1 min-h-0 pl-8 pr-0 py-6 flex flex-col">
-        <div className="shrink-0 flex gap-2 mb-2 items-end">
+        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-6 py-6 flex flex-col">
+        <div className="shrink-0 flex gap-2 mb-2 items-end min-w-0">
             <div className="w-[90px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
-            <div className="w-[243px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
+            <div className="flex-1 min-w-0"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
             <div className="w-[132px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
             <div className="w-[68px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
             <div className="w-[78px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
@@ -810,14 +810,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div className="w-[81px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Koszt/but.</span></div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
               return (
               <div
                 key={index}
-                className="flex gap-2 relative items-center"
+                className="flex gap-2 relative items-center min-w-0"
               >
                 <input
                   type="text"
@@ -828,7 +828,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 />
                 <input
                   type="text"
-                  className={withInvalid(`w-[243px] shrink-0 ${ROW_INPUT}`, rowInvalid.nazwa)}
+                  className={withInvalid(`flex-1 min-w-0 ${ROW_INPUT}`, rowInvalid.nazwa)}
                   placeholder="Nazwa"
                   value={row.nazwa}
                   onChange={(e) => { const n = [...productRows]; n[index].nazwa = e.target.value; setProductRows(n); }}

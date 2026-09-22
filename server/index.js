@@ -289,6 +289,95 @@ function ensureWorkingSheetsUniqueIndex() {
   });
 }
 
+function ensureWorkingSheetsCenaEurToPln() {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    (createErr) => {
+      if (createErr) {
+        console.error('❌ Error creating schema_migrations:', createErr.message);
+        return;
+      }
+      db.get(
+        'SELECT id FROM schema_migrations WHERE id = ?',
+        ['working_sheets_cena_eur_to_pln'],
+        (findErr, row) => {
+          if (findErr) {
+            console.error('❌ Error checking cena migration:', findErr.message);
+            return;
+          }
+          if (row) return;
+
+          const selectSql = `
+            WITH last_receipt AS (
+              SELECT kod, MAX(receipt_id) AS receipt_id
+              FROM products
+              WHERE receipt_id IS NOT NULL
+              GROUP BY kod
+            )
+            SELECT
+              ws.id,
+              ROUND(ws.cena * CASE
+                WHEN upper(COALESCE(pr.waluta_faktury, 'EUR')) = 'PLN' THEN pr.kurs_faktury
+                ELSE pr.aktualny_kurs
+              END, 2) AS cena_pln
+            FROM working_sheets ws
+            JOIN last_receipt lr ON lr.kod = ws.kod
+            JOIN product_receipts pr ON pr.id = lr.receipt_id
+            WHERE COALESCE(ws.cena, 0) > 0
+              AND (
+                (upper(COALESCE(pr.waluta_faktury, 'EUR')) = 'PLN' AND COALESCE(pr.kurs_faktury, 0) > 1)
+                OR (upper(COALESCE(pr.waluta_faktury, 'EUR')) != 'PLN' AND COALESCE(pr.aktualny_kurs, 0) > 1)
+              )
+          `;
+
+          db.all(selectSql, (selectErr, rows) => {
+            if (selectErr) {
+              console.error('❌ Error selecting cena rows to convert:', selectErr.message);
+              return;
+            }
+
+            const convertRows = async () => {
+              for (const item of rows || []) {
+                await new Promise((resolve, reject) => {
+                  db.run(
+                    'UPDATE working_sheets SET cena = ? WHERE id = ?',
+                    [item.cena_pln, item.id],
+                    (updateErr) => {
+                      if (updateErr) reject(updateErr);
+                      else resolve();
+                    }
+                  );
+                });
+              }
+              await new Promise((resolve, reject) => {
+                db.run(
+                  'INSERT INTO schema_migrations (id) VALUES (?)',
+                  ['working_sheets_cena_eur_to_pln'],
+                  (insertErr) => {
+                    if (insertErr) reject(insertErr);
+                    else resolve();
+                  }
+                );
+              });
+            };
+
+            convertRows()
+              .then(() => {
+                console.log(`✅ Converted working_sheets.cena EUR→PLN for ${rows.length} rows`);
+              })
+              .catch((convertErr) => {
+                console.error('❌ Error converting working_sheets.cena to PLN:', convertErr.message);
+              });
+          });
+        }
+      );
+    }
+  );
+}
+
 function ensureWorkingSheetsDropRezerwacjeColumn() {
   db.all('PRAGMA table_info(working_sheets)', (err, columns) => {
     if (err) {
@@ -1001,6 +1090,7 @@ db.serialize(() => {
       ensureWorkingSheetsUniqueIndex();
       ensureWorkingSheetsFrozenColumns();
       ensureWorkingSheetsDropRezerwacjeColumn();
+      ensureWorkingSheetsCenaEurToPln();
     }
   });
 
