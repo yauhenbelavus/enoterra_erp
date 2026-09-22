@@ -714,94 +714,72 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         <div className="border-t border-gray-200" />
 
         <div className="flex-1 min-h-0 px-8 py-6 flex flex-col">
-        {/* ── PRODUCT TABLE ─────────────────────────────────────────────── */}
-        <div className="shrink-0 grid grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,2.9fr)_minmax(0,1.8fr)_minmax(0,1.8fr)_minmax(0,2fr)_auto] gap-1 mb-2 pr-2">
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
-            <div><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
-            <div />
+        <div className="shrink-0 flex gap-1 mb-2">
+            <div className="w-[75px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
+            <div className="w-[155px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
+            <div className="w-[155px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
+            <div className="w-[75px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
+            <div className="w-[78px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
+            <div className="w-[136px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
+            <div className="w-[151px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
+            <div className="w-[140px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
           </div>
 
-          {/* Product rows */}
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
             <div className="space-y-2">
             {productRows.map((row, index) => (
-              <div key={index} className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,2.9fr)_minmax(0,1.8fr)_minmax(0,1.8fr)_minmax(0,2fr)_auto] gap-1 relative items-center">
-                {/* Kod */}
-                <div>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                    placeholder="Kod"
-                    value={row.kod}
-                    onChange={(e) => { const n = [...productRows]; n[index].kod = e.target.value; setProductRows(n); }}
-                  />
-                </div>
-                {/* Nazwa */}
-                <div>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                    placeholder="Nazwa"
-                    value={row.nazwa}
-                    onChange={(e) => { const n = [...productRows]; n[index].nazwa = e.target.value; setProductRows(n); }}
-                  />
-                </div>
-                {/* Kod kreskowy */}
-                <div>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                    placeholder="Kod kreskowy"
-                    value={row.kod_kreskowy}
-                    onChange={(e) => { const n = [...productRows]; n[index].kod_kreskowy = e.target.value; setProductRows(n); }}
-                  />
-                </div>
-                {/* Ilość */}
-                <div>
-                  <input
-                    type="number"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    placeholder="0"
-                    value={row.ilosc}
-                    onChange={(e) => { const v = e.target.value; if (v === '' || /^\d*$/.test(v)) { const n = [...productRows]; n[index].ilosc = v; setProductRows(n); } }}
-                  />
-                </div>
-                {/* Cena */}
-                <div>
-                  <PlMoneyInput
-                    value={row.cena}
-                    onChange={(value) => { const n = [...productRows]; n[index].cena = value; n[index].cenaPelna = value ? parsePlNumber(value) : undefined; setProductRows(n); }}
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                    placeholder="0,00"
-                  />
-                </div>
-                {/* Wartość (read-only) */}
-                <div>
-                  <input
-                    type="text"
-                    value={formatPlMoney(getRowLineValue(row))}
-                    readOnly
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
-                  />
-                </div>
-                {/* Typ */}
-                <div className="relative dropdown-container">
+              <div key={index} className="flex gap-1 relative items-center">
+                <input
+                  type="text"
+                  className="w-[75px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  placeholder="Kod"
+                  value={row.kod}
+                  onChange={(e) => { const n = [...productRows]; n[index].kod = e.target.value; setProductRows(n); }}
+                />
+                <input
+                  type="text"
+                  className="w-[155px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  placeholder="Nazwa"
+                  value={row.nazwa}
+                  onChange={(e) => { const n = [...productRows]; n[index].nazwa = e.target.value; setProductRows(n); }}
+                />
+                <input
+                  type="text"
+                  className="w-[155px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  placeholder="Kod kreskowy"
+                  value={row.kod_kreskowy}
+                  onChange={(e) => { const n = [...productRows]; n[index].kod_kreskowy = e.target.value; setProductRows(n); }}
+                />
+                <input
+                  type="number"
+                  className="w-[75px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  placeholder="0"
+                  value={row.ilosc}
+                  onChange={(e) => { const v = e.target.value; if (v === '' || /^\d*$/.test(v)) { const n = [...productRows]; n[index].ilosc = v; setProductRows(n); } }}
+                />
+                <PlMoneyInput
+                  value={row.cena}
+                  onChange={(value) => { const n = [...productRows]; n[index].cena = value; n[index].cenaPelna = value ? parsePlNumber(value) : undefined; setProductRows(n); }}
+                  className="w-[78px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  placeholder="0,00"
+                />
+                <input
+                  type="text"
+                  value={formatPlMoney(getRowLineValue(row))}
+                  readOnly
+                  className="w-[136px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                />
+                <div className="relative dropdown-container w-[151px] shrink-0">
                   <button
                     type="button"
                     onClick={() => setOpenDropdownIndex(openDropdownIndex === index ? null : index)}
                     className={`w-full px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`}
                   >
                     <span className="truncate">{row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Typ' : 'Typ'}</span>
-                    <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                   </button>
                   {openDropdownIndex === index && (
-                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-48" onClick={(e) => e.stopPropagation()}>
+                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
                       {TYPY_TOWARU.map((typ) => (
                         <button key={typ.value} type="button" onClick={() => handleTypChange(index, typ.value)} className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 ${typ.color}`}>
                           {typ.label}
@@ -810,18 +788,17 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     </div>
                   )}
                 </div>
-                {/* Objętość */}
-                <div className="relative dropdown-container">
+                <div className="relative dropdown-container w-[140px] shrink-0">
                   <button
                     type="button"
                     onClick={() => setOpenObjetoscDropdownIndex(openObjetoscDropdownIndex === index ? null : index)}
                     className={`w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
                   >
                     <span className="truncate">{row.objetosc || 'Obj.'}</span>
-                    <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                   </button>
                   {openObjetoscDropdownIndex === index && (
-                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-[100] max-h-40 overflow-y-auto w-28" onClick={(e) => e.stopPropagation()}>
+                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-[100] max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
                       {OBJETOSCI_WINA.map((o) => (
                         <button key={o.value} type="button" onClick={() => handleObjetoscChange(index, o.value)} className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50">
                           {o.label}
@@ -830,18 +807,17 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     </div>
                   )}
                 </div>
-                {/* Actions */}
-                <div className="flex items-center justify-end gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() => toggleDataWaznosci(index)}
                     className={`p-1 focus:outline-none ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-600'}`}
                     title={row.dataWaznosci ? `Termin ważności: ${row.dataWaznosci.toLocaleDateString('pl-PL')}` : 'Dodaj termin ważności'}
                   >
-                    <Calendar size={14} />
+                    <Calendar size={16} />
                   </button>
                   <button onClick={() => deleteRow(index)} className="p-1 text-red-400 hover:text-red-600">
-                    <X size={14} />
+                    <X size={16} />
                   </button>
                 </div>
 
