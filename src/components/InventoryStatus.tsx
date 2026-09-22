@@ -120,7 +120,7 @@ interface InventoryItem {
   updated_at: string;
   created_at?: string; // Дата создания записи в working_sheets
   sprzedawca?: string; // Added sprzedawca field
-  cena?: number; // Added cena field
+  cena_zakupu_pln?: number; // цена закупки PLN из working_sheets
   cena_sprzedazy?: number; // Added cena_sprzedazy field
   koszt_wlasny?: number; // Added koszt_wlasny field
   koszt_dostawy_per_unit?: number; // Added koszt_dostawy_per_unit field
@@ -1318,7 +1318,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           : '-',
         Rezerwacje: reservationsCount[item.kod] || 0,
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
-        'Cena zakupu': toExcelMoney(item.cena),
+        'Cena zakupu': toExcelMoney(item.cena_zakupu_pln),
         'Koszt własny': toExcelMoney(item.koszt_wlasny),
         'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy),
         'Data ważności': formatDate(item.data_waznosci),
@@ -1639,12 +1639,12 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
-                  onClick={() => handleSort('cena')}
+                  onClick={() => handleSort('cena_zakupu_pln')}
                   style={{ width: '90px' }}
                 >
                   <div className="flex items-center gap-1">
                     <div className="whitespace-normal">Cena<br/>zakupu</div>
-                    <SortIndicator field="cena" sortField={sortField} sortDirection={sortDirection} />
+                    <SortIndicator field="cena_zakupu_pln" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
                 <th 
@@ -1815,7 +1815,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                     >
                       {(() => {
                         // Берем цену из working_sheets (как было раньше)
-                        return item.cena != null ? `${item.cena.toFixed(2)} €` : '-';
+                        return item.cena_zakupu_pln != null ? `${item.cena_zakupu_pln.toFixed(2)} €` : '-';
                       })()}
                       <Tooltip
                         id={`price-tooltip-${item.kod}`}

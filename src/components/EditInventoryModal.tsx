@@ -20,7 +20,7 @@ interface InventoryItem {
   typ?: string;
   updated_at: string;
   sprzedawca?: string;
-  cena?: number; // Added cena field
+  cena_zakupu_pln?: number;
   cena_sprzedazy?: number; // Added cena_sprzedazy field
   koszt_dostawy_per_unit?: number;
   podatek_akcyzowy?: number;
@@ -65,7 +65,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
     typ: '',
     objetosc: '',
     data_waznosci: '',
-    cena: '',
+    cena_zakupu_pln: '',
     cena_sprzedazy: '',
     koszt_dostawy_per_unit: '',
     podatek_akcyzowy_per_liter: '2.22', // Значение на литр, которое умножается на objetosc (по умолчанию 2.22)
@@ -114,7 +114,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
           }
           return '';
         })() : '',
-        cena: item.cena ? item.cena.toString() : '',
+        cena_zakupu_pln: item.cena_zakupu_pln ? item.cena_zakupu_pln.toString() : '',
         cena_sprzedazy: item.cena_sprzedazy ? item.cena_sprzedazy.toString() : '',
         koszt_dostawy_per_unit: item.koszt_dostawy_per_unit ? item.koszt_dostawy_per_unit.toString() : '',
         podatek_akcyzowy_per_liter: item.podatek_akcyzowy && item.objetosc && item.objetosc > 0 
@@ -224,7 +224,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
           typ: formData.typ,
           objetosc: parseFloat(String(formData.objetosc || '0').replace(',', '.')) || 0,
           data_waznosci: formData.data_waznosci || null, // Отправляем как строку YYYY-MM-DD или null
-          cena: parseFloat(String(formData.cena || '0').replace(',', '.')) || undefined,
+          cena_zakupu_pln: parseFloat(String(formData.cena_zakupu_pln || '0').replace(',', '.')) || undefined,
           cena_sprzedazy: parseFloat(String(formData.cena_sprzedazy || '0').replace(',', '.')) || undefined,
           koszt_dostawy_per_unit: parseFloat(String(formData.koszt_dostawy_per_unit || '0').replace(',', '.')) || undefined,
           podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc 
@@ -244,7 +244,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
         typ: formData.typ,
         objetosc: parseFloat(formData.objetosc) || 0,
         data_waznosci: formData.data_waznosci || null, // Сохраняем как строку или null
-        cena: parseFloat(formData.cena) || undefined,
+        cena_zakupu_pln: parseFloat(formData.cena_zakupu_pln) || undefined,
         cena_sprzedazy: parseFloat(formData.cena_sprzedazy) || undefined,
         koszt_dostawy_per_unit: parseFloat(formData.koszt_dostawy_per_unit) || undefined,
         podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc 
@@ -253,7 +253,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
       };
 
       // Создаем запись в price_history при изменении цены
-      if (formData.cena && parseFloat(formData.cena) !== (item.cena || 0)) {
+      if (formData.cena_zakupu_pln && parseFloat(formData.cena_zakupu_pln) !== (item.cena_zakupu_pln || 0)) {
         try {
           const priceHistoryResponse = await fetch('/api/price-history', {
             method: 'POST',
@@ -263,7 +263,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
             body: JSON.stringify({
               kod: item.kod,
               nazwa: item.nazwa,
-              cena: item.cena || 0, // Старая цена (которая была)
+              cena: item.cena_zakupu_pln || 0, // Старая цена (которая была)
               data_zmiany: new Date().toISOString().split('T')[0], // Дата изменения
               ilosc_fixed: item.ilosc // Количество по старой цене
             }),
@@ -484,8 +484,8 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
                   type="number"
                   step="0.01"
                   min="0"
-                  value={formData.cena}
-                  onChange={(e) => setFormData(prev => ({ ...prev, cena: e.target.value }))}
+                  value={formData.cena_zakupu_pln}
+                  onChange={(e) => setFormData(prev => ({ ...prev, cena_zakupu_pln: e.target.value }))}
                   placeholder="0.00"
                   className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />

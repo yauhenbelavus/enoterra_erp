@@ -799,7 +799,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         <div className="border-t border-gray-200" />
 
         <div className="flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
-          <div className={`shrink-0 mb-2 bg-white ${PRODUCT_ROW_HEADER}`}>
+          <div className={`shrink-0 mb-2 bg-white overflow-y-auto [scrollbar-gutter:stable] ${PRODUCT_ROW_HEADER}`}>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
@@ -814,7 +814,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <span />
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);

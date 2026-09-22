@@ -259,7 +259,7 @@ function computeKosztWlasny(walutaFaktury, cenaEur, cenaOryginalna, kursEurPln, 
   return parseFloat((baza + (kosztDostawyPerUnit || 0) + (podatekValue || 0)).toFixed(2));
 }
 
-// JSON приёмки хранит cena в валюте фактуры; для products/working_sheets — EUR.
+// JSON приёмки хранит cena в валюте фактуры; для products — EUR; working_sheets.cena_zakupu_pln — PLN.
 function prepareReceiptProducts(products, walutaFaktury, aktualnyKurs, kursFaktury) {
   const normalized = normalizeReceiptProducts(products);
   const productsForJson = normalized.map((p) => ({ ...p }));
@@ -319,14 +319,14 @@ function ensureWorkingSheetsCenaEurToPln() {
             )
             SELECT
               ws.id,
-              ROUND(ws.cena * CASE
+              ROUND(ws.cena_zakupu_pln * CASE
                 WHEN upper(COALESCE(pr.waluta_faktury, 'EUR')) = 'PLN' THEN pr.kurs_faktury
                 ELSE pr.aktualny_kurs
               END, 2) AS cena_pln
             FROM working_sheets ws
             JOIN last_receipt lr ON lr.kod = ws.kod
             JOIN product_receipts pr ON pr.id = lr.receipt_id
-            WHERE COALESCE(ws.cena, 0) > 0
+            WHERE COALESCE(ws.cena_zakupu_pln, 0) > 0
               AND (
                 (upper(COALESCE(pr.waluta_faktury, 'EUR')) = 'PLN' AND COALESCE(pr.kurs_faktury, 0) > 1)
                 OR (upper(COALESCE(pr.waluta_faktury, 'EUR')) != 'PLN' AND COALESCE(pr.aktualny_kurs, 0) > 1)
@@ -343,7 +343,7 @@ function ensureWorkingSheetsCenaEurToPln() {
               for (const item of rows || []) {
                 await new Promise((resolve, reject) => {
                   db.run(
-                    'UPDATE working_sheets SET cena = ? WHERE id = ?',
+                    'UPDATE working_sheets SET cena_zakupu_pln = ? WHERE id = ?',
                     [item.cena_pln, item.id],
                     (updateErr) => {
                       if (updateErr) reject(updateErr);
@@ -366,16 +366,43 @@ function ensureWorkingSheetsCenaEurToPln() {
 
             convertRows()
               .then(() => {
-                console.log(`✅ Converted working_sheets.cena EUR→PLN for ${rows.length} rows`);
+                console.log(`✅ Converted working_sheets.cena_zakupu_pln EUR→PLN for ${rows.length} rows`);
               })
               .catch((convertErr) => {
-                console.error('❌ Error converting working_sheets.cena to PLN:', convertErr.message);
+                console.error('❌ Error converting working_sheets.cena_zakupu_pln to PLN:', convertErr.message);
               });
           });
         }
       );
     }
   );
+}
+
+function ensureWorkingSheetsRenameCenaColumn(done) {
+  db.all('PRAGMA table_info(working_sheets)', (err, columns) => {
+    if (err) {
+      console.error('❌ Error reading working_sheets schema:', err.message);
+      if (done) done();
+      return;
+    }
+    const hasOld = (columns || []).some((col) => col.name === 'cena');
+    const hasNew = (columns || []).some((col) => col.name === 'cena_zakupu_pln');
+    if (!hasOld || hasNew) {
+      if (done) done();
+      return;
+    }
+    db.run(
+      'ALTER TABLE working_sheets RENAME COLUMN cena TO cena_zakupu_pln',
+      (renameErr) => {
+        if (renameErr) {
+          console.error('❌ Error renaming working_sheets.cena:', renameErr.message);
+        } else {
+          console.log('✅ Column working_sheets.cena renamed to cena_zakupu_pln');
+        }
+        if (done) done();
+      }
+    );
+  });
 }
 
 function ensureWorkingSheetsDropRezerwacjeColumn() {
@@ -1070,7 +1097,7 @@ db.serialize(() => {
     objetosc TEXT,
     typ TEXT,
     sprzedawca TEXT,
-    cena REAL DEFAULT 0,
+    cena_zakupu_pln REAL DEFAULT 0,
     cena_sprzedazy REAL DEFAULT 0,
     produkt_id INTEGER,
     data DATE,
@@ -1090,7 +1117,9 @@ db.serialize(() => {
       ensureWorkingSheetsUniqueIndex();
       ensureWorkingSheetsFrozenColumns();
       ensureWorkingSheetsDropRezerwacjeColumn();
-      ensureWorkingSheetsCenaEurToPln();
+      ensureWorkingSheetsRenameCenaColumn(() => {
+        ensureWorkingSheetsCenaEurToPln();
+      });
     }
   });
 
@@ -1997,11 +2026,11 @@ app.get('/api/products/reservations-clients', (req, res) => {
   );
 });
 
-// Получение стоимости товаров (ilosc * cena для каждого kod из working_sheets)
+// Получение стоимости товаров (ilosc * cena_zakupu_pln для каждого kod из working_sheets)
 app.get('/api/products/wartosc-towaru', (req, res) => {
   console.log('📦 GET /api/products/wartosc-towaru - Fetching product values from working_sheets');
   db.all(
-    `SELECT kod, (ilosc * cena) as wartosc 
+    `SELECT kod, (ilosc * cena_zakupu_pln) as wartosc 
      FROM working_sheets 
      WHERE archived = 0 OR archived IS NULL`,
     [],
@@ -8059,7 +8088,7 @@ app.post('/api/product-receipts', upload.fields([
                   // Если товар существует - сохраняем снимок ДО изменений, затем обновляем
                   console.log(`📝 Updating existing product: ${productCode}`);
                   
-                  const oldPrice = existingProduct.cena || 0;
+                  const oldPrice = existingProduct.cena_zakupu_pln || 0;
                   const newPrice = maxCena;
                   
                   console.log(`💰 Price for ${productCode}: oldPrice=${oldPrice}, newPrice=${newPrice} (max from all items)`);
@@ -8069,7 +8098,7 @@ app.post('/api/product-receipts', upload.fields([
                   db.run(
                     `INSERT INTO working_sheets_history 
                      (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
-                     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
+                     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
                             'before_receipt', ?
                      FROM working_sheets WHERE kod = ?`,
                     [receiptId, productCode],
@@ -8120,7 +8149,7 @@ app.post('/api/product-receipts', upload.fields([
                             kod_kreskowy = ?,
                             typ = ?,
                             sprzedawca = ?,
-                            cena = ?,
+                            cena_zakupu_pln = ?,
                             data_waznosci = ?,
                             objetosc = ?,
                             koszt_dostawy_per_unit = ?,
@@ -8134,7 +8163,7 @@ app.post('/api/product-receipts', upload.fields([
                             kod_kreskowy = ?,
                             typ = ?,
                             sprzedawca = ?,
-                            cena = ?,
+                            cena_zakupu_pln = ?,
                             data_waznosci = ?,
                             objetosc = ?,
                             koszt_dostawy_per_unit = ?,
@@ -8221,7 +8250,7 @@ app.post('/api/product-receipts', upload.fields([
                   console.log(`  - koszt_wlasny: ${finalKosztWlasny} (type: ${typeof finalKosztWlasny})`);
                   
                   db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
                       productCode, 
                       mainProduct.nazwa, 
@@ -8869,7 +8898,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                     console.log(`🔄 ${normalizedCode} already in working_sheets — updating`);
                     db.run(
                       `UPDATE working_sheets SET
-                        nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena = ?,
+                        nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
                         data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?,
                         podatek_akcyzowy = ?, koszt_wlasny = ?
                        WHERE kod = ?`,
@@ -8893,7 +8922,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   }
 
                   db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue, date],
                     function (err) {
                       if (err) {
@@ -8987,7 +9016,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   
               await new Promise((resolve, reject) => {
                         db.run(
-                      'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                       [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, kosztWlasnyValue, date],
                           function(err) {
                   if (err) {
@@ -9021,7 +9050,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   ilosc: oldProduct.ilosc !== newProduct.ilosc, // Количество в приемке изменилось
                   nazwa: (oldProduct.nazwa || '') !== (newProduct.nazwa || ''),
                   kod_kreskowy: (oldProduct.kod_kreskowy || '') !== (newProduct.kod_kreskowy || ''),
-                  cena: Math.abs((workingSheetRecord.cena || 0) - maxCenaForWsCheck) > 0.01, // Изменилась цена в приемке
+                  cena: Math.abs((workingSheetRecord.cena_zakupu_pln || 0) - maxCenaForWsCheck) > 0.01, // Изменилась цена в приемке
                   typ: (oldProduct.typ || '') !== (newProduct.typ || ''),
                   dataWaznosci: (oldProduct.dataWaznosci || '') !== (newProduct.dataWaznosci || ''),
                   objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || ''),
@@ -9057,7 +9086,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                     db.run(
                       `INSERT INTO working_sheets_history 
                        (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
-                       SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
+                       SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
                               'before_receipt', ?
                        FROM working_sheets WHERE kod = ?`,
                       [id, productCode],
@@ -9159,7 +9188,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                         db.run(
                     `INSERT INTO working_sheets_history 
                      (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny, action, receipt_id)
-                     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
+                     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, koszt_wlasny,
                             'before_receipt', ?
                      FROM working_sheets WHERE kod = ?`,
                     [id, productCode],
@@ -9238,8 +9267,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                 
                 // Обновляем цену, если она изменилась
                 const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                if (Math.abs((workingSheetRecord.cena || 0) - maxCena) > 0.01) {
-                  updateFields.push('cena = ?');
+                if (Math.abs((workingSheetRecord.cena_zakupu_pln || 0) - maxCena) > 0.01) {
+                  updateFields.push('cena_zakupu_pln = ?');
                   updateValues.push(maxCena);
                   
                   // Если цена изменилась, пересчитываем koszt_wlasny, используя ТЕКУЩЕЕ значение podatek_akcyzowy из БД
@@ -9486,7 +9515,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
                 kod_kreskowy = ?,
                 typ = ?,
                 sprzedawca = ?,
-                cena = ?,
+                cena_zakupu_pln = ?,
                 data_waznosci = ?,
                 objetosc = ?,
                 koszt_dostawy_per_unit = ?
@@ -9576,7 +9605,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
                 kod_kreskowy = ?,
                 typ = ?,
                 sprzedawca = ?,
-                cena = ?,
+                cena_zakupu_pln = ?,
                 data_waznosci = ?,
                 objetosc = ?,
                 koszt_dostawy_per_unit = ?
@@ -9609,7 +9638,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
         } else {
           await new Promise((resolve, reject) => {
             db.run(
-              'UPDATE working_sheets SET ilosc = ?, cena = ? WHERE kod = ?',
+              'UPDATE working_sheets SET ilosc = ?, cena_zakupu_pln = ? WHERE kod = ?',
               [qty, price, productKod],
               function (upErr) {
                 if (upErr) reject(upErr);
@@ -10267,7 +10296,7 @@ app.get('/api/working-sheets/kurs/:kod', (req, res) => {
 });
 
 app.put('/api/working-sheets/update', (req, res) => {
-  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy, kurs } = req.body;
+  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, objetosc, sprzedawca, cena_zakupu_pln, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy, kurs } = req.body;
   const normalizedKod = kod !== undefined && kod !== null ? normalizeProductKod(kod) : undefined;
   console.log(`📝 PUT /api/working-sheets/update - Updating working sheet:`, { 
     id, 
@@ -10301,7 +10330,7 @@ app.put('/api/working-sheets/update', (req, res) => {
     const finalTyp = typ !== undefined ? typ : existingRecord.typ;
     
     // Получаем значения для расчета
-    const finalCena = cena !== undefined ? cena : existingRecord.cena;
+    const finalCena = cena_zakupu_pln !== undefined ? cena_zakupu_pln : existingRecord.cena_zakupu_pln;
     let finalKosztDostawyPerUnit = koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit;
     let finalPodatekAkcyzowy = podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy;
     
@@ -10335,7 +10364,7 @@ app.put('/api/working-sheets/update', (req, res) => {
     
     // Обновляем запись
     db.run(
-          'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
+          'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, objetosc = ?, sprzedawca = ?, cena_zakupu_pln = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
       [
         productKod,
         nazwa || existingRecord.nazwa,
@@ -10363,14 +10392,14 @@ app.put('/api/working-sheets/update', (req, res) => {
         console.log(`📊 Changes: kod=${productKod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
         
         // Если изменилась цена, обновляем её в products для записей с receipt_id = NULL
-        const updatedCena = cena || existingRecord.cena;
-        if (cena && cena !== existingRecord.cena) {
-          console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena} → ${cena}`);
+        const updatedCena = cena_zakupu_pln || existingRecord.cena_zakupu_pln;
+        if (cena_zakupu_pln && cena_zakupu_pln !== existingRecord.cena_zakupu_pln) {
+          console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena_zakupu_pln} → ${cena_zakupu_pln}`);
           console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
           
           db.run(
             'UPDATE products SET cena = ? WHERE kod = ? AND receipt_id IS NULL',
-            [cena, productKod],
+            [cena_zakupu_pln, productKod],
             function(updateErr) {
               if (updateErr) {
                 console.error(`❌ Error updating products table:`, updateErr);
@@ -10415,7 +10444,7 @@ app.put('/api/working-sheets/update', (req, res) => {
           
           // Обновляем запись
           db.run(
-            'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
+            'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, objetosc = ?, sprzedawca = ?, cena_zakupu_pln = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
             [
               productKod,
               nazwa || existingRecord.nazwa,
@@ -10443,14 +10472,14 @@ app.put('/api/working-sheets/update', (req, res) => {
               console.log(`📊 Changes: kod=${productKod}, nazwa=${nazwa || existingRecord.nazwa}, ilosc=${ilosc || existingRecord.ilosc}`);
               
               // Если изменилась цена, обновляем её в products для записей с receipt_id = NULL
-              const updatedCena = cena || existingRecord.cena;
-              if (cena && cena !== existingRecord.cena) {
-                console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena} → ${cena}`);
+              const updatedCena = cena_zakupu_pln || existingRecord.cena_zakupu_pln;
+              if (cena_zakupu_pln && cena_zakupu_pln !== existingRecord.cena_zakupu_pln) {
+                console.log(`💰 Price changed for ${productKod}: ${existingRecord.cena_zakupu_pln} → ${cena_zakupu_pln}`);
                 console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
                 
                 db.run(
                   'UPDATE products SET cena = ? WHERE kod = ? AND receipt_id IS NULL',
-                  [cena, productKod],
+                  [cena_zakupu_pln, productKod],
                   function(updateErr) {
                     if (updateErr) {
                       console.error(`❌ Error updating products table:`, updateErr);
@@ -10616,9 +10645,9 @@ app.post('/api/working-sheets/bulk-update', (req, res) => {
       updateFields.push('sprzedawca = ?');
       updateValues.push(update.sprzedawca);
     }
-    if (update.cena !== undefined) {
-      updateFields.push('cena = ?');
-      updateValues.push(update.cena);
+    if (update.cena_zakupu_pln !== undefined) {
+      updateFields.push('cena_zakupu_pln = ?');
+      updateValues.push(update.cena_zakupu_pln);
     }
     if (update.cena_sprzedazy !== undefined) {
       updateFields.push('cena_sprzedazy = ?');
@@ -11073,13 +11102,13 @@ app.post('/api/sheets', (req, res) => {
           const values = filteredData.flatMap(item => [
             item.kod, item.nazwa, item.ilosc, item.kod_kreskowy, item.data_waznosci,
             item.objetosc, item.typ, item.sprzedawca,
-            null, // cena (по умолчанию null)
+            null, // cena_zakupu_pln (по умолчанию null)
             null, // cena_sprzedazy (по умолчанию null)
             null // produkt_id
           ]);
           
           db.run(
-            `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, data_waznosci, objetosc, typ, sprzedawca, cena, cena_sprzedazy, produkt_id) VALUES ${placeholders}`,
+            `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, data_waznosci, objetosc, typ, sprzedawca, cena_zakupu_pln, cena_sprzedazy, produkt_id) VALUES ${placeholders}`,
             values,
             function(err) {
               if (err) {

@@ -342,7 +342,7 @@ export interface InventorySortContext<TItem> {
 export function compareInventoryItems<TItem extends {
   kod: string;
   sprzedawca?: string;
-  cena?: number;
+  cena_zakupu_pln?: number;
   cena_sprzedazy?: number;
   koszt_wlasny?: number;
   typ?: string;
@@ -396,7 +396,8 @@ export function compareInventoryItems<TItem extends {
         direction
       );
     case 'cena':
-      return compareSortValues(a.cena ?? 0, b.cena ?? 0, direction);
+    case 'cena_zakupu_pln':
+      return compareSortValues(a.cena_zakupu_pln ?? 0, b.cena_zakupu_pln ?? 0, direction);
     case 'cena_sprzedazy':
       return compareSortValues(a.cena_sprzedazy ?? 0, b.cena_sprzedazy ?? 0, direction);
     case 'koszt_wlasny':
