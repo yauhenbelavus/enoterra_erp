@@ -343,7 +343,7 @@ export function compareInventoryItems<TItem extends {
   kod: string;
   sprzedawca?: string;
   cena_zakupu_pln?: number;
-  cena_sprzedazy?: number;
+  cena_sprzedazy_pln?: number;
   koszt_wlasny?: number;
   typ?: string;
   objetosc?: number;
@@ -399,7 +399,8 @@ export function compareInventoryItems<TItem extends {
     case 'cena_zakupu_pln':
       return compareSortValues(a.cena_zakupu_pln ?? 0, b.cena_zakupu_pln ?? 0, direction);
     case 'cena_sprzedazy':
-      return compareSortValues(a.cena_sprzedazy ?? 0, b.cena_sprzedazy ?? 0, direction);
+    case 'cena_sprzedazy_pln':
+      return compareSortValues(a.cena_sprzedazy_pln ?? 0, b.cena_sprzedazy_pln ?? 0, direction);
     case 'koszt_wlasny':
       return compareSortValues(a.koszt_wlasny ?? 0, b.koszt_wlasny ?? 0, direction);
     case 'srednieZuzycie':

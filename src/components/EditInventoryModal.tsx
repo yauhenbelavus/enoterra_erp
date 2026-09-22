@@ -21,7 +21,7 @@ interface InventoryItem {
   updated_at: string;
   sprzedawca?: string;
   cena_zakupu_pln?: number;
-  cena_sprzedazy?: number; // Added cena_sprzedazy field
+  cena_sprzedazy_pln?: number;
   koszt_dostawy_per_unit?: number;
   podatek_akcyzowy?: number;
 }
@@ -66,7 +66,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
     objetosc: '',
     data_waznosci: '',
     cena_zakupu_pln: '',
-    cena_sprzedazy: '',
+    cena_sprzedazy_pln: '',
     koszt_dostawy_per_unit: '',
     podatek_akcyzowy_per_liter: '2.22', // Значение на литр, которое умножается на objetosc (по умолчанию 2.22)
     kurs: '4.25' // Курс валюты для расчета koszt_wlasny (по умолчанию 4.25)
@@ -115,7 +115,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
           return '';
         })() : '',
         cena_zakupu_pln: item.cena_zakupu_pln ? item.cena_zakupu_pln.toString() : '',
-        cena_sprzedazy: item.cena_sprzedazy ? item.cena_sprzedazy.toString() : '',
+        cena_sprzedazy_pln: item.cena_sprzedazy_pln ? item.cena_sprzedazy_pln.toString() : '',
         koszt_dostawy_per_unit: item.koszt_dostawy_per_unit ? item.koszt_dostawy_per_unit.toString() : '',
         podatek_akcyzowy_per_liter: item.podatek_akcyzowy && item.objetosc && item.objetosc > 0 
           ? (item.podatek_akcyzowy / item.objetosc).toFixed(2) 
@@ -225,7 +225,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
           objetosc: parseFloat(String(formData.objetosc || '0').replace(',', '.')) || 0,
           data_waznosci: formData.data_waznosci || null, // Отправляем как строку YYYY-MM-DD или null
           cena_zakupu_pln: parseFloat(String(formData.cena_zakupu_pln || '0').replace(',', '.')) || undefined,
-          cena_sprzedazy: parseFloat(String(formData.cena_sprzedazy || '0').replace(',', '.')) || undefined,
+          cena_sprzedazy_pln: parseFloat(String(formData.cena_sprzedazy_pln || '0').replace(',', '.')) || undefined,
           koszt_dostawy_per_unit: parseFloat(String(formData.koszt_dostawy_per_unit || '0').replace(',', '.')) || undefined,
           podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc 
             ? parseFloat(String(formData.podatek_akcyzowy_per_liter || '0').replace(',', '.')) * parseFloat(String(formData.objetosc || '0').replace(',', '.')) 
@@ -245,7 +245,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
         objetosc: parseFloat(formData.objetosc) || 0,
         data_waznosci: formData.data_waznosci || null, // Сохраняем как строку или null
         cena_zakupu_pln: parseFloat(formData.cena_zakupu_pln) || undefined,
-        cena_sprzedazy: parseFloat(formData.cena_sprzedazy) || undefined,
+        cena_sprzedazy_pln: parseFloat(formData.cena_sprzedazy_pln) || undefined,
         koszt_dostawy_per_unit: parseFloat(formData.koszt_dostawy_per_unit) || undefined,
         podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc 
           ? parseFloat(formData.podatek_akcyzowy_per_liter) * parseFloat(formData.objetosc) 
@@ -498,8 +498,8 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
                   type="number"
                   step="0.01"
                   min="0"
-                  value={formData.cena_sprzedazy}
-                  onChange={(e) => setFormData(prev => ({ ...prev, cena_sprzedazy: e.target.value }))}
+                  value={formData.cena_sprzedazy_pln}
+                  onChange={(e) => setFormData(prev => ({ ...prev, cena_sprzedazy_pln: e.target.value }))}
                   placeholder="0.00"
                   className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />

@@ -34,7 +34,7 @@ export const KomisList: React.FC<KomisListProps> = ({ refreshTrigger }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [invoiceKlient, setInvoiceKlient] = useState<string>('');
-  const [invoiceProducts, setInvoiceProducts] = useState<Array<{ kod: string; nazwa: string; ilosc: number; cena_sprzedazy?: number | null }>>([]);
+  const [invoiceProducts, setInvoiceProducts] = useState<Array<{ kod: string; nazwa: string; ilosc: number; cena_sprzedazy_pln?: number | null }>>([]);
 
   const { sortField, sortDirection, handleSort, sortedItems: sortedData } = useTableSort(data, {
     defaultField: 'klient',

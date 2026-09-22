@@ -49,7 +49,7 @@ interface ProductRow {
 interface SearchProduct {
   kod: string;
   nazwa: string;
-  cena_sprzedazy: number | null;
+  cena_sprzedazy_pln: number | null;
 }
 
 interface SearchClient {
@@ -67,7 +67,7 @@ interface InvoiceModalProps {
     kod: string;
     nazwa: string;
     ilosc: number;
-    cena_sprzedazy?: number | null;
+    cena_sprzedazy_pln?: number | null;
   }>;
   orderData?: {
     id: number;
@@ -123,8 +123,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, onS
       // Создаем карту цен по кодам товаров
       const priceMap = new Map<string, number>();
       workingSheets.forEach((ws: any) => {
-        if (ws.kod && ws.cena_sprzedazy !== null && ws.cena_sprzedazy !== undefined) {
-          const price = Number(ws.cena_sprzedazy);
+        if (ws.kod && ws.cena_sprzedazy_pln !== null && ws.cena_sprzedazy_pln !== undefined) {
+          const price = Number(ws.cena_sprzedazy_pln);
           if (!isNaN(price)) {
             priceMap.set(ws.kod, price);
           }
@@ -204,7 +204,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, onS
         // Предзаполнение товаров (например, из komis)
         if (prefilledProducts && prefilledProducts.length > 0) {
           const rows = prefilledProducts.map(p => {
-            const price = p.cena_sprzedazy;
+            const price = p.cena_sprzedazy_pln;
             const formattedPrice = price != null
               ? (price % 1 === 0 ? `${price.toFixed(0)},00` : price.toFixed(2).replace('.', ','))
               : '';
@@ -330,7 +330,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, onS
         const transformedData = data.map((item: any) => ({
           kod: item.kod,
           nazwa: item.nazwa,
-          cena_sprzedazy: item.cena_sprzedazy
+          cena_sprzedazy_pln: item.cena_sprzedazy_pln
         }));
         
         setSearchProducts(transformedData);
@@ -414,7 +414,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, onS
 
   const handleProductSelect = (index: number, product: SearchProduct) => {
     const newRows = [...productRows];
-    const price = product.cena_sprzedazy;
+    const price = product.cena_sprzedazy_pln;
     const formattedPrice = price !== null && price !== undefined
       ? (price % 1 === 0 ? `${price.toFixed(0)},00` : price.toFixed(2).replace('.', ','))
       : '';

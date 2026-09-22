@@ -121,7 +121,7 @@ interface InventoryItem {
   created_at?: string; // Дата создания записи в working_sheets
   sprzedawca?: string; // Added sprzedawca field
   cena_zakupu_pln?: number; // цена закупки PLN из working_sheets
-  cena_sprzedazy?: number; // Added cena_sprzedazy field
+  cena_sprzedazy_pln?: number;
   koszt_wlasny?: number; // Added koszt_wlasny field
   koszt_dostawy_per_unit?: number; // Added koszt_dostawy_per_unit field
   podatek_akcyzowy?: number; // Added podatek_akcyzowy field
@@ -1320,7 +1320,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
         'Cena zakupu': toExcelMoney(item.cena_zakupu_pln),
         'Koszt własny': toExcelMoney(item.koszt_wlasny),
-        'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy),
+        'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy_pln),
         'Data ważności': formatDate(item.data_waznosci),
         'Data przyjęcia': formatStorageDate(storageAgeMap.get(item.kod)?.dataPrzyjecia ?? null),
         'Data ostatniego wydania': formatStorageDate(
@@ -1463,7 +1463,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
             <h3 className="text-xs font-medium text-gray-500 font-sora">Wartość towaru sprzedaży</h3>
             <p className="text-2xl font-bold text-red-600 font-sora">
               {selectedInventory.length > 0 ? selectedInventory.reduce((sum, item) => {
-                const cenaSprzedazy = item.cena_sprzedazy || 0;
+                const cenaSprzedazy = item.cena_sprzedazy_pln || 0;
                 const ilosc = item.ilosc || 0;
                 return sum + (cenaSprzedazy * ilosc);
               }, 0).toFixed(2) : '0.00'} zł
@@ -1659,12 +1659,12 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                 </th>
                 <th 
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
-                  onClick={() => handleSort('cena_sprzedazy')}
+                  onClick={() => handleSort('cena_sprzedazy_pln')}
                   style={{ width: '90px' }}
                 >
                   <div className="flex items-center gap-1">
                     <div className="whitespace-normal">Cena<br/>sprzedaży</div>
-                    <SortIndicator field="cena_sprzedazy" sortField={sortField} sortDirection={sortDirection} />
+                    <SortIndicator field="cena_sprzedazy_pln" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
                 <th 
@@ -1863,7 +1863,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                       </Tooltip>
                     </td>
                     <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
-                      {item.cena_sprzedazy != null ? `${item.cena_sprzedazy.toFixed(2)} zł` : '-'}
+                      {item.cena_sprzedazy_pln != null ? `${item.cena_sprzedazy_pln.toFixed(2)} zł` : '-'}
                     </td>
                     <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                       {formatDate(item.data_waznosci)}

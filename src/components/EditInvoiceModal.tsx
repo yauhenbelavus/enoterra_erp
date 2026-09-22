@@ -32,7 +32,7 @@ interface DeletedKomisRow {
 interface SearchProduct {
   kod: string;
   nazwa: string;
-  cena_sprzedazy: number | null;
+  cena_sprzedazy_pln: number | null;
   ilosc?: number;
 }
 
@@ -40,7 +40,7 @@ interface KomisProduct {
   kod: string;
   nazwa: string;
   ilosc: number;
-  cena_sprzedazy: number | null;
+  cena_sprzedazy_pln: number | null;
 }
 
 interface Invoice {
@@ -231,7 +231,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       .map(p => ({
         kod: p.kod,
         nazwa: p.nazwa,
-        cena_sprzedazy: p.cena_sprzedazy,
+        cena_sprzedazy_pln: p.cena_sprzedazy_pln,
         ilosc: getAvailableKomisIlosc(p.kod, excludeIndex ?? -1)
       }));
   };
@@ -403,7 +403,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         const transformedData = data.map((item: any) => ({
           kod: item.kod,
           nazwa: item.nazwa,
-          cena_sprzedazy: item.cena_sprzedazy
+          cena_sprzedazy_pln: item.cena_sprzedazy_pln
         }));
         
         setSearchProducts(transformedData);
@@ -496,7 +496,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
   const handleProductSelect = (index: number, product: SearchProduct) => {
     const newRows = [...productRows];
-    const price = product.cena_sprzedazy;
+    const price = product.cena_sprzedazy_pln;
     const formattedPrice = price !== null && price !== undefined
       ? (price % 1 === 0 ? `${price.toFixed(0)},00` : price.toFixed(2).replace('.', ','))
       : '';
