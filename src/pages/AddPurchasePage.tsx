@@ -17,6 +17,7 @@ import {
   needsKursToPln,
   normalizeWalutaFaktury,
   sharesKursToPlnPair,
+  roundMoney,
   toKursToPln,
   validatePurchaseKursPair,
   getPurchaseKursInvalidFields,
@@ -485,7 +486,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     const receiptPayload = {
       date: selectedDate.toLocaleDateString('en-CA'),
       sprzedawca,
-      wartosc: razem,
+      wartosc: roundMoney(razem),
       kosztDostawy: deliveryCost,
       aktualnyKurs: String(kursDostawyNumber),
       podatekAkcyzowy,

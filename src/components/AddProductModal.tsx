@@ -21,6 +21,7 @@ import {
   isSecondaryKursActive,
   isWalutaSelected,
   normalizeWalutaFaktury,
+  roundMoney,
   toStandardKursEurPln,
   toStandardKursFaktury,
   usesPrimaryKursFakturyState,
@@ -396,7 +397,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     onSubmit({ 
       date: selectedDate.toLocaleDateString('en-CA'),
       sprzedawca: sprzedawca,
-      wartosc: razem,
+      wartosc: roundMoney(razem),
       kosztDostawy: deliveryCost,
       aktualnyKurs: String(toStandardKursEurPln(walutaFaktury, aktualnyKurs)),
       podatekAkcyzowy: podatekAkcyzowy,

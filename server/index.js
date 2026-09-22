@@ -289,6 +289,25 @@ function ensureWorkingSheetsUniqueIndex() {
   });
 }
 
+function roundMoney(value) {
+  const n = parseFloat(String(value ?? '0').replace(',', '.'));
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+function roundExistingProductReceiptsWartosc() {
+  db.run(
+    'UPDATE product_receipts SET wartosc = ROUND(wartosc, 2) WHERE wartosc IS NOT NULL',
+    function (err) {
+      if (err) {
+        console.error('❌ Error rounding product_receipts.wartosc:', err.message);
+      } else if (this.changes > 0) {
+        console.log(`✅ Rounded product_receipts.wartosc on ${this.changes} rows`);
+      }
+    }
+  );
+}
+
 function ensureProductReceiptsRenameDataPrzyjeciaColumn() {
   db.all('PRAGMA table_info(product_receipts)', (err, columns) => {
     if (err) {
@@ -1186,6 +1205,7 @@ db.serialize(() => {
     } else {
       console.log('✅ Product receipts table ready');
       ensureProductReceiptsRenameDataPrzyjeciaColumn();
+      roundExistingProductReceiptsWartosc();
 
       // Страховка: если таблица уже существовала без колонки rabat (старая БД,
       // созданная до её появления в этом CREATE TABLE) — добавляем её отдельно.
@@ -8004,7 +8024,7 @@ app.post('/api/product-receipts', upload.fields([
   const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
   const calculatedNetto = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
   const clientRazem = parseFloat(String(wartosc ?? '0').replace(',', '.')) || 0;
-  wartosc = clientRazem > 0 ? clientRazem : calculatedNetto;
+  wartosc = roundMoney(clientRazem > 0 ? clientRazem : calculatedNetto);
   
   // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
   // Исключаем aksesoria из расчета транспорта
@@ -8482,7 +8502,7 @@ app.put('/api/product-receipts/:id', upload.fields([
   const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
   const calculatedNetto = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
   const clientRazem = parseFloat(String(wartosc ?? '0').replace(',', '.')) || 0;
-  wartosc = clientRazem > 0 ? clientRazem : calculatedNetto;
+  wartosc = roundMoney(clientRazem > 0 ? clientRazem : calculatedNetto);
   
   // Вся операция обновления приёмки (документ product_receipts + партии products +
   // working_sheets) выполняется в ОДНОЙ транзакции, чтобы документ и склад не могли

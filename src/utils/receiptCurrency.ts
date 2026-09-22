@@ -24,6 +24,11 @@ export function parsePlNumber(value: string | number | undefined | null): number
   return parseFloat(String(value ?? '').replace(',', '.')) || 0;
 }
 
+/** Kwota do zapisu: zawsze 2 miejsca po przecinku, bez ogona float. */
+export function roundMoney(value: string | number | undefined | null): number {
+  return Math.round(parsePlNumber(value) * 100) / 100;
+}
+
 export function formatPlMoney(value: number): string {
   return value.toFixed(2).replace('.', ',');
 }
