@@ -176,6 +176,8 @@ function getHeaderInvalidFields(input) {
   };
 }
 
+const PURCHASE_INCOMPLETE_MESSAGE = 'Wypełnij wszystkie wymagane pola';
+
 /**
  * @param {{
  *   hasDate?: boolean;
@@ -191,23 +193,17 @@ function getHeaderInvalidFields(input) {
  */
 function validatePurchaseReceipt(input) {
   const data = input || {};
-  if (!data.hasDate) return 'Wybierz datę zakupu';
-  if (!isFilled(data.sprzedawca)) return 'Wprowadź sprzedawcę';
-  if (!data.skipDelivery) {
-    if (data.kursError) return data.kursError;
-    if (parsePlNumber(data.kosztDostawy) > 0 && !isWalutaSelected(data.walutaDostawy)) {
-      return 'Wybierz walutę dostawy';
-    }
-  } else if (data.kursError) {
-    return data.kursError;
+  const header = getHeaderInvalidFields(data);
+  if (header.date || header.sprzedawca || header.walutaDostawy || header.akcyza) {
+    return PURCHASE_INCOMPLETE_MESSAGE;
   }
+  if (data.kursError) return PURCHASE_INCOMPLETE_MESSAGE;
   const products = Array.isArray(data.products) ? data.products : [];
-  if (products.length === 0) return 'Dodaj co najmniej jedną pozycję';
+  if (products.length === 0) return PURCHASE_INCOMPLETE_MESSAGE;
   for (let index = 0; index < products.length; index += 1) {
-    const rowError = getRowValidationError(products[index], index);
-    if (rowError) return rowError;
+    if (getRowValidationError(products[index], index)) return PURCHASE_INCOMPLETE_MESSAGE;
   }
-  return validateAkcyza(products, data.podatekAkcyzowy);
+  return null;
 }
 
 export {
