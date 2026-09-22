@@ -796,7 +796,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         <div className="border-t border-gray-200" />
 
         <div className="flex-1 min-h-0 pl-8 pr-0 py-6 flex flex-col">
-        <div className="shrink-0 flex gap-1 mb-2 items-end">
+        <div className="shrink-0 flex gap-2 mb-2 items-end">
             <div className="w-[90px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
             <div className="w-[243px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
             <div className="w-[132px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
@@ -817,7 +817,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               return (
               <div
                 key={index}
-                className="flex gap-1 relative items-center"
+                className="flex gap-2 relative items-center"
               >
                 <input
                   type="text"

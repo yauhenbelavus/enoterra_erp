@@ -968,7 +968,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           </div>
 
           <div className="mt-3 min-h-0 flex-1 flex flex-col overflow-hidden">
-            <div className="shrink-0 grid grid-cols-12 gap-1 mb-2 pr-1">
+            <div className="shrink-0 grid grid-cols-12 gap-2 mb-2 pr-1">
               <div className="col-span-1.5">
                 <span className="block text-xs font-medium text-gray-700 font-sora">Kod</span>
               </div>
@@ -999,7 +999,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
               return (
-              <div key={index} className="grid grid-cols-12 gap-1 relative">
+              <div key={index} className="grid grid-cols-12 gap-2 relative">
                 <div className="col-span-1.5 relative">
                   <input
                     type="text"
