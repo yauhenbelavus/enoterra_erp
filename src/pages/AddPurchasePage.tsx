@@ -715,87 +715,87 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="flex-1 min-h-0 px-8 py-6 flex flex-col">
         {/* ── PRODUCT TABLE ─────────────────────────────────────────────── */}
-        <div className="shrink-0 grid grid-cols-12 gap-1 mb-2 pr-2">
-            <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
-            <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
-            <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
-            <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
-            <div className="col-span-2"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
-            <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
-            <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
-            <div className="col-span-1"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
-            <div className="col-span-1" />
+        <div className="shrink-0 grid grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,2.9fr)_minmax(0,1.8fr)_minmax(0,1.8fr)_minmax(0,2fr)_auto] gap-1 mb-2 pr-2">
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
+            <div><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
+            <div />
           </div>
 
           {/* Product rows */}
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-            <div className="space-y-1">
+            <div className="space-y-2">
             {productRows.map((row, index) => (
-              <div key={index} className="grid grid-cols-12 gap-1 relative items-center">
+              <div key={index} className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,2.9fr)_minmax(0,1.8fr)_minmax(0,1.8fr)_minmax(0,2fr)_auto] gap-1 relative items-center">
                 {/* Kod */}
-                <div className="col-span-1">
+                <div>
                   <input
                     type="text"
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                     placeholder="Kod"
                     value={row.kod}
                     onChange={(e) => { const n = [...productRows]; n[index].kod = e.target.value; setProductRows(n); }}
                   />
                 </div>
                 {/* Nazwa */}
-                <div className="col-span-2">
+                <div>
                   <input
                     type="text"
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                     placeholder="Nazwa"
                     value={row.nazwa}
                     onChange={(e) => { const n = [...productRows]; n[index].nazwa = e.target.value; setProductRows(n); }}
                   />
                 </div>
                 {/* Kod kreskowy */}
-                <div className="col-span-2">
+                <div>
                   <input
                     type="text"
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                     placeholder="Kod kreskowy"
                     value={row.kod_kreskowy}
                     onChange={(e) => { const n = [...productRows]; n[index].kod_kreskowy = e.target.value; setProductRows(n); }}
                   />
                 </div>
                 {/* Ilość */}
-                <div className="col-span-1">
+                <div>
                   <input
                     type="number"
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                     value={row.ilosc}
                     onChange={(e) => { const v = e.target.value; if (v === '' || /^\d*$/.test(v)) { const n = [...productRows]; n[index].ilosc = v; setProductRows(n); } }}
                   />
                 </div>
                 {/* Cena */}
-                <div className="col-span-2">
+                <div>
                   <PlMoneyInput
                     value={row.cena}
                     onChange={(value) => { const n = [...productRows]; n[index].cena = value; n[index].cenaPelna = value ? parsePlNumber(value) : undefined; setProductRows(n); }}
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                     placeholder="0,00"
                   />
                 </div>
                 {/* Wartość (read-only) */}
-                <div className="col-span-1">
+                <div>
                   <input
                     type="text"
                     value={formatPlMoney(getRowLineValue(row))}
                     readOnly
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                   />
                 </div>
                 {/* Typ */}
-                <div className="col-span-1 relative dropdown-container">
+                <div className="relative dropdown-container">
                   <button
                     type="button"
                     onClick={() => setOpenDropdownIndex(openDropdownIndex === index ? null : index)}
-                    className={`w-full px-2 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`}
+                    className={`w-full px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`}
                   >
                     <span className="truncate">{row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Typ' : 'Typ'}</span>
                     <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -811,11 +811,11 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   )}
                 </div>
                 {/* Objętość */}
-                <div className="col-span-1 relative dropdown-container">
+                <div className="relative dropdown-container">
                   <button
                     type="button"
                     onClick={() => setOpenObjetoscDropdownIndex(openObjetoscDropdownIndex === index ? null : index)}
-                    className={`w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
+                    className={`w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
                   >
                     <span className="truncate">{row.objetosc || 'Obj.'}</span>
                     <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -831,7 +831,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   )}
                 </div>
                 {/* Actions */}
-                <div className="col-span-1 flex items-center justify-end gap-1">
+                <div className="flex items-center justify-end gap-1">
                   <button
                     type="button"
                     onClick={() => toggleDataWaznosci(index)}
