@@ -99,7 +99,7 @@ interface EditReceiptModalProps {
     id: number;
     date: string; 
     sprzedawca: string; 
-    wartosc: number; 
+    wartosc_przyjecia_netto: number; 
     kosztDostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
@@ -123,7 +123,7 @@ interface EditReceiptModalProps {
     id: number;
     data_przyjecia: string;
     sprzedawca: string;
-    wartosc: number;
+    wartosc_przyjecia_netto: number;
     kosztDostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
@@ -295,26 +295,9 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           setAktualnyKurs(formatKursEurPlnForDisplay(standardKursEurPln));
         }
 
-        // wartosc w DB = Razem; VAT przybliżamy z Razem − netto pozycji
-        const savedRazem = Number(receipt.wartosc ?? 0);
-        const rabatVal = Number(receipt.rabat ?? 0) || 0;
-        const productsNetto = productsArray.reduce((sum, p) => {
-          const ilosc = Number(p.ilosc) || 0;
-          const cena = Number(p.cena) || 0;
-          return sum + ilosc * cena;
-        }, 0);
-        const nettoZRabatem = Math.round(productsNetto * (1 - rabatVal / 100) * 100) / 100;
-        const vatApprox = Number.isFinite(savedRazem) && savedRazem > 0
-          ? Math.max(0, Math.round((savedRazem - nettoZRabatem) * 100) / 100)
-          : 0;
-        skipBruttoSyncRef.current = true;
-        setKwotaVat(vatApprox > 0 ? formatPlMoney(vatApprox) : '');
-        if (Number.isFinite(savedRazem) && savedRazem > 0) {
-          setSumaBrutto(formatPlMoney(savedRazem));
-        } else {
-          skipBruttoSyncRef.current = false;
-          setSumaBrutto('');
-        }
+        skipBruttoSyncRef.current = false;
+        setKwotaVat('');
+        setSumaBrutto('');
 
         // ➡️ 2. Podatek akcyzowy
         if (receipt.podatek_akcyzowy !== undefined && receipt.podatek_akcyzowy !== null) {
@@ -595,15 +578,13 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     const aktualnyKursStandard = toStandardKursEurPln(walutaFaktury, aktualnyKurs);
     const kursFakturyStandard = toStandardKursFaktury(walutaFaktury, kursFaktury);
 
-    const razem = parsePlNumber(sumaBrutto) || (wartoscZRabatem + parsePlNumber(kwotaVat));
-
     setIsSaving(true);
     try {
       const result = await onSubmit({
         id: receipt.id,
         date: selectedDate.toLocaleDateString('en-CA'),
         sprzedawca: sprzedawca,
-        wartosc: roundMoney(razem),
+        wartosc_przyjecia_netto: roundMoney(wartoscZRabatem),
         kosztDostawy: deliveryCost,
         aktualnyKurs: aktualnyKursStandard,
         podatekAkcyzowy: parseFloat(podatekAkcyzowy.replace(',', '.')) || 0,

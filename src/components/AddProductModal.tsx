@@ -37,7 +37,7 @@ interface AddProductModalProps {
   onSubmit: (data: { 
     date: string; 
     sprzedawca: string; 
-    wartosc: number; 
+    wartosc_przyjecia_netto: number; 
     kosztDostawy: number;
     aktualnyKurs?: string;
     podatekAkcyzowy?: string;
@@ -392,12 +392,10 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     console.log('deliveryCost:', deliveryCost);
     console.log('📎 Files to submit:', { productInvoice, transportInvoice });
 
-    const razem = parsePlNumber(sumaBrutto) || (wartoscZRabatem + parsePlNumber(kwotaVat));
-
     onSubmit({ 
       date: selectedDate.toLocaleDateString('en-CA'),
       sprzedawca: sprzedawca,
-      wartosc: roundMoney(razem),
+      wartosc_przyjecia_netto: roundMoney(wartoscZRabatem),
       kosztDostawy: deliveryCost,
       aktualnyKurs: String(toStandardKursEurPln(walutaFaktury, aktualnyKurs)),
       podatekAkcyzowy: podatekAkcyzowy,

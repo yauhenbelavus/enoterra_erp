@@ -12,7 +12,7 @@ interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
   sprzedawca: string;
-  wartosc: number;
+  wartosc_przyjecia_netto: number;
   kosztDostawy: number;
   rabat?: number;
   waluta_faktury?: string;
@@ -44,7 +44,7 @@ interface ProductReceiptsListProps {
     id: number;
     date: string;
     sprzedawca: string;
-    wartosc: number;
+    wartosc_przyjecia_netto: number;
     kosztDostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
@@ -68,7 +68,7 @@ interface ProductReceiptsListProps {
 }
 
 const getReceiptDisplayWartosc = (receipt: ProductReceipt) => {
-  return Number(receipt.wartosc) || 0;
+  return Number(receipt.wartosc_przyjecia_netto) || 0;
 };
 
 export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receipts, onDelete, onUpdate, selectedCategory = '' }) => {
@@ -322,11 +322,11 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
-                onClick={() => handleSort('wartosc')}
+                onClick={() => handleSort('wartosc_przyjecia_netto')}
               >
                 <div className="flex items-center gap-1">
-                  Wartość
-                  <SortIndicator field="wartosc" sortField={sortField} sortDirection={sortDirection} />
+                  Wartość netto
+                  <SortIndicator field="wartosc_przyjecia_netto" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
@@ -503,7 +503,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               id: receiptToEdit.id || 0,
               data_przyjecia: receiptToEdit.data_przyjecia,
               sprzedawca: receiptToEdit.sprzedawca,
-              wartosc: receiptToEdit.wartosc,
+              wartosc_przyjecia_netto: receiptToEdit.wartosc_przyjecia_netto,
               kosztDostawy: receiptToEdit.kosztDostawy,
               rabat: receiptToEdit.rabat,
               waluta_faktury: receiptToEdit.waluta_faktury,

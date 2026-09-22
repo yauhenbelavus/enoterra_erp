@@ -47,7 +47,7 @@ interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
   sprzedawca: string;
-  wartosc: number;
+  wartosc_przyjecia_netto: number;
   kosztDostawy: number;
   rabat?: number;
   waluta_faktury?: string;
@@ -464,7 +464,7 @@ function App() {
         id: receipt.id,
         data_przyjecia: receipt.data_przyjecia,
         sprzedawca: receipt.sprzedawca || '',
-        wartosc: receipt.wartosc || 0,
+        wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
         kosztDostawy: receipt.kosztDostawy || 0,
         rabat: receipt.rabat ?? 0,
         waluta_faktury: receipt.waluta_faktury ?? 'EUR',

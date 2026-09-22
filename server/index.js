@@ -295,17 +295,56 @@ function roundMoney(value) {
   return Math.round(n * 100) / 100;
 }
 
+function mapProductReceiptApiRow(row) {
+  if (!row) return row;
+  const { wartosc, products, ...rest } = row;
+  return {
+    ...rest,
+    wartosc_przyjecia_netto: rest.wartosc_przyjecia_netto ?? wartosc ?? 0,
+    products: products
+      ? (typeof products === 'string' ? JSON.parse(products) : products)
+      : [],
+  };
+}
+
 function roundExistingProductReceiptsWartosc() {
   db.run(
-    'UPDATE product_receipts SET wartosc = ROUND(wartosc, 2) WHERE wartosc IS NOT NULL',
+    'UPDATE product_receipts SET wartosc_przyjecia_netto = ROUND(wartosc_przyjecia_netto, 2) WHERE wartosc_przyjecia_netto IS NOT NULL',
     function (err) {
       if (err) {
-        console.error('❌ Error rounding product_receipts.wartosc:', err.message);
+        console.error('❌ Error rounding product_receipts.wartosc_przyjecia_netto:', err.message);
       } else if (this.changes > 0) {
-        console.log(`✅ Rounded product_receipts.wartosc on ${this.changes} rows`);
+        console.log(`✅ Rounded product_receipts.wartosc_przyjecia_netto on ${this.changes} rows`);
       }
     }
   );
+}
+
+function ensureProductReceiptsRenameWartoscColumn(done) {
+  db.all('PRAGMA table_info(product_receipts)', (err, columns) => {
+    if (err) {
+      console.error('❌ Error reading product_receipts schema:', err.message);
+      if (done) done();
+      return;
+    }
+    const hasOld = (columns || []).some((col) => col.name === 'wartosc');
+    const hasNew = (columns || []).some((col) => col.name === 'wartosc_przyjecia_netto');
+    if (!hasOld || hasNew) {
+      if (done) done();
+      return;
+    }
+    db.run(
+      'ALTER TABLE product_receipts RENAME COLUMN wartosc TO wartosc_przyjecia_netto',
+      (renameErr) => {
+        if (renameErr) {
+          console.error('❌ Error renaming product_receipts.wartosc:', renameErr.message);
+        } else {
+          console.log('✅ Column product_receipts.wartosc renamed to wartosc_przyjecia_netto');
+        }
+        if (done) done();
+      }
+    );
+  });
 }
 
 function ensureProductReceiptsRenameDataPrzyjeciaColumn() {
@@ -1188,7 +1227,7 @@ db.serialize(() => {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     data_przyjecia DATE NOT NULL,
     sprzedawca TEXT,
-    wartosc REAL DEFAULT 0,
+    wartosc_przyjecia_netto REAL DEFAULT 0,
     kosztDostawy REAL DEFAULT 0,
     aktualny_kurs REAL DEFAULT 1,
     podatek_akcyzowy REAL DEFAULT 0,
@@ -1205,7 +1244,9 @@ db.serialize(() => {
     } else {
       console.log('✅ Product receipts table ready');
       ensureProductReceiptsRenameDataPrzyjeciaColumn();
-      roundExistingProductReceiptsWartosc();
+      ensureProductReceiptsRenameWartoscColumn(() => {
+        roundExistingProductReceiptsWartosc();
+      });
 
       // Страховка: если таблица уже существовала без колонки rabat (старая БД,
       // созданная до её появления в этом CREATE TABLE) — добавляем её отдельно.
@@ -7848,11 +7889,7 @@ app.get('/api/product-receipts', (req, res) => {
       return;
     }
     
-    // Обрабатываем JSON данные
-    const processedRows = rows.map(row => ({
-      ...row,
-      products: row.products ? JSON.parse(row.products) : []
-    }));
+    const processedRows = rows.map(mapProductReceiptApiRow);
     
     console.log(`✅ Found ${processedRows.length} product receipts`);
     res.json(processedRows || []);
@@ -7874,11 +7911,7 @@ app.get('/api/product-receipts/:id', (req, res) => {
       return res.status(404).json({ error: 'Product receipt not found' });
     }
     
-    // Обрабатываем JSON данные
-    const processedRow = {
-      ...row,
-      products: row.products ? JSON.parse(row.products) : []
-    };
+    const processedRow = mapProductReceiptApiRow(row);
     
     console.log(`✅ Found product receipt: ${processedRow.data_przyjecia} (${processedRow.products.length} products)`);
     res.json(processedRow);
@@ -7905,7 +7938,7 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, kursMode, walutaDostawy;
+  let date, sprzedawca, wartosc_przyjecia_netto, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, kursMode, walutaDostawy;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -7914,7 +7947,7 @@ app.post('/api/product-receipts', upload.fields([
       const jsonData = JSON.parse(req.body.data);
       date = jsonData.date;
       sprzedawca = jsonData.sprzedawca;
-      wartosc = jsonData.wartosc;
+      wartosc_przyjecia_netto = jsonData.wartosc_przyjecia_netto;
       kosztDostawy = jsonData.kosztDostawy;
       products = jsonData.products;
       aktualnyKurs = jsonData.aktualnyKurs;
@@ -7935,7 +7968,7 @@ app.post('/api/product-receipts', upload.fields([
     console.log('📄 Processing JSON request');
     date = req.body.date;
     sprzedawca = req.body.sprzedawca;
-    wartosc = req.body.wartosc;
+    wartosc_przyjecia_netto = req.body.wartosc_przyjecia_netto;
     kosztDostawy = req.body.kosztDostawy;
     products = req.body.products;
     aktualnyKurs = req.body.aktualnyKurs;
@@ -7988,7 +8021,7 @@ app.post('/api/product-receipts', upload.fields([
   console.log('📦 POST /api/product-receipts - Creating new product receipt:', {
     date, 
     sprzedawca, 
-    wartosc, 
+    wartosc_przyjecia_netto, 
     productsCount: products?.length || 0,
     aktualnyKurs,
     podatekAkcyzowy
@@ -8019,12 +8052,12 @@ app.post('/api/product-receipts', upload.fields([
   
   console.log(`🔄 Processing ${productsInternal.length} products for receipt (waluta: ${walutaFaktury})`);
 
-  // wartosc = Razem z formularza (brutto). Netto z pozycji tylko do logów / fallback.
+  // wartosc_przyjecia_netto = Netto z formularza. Z pozycji tylko fallback.
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
   const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
   const calculatedNetto = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
-  const clientRazem = parseFloat(String(wartosc ?? '0').replace(',', '.')) || 0;
-  wartosc = roundMoney(clientRazem > 0 ? clientRazem : calculatedNetto);
+  const clientNetto = parseFloat(String(wartosc_przyjecia_netto ?? '0').replace(',', '.')) || 0;
+  wartosc_przyjecia_netto = roundMoney(clientNetto > 0 ? clientNetto : calculatedNetto);
   
   // Вычисляем общее количество бутылок для расчета стоимости доставки на единицу
   // Исключаем aksesoria из расчета транспорта
@@ -8036,7 +8069,7 @@ app.post('/api/product-receipts', upload.fields([
   
   console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kursEurPln} kurs EUR/PLN = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
   console.log(`📊 Podatek akcyzowy input: ${podatekAkcyzowy}`);
-  console.log(`📊 Kurs EUR/PLN: ${kursEurPln}, kurs faktury: ${kursFaktury}, netto: ${calculatedNetto}, Razem(wartosc): ${wartosc}`);
+  console.log(`📊 Kurs EUR/PLN: ${kursEurPln}, kurs faktury: ${kursFaktury}, netto: ${calculatedNetto}, wartosc_przyjecia_netto: ${wartosc_przyjecia_netto}`);
   
   // Вся операция (создание документа приёмки + партии products + working_sheets)
   // выполняется в ОДНОЙ транзакции, чтобы при любом сбое откатывался и сам
@@ -8061,8 +8094,8 @@ app.post('/api/product-receipts', upload.fields([
     try {
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -8417,7 +8450,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoiceFile: req.files?.transportInvoice
   });
   
-  let date, sprzedawca, wartosc, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
+  let date, sprzedawca, wartosc_przyjecia_netto, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.productInvoice || req.files.transportInvoice)) {
@@ -8426,7 +8459,7 @@ app.put('/api/product-receipts/:id', upload.fields([
       const jsonData = JSON.parse(req.body.data);
       date = jsonData.date;
       sprzedawca = jsonData.sprzedawca;
-      wartosc = jsonData.wartosc;
+      wartosc_przyjecia_netto = jsonData.wartosc_przyjecia_netto;
       kosztDostawy = jsonData.kosztDostawy;
       products = jsonData.products;
       aktualnyKurs = jsonData.aktualnyKurs;
@@ -8445,7 +8478,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     console.log('📄 Processing JSON request (PUT)');
     date = req.body.date;
     sprzedawca = req.body.sprzedawca;
-    wartosc = req.body.wartosc;
+    wartosc_przyjecia_netto = req.body.wartosc_przyjecia_netto;
     kosztDostawy = req.body.kosztDostawy;
     products = req.body.products;
     aktualnyKurs = req.body.aktualnyKurs;
@@ -8470,7 +8503,7 @@ app.put('/api/product-receipts/:id', upload.fields([
   console.log(`📦 PUT /api/product-receipts/${id} - Updating product receipt:`, { 
     date, 
     sprzedawca, 
-    wartosc, 
+    wartosc_przyjecia_netto, 
     productsCount: products?.length || 0 
   });
   
@@ -8497,12 +8530,12 @@ app.put('/api/product-receipts/:id', upload.fields([
   const { productsForJson, productsInternal } = prepareReceiptProducts(products, walutaFaktury, aktualnyKursForDb, kursFaktury);
   products = productsInternal;
 
-  // wartosc = Razem z formularza (brutto). Netto z pozycji tylko do logów / fallback.
+  // wartosc_przyjecia_netto = Netto z formularza. Z pozycji tylko fallback.
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
   const productsTotalValue = productsForJson.reduce((sum, p) => sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0)), 0);
   const calculatedNetto = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
-  const clientRazem = parseFloat(String(wartosc ?? '0').replace(',', '.')) || 0;
-  wartosc = roundMoney(clientRazem > 0 ? clientRazem : calculatedNetto);
+  const clientNetto = parseFloat(String(wartosc_przyjecia_netto ?? '0').replace(',', '.')) || 0;
+  wartosc_przyjecia_netto = roundMoney(clientNetto > 0 ? clientNetto : calculatedNetto);
   
   // Вся операция обновления приёмки (документ product_receipts + партии products +
   // working_sheets) выполняется в ОДНОЙ транзакции, чтобы документ и склад не могли
@@ -8622,8 +8655,8 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
-          [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
+          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
           function(err) {
             if (err) reject(err);
             else resolve();

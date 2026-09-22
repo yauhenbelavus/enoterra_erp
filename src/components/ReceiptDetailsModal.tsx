@@ -11,7 +11,7 @@ interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
   sprzedawca: string;
-  wartosc: number;
+  wartosc_przyjecia_netto: number;
   kosztDostawy: number;
   waluta_faktury?: string;
   walutaFaktury?: string;
@@ -157,8 +157,8 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
               <div className="text-xs text-gray-900 ml-2">{receipt.sprzedawca}</div>
             </div>
             <div className="flex items-center">
-              <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość</label>
-              <div className="text-xs text-gray-900 ml-2">{receipt.wartosc} {walutaSymbol}</div>
+              <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość netto</label>
+              <div className="text-xs text-gray-900 ml-2">{receipt.wartosc_przyjecia_netto} {walutaSymbol}</div>
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość dostawy</label>

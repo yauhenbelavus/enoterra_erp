@@ -18,7 +18,7 @@ interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
   sprzedawca: string;
-  wartosc: number;
+  wartosc_przyjecia_netto: number;
   kosztDostawy: number;
   rabat?: number;
   waluta_faktury?: string;
@@ -72,7 +72,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       id: receipt.id,
       data_przyjecia: receipt.data_przyjecia,
       sprzedawca: receipt.sprzedawca || '',
-      wartosc: receipt.wartosc || 0,
+      wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
       kosztDostawy: receipt.kosztDostawy || 0,
       rabat: receipt.rabat ?? 0,
       waluta_faktury: receipt.waluta_faktury ?? 'EUR',
@@ -140,7 +140,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
   const handleAddProduct = async (data: {
     date: string;
     sprzedawca: string;
-    wartosc: number;
+    wartosc_przyjecia_netto: number;
     kosztDostawy: number;
     aktualnyKurs?: number | string;
     podatekAkcyzowy?: number | string;
@@ -167,7 +167,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         const jsonData = {
           date: data.date,
           sprzedawca: data.sprzedawca,
-          wartosc: data.wartosc,
+          wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
           kosztDostawy: data.kosztDostawy,
           aktualnyKurs: data.aktualnyKurs,
           podatekAkcyzowy: data.podatekAkcyzowy,
@@ -187,7 +187,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           body: JSON.stringify({
             date: data.date,
             sprzedawca: data.sprzedawca,
-            wartosc: data.wartosc,
+            wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
             kosztDostawy: data.kosztDostawy,
             aktualnyKurs: data.aktualnyKurs,
             podatekAkcyzowy: data.podatekAkcyzowy,
@@ -224,7 +224,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     id: number;
     date: string;
     sprzedawca: string;
-    wartosc: number;
+    wartosc_przyjecia_netto: number;
     kosztDostawy: number;
     aktualnyKurs?: number | string;
     podatekAkcyzowy?: number | string;
@@ -251,7 +251,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         const jsonData = {
           date: data.date,
           sprzedawca: data.sprzedawca,
-          wartosc: data.wartosc,
+          wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
           kosztDostawy: data.kosztDostawy,
           aktualnyKurs: data.aktualnyKurs,
           podatekAkcyzowy: data.podatekAkcyzowy,
@@ -271,7 +271,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           body: JSON.stringify({
             date: data.date,
             sprzedawca: data.sprzedawca,
-            wartosc: data.wartosc,
+            wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
             kosztDostawy: data.kosztDostawy,
             aktualnyKurs: data.aktualnyKurs,
             podatekAkcyzowy: data.podatekAkcyzowy,

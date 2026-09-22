@@ -569,7 +569,7 @@ interface InventoryStatusProps {
     id?: number;
     data_przyjecia: string;
     sprzedawca: string;
-    wartosc: number;
+    wartosc_przyjecia_netto: number;
     kosztDostawy: number;
     products: Array<{
       kod: string;

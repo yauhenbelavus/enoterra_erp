@@ -213,6 +213,7 @@ export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?
     case 'sprzedawca':
       return compareSortValues(lowerCase(a.sprzedawca), lowerCase(b.sprzedawca), direction);
     case 'wartosc':
+    case 'wartosc_przyjecia_netto':
       return compareSortValues(getDisplayWartosc(a), getDisplayWartosc(b), direction);
     case 'kosztDostawy':
       return compareSortValues(a.kosztDostawy ?? 0, b.kosztDostawy ?? 0, direction);
