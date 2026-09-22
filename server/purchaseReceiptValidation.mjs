@@ -152,7 +152,7 @@ function getHeaderInvalidFields(input) {
   return {
     date: !data.hasDate,
     sprzedawca: !isFilled(data.sprzedawca),
-    kosztDostawy: data.skipDelivery ? false : !isMoneyFieldFilled(data.kosztDostawy),
+    kosztDostawy: false,
     walutaDostawy: data.skipDelivery
       ? false
       : parsePlNumber(data.kosztDostawy) > 0 && !isWalutaSelected(data.walutaDostawy),
@@ -178,7 +178,6 @@ function validatePurchaseReceipt(input) {
   if (!data.hasDate) return 'Wybierz datę zakupu';
   if (!isFilled(data.sprzedawca)) return 'Wprowadź sprzedawcę';
   if (!data.skipDelivery) {
-    if (!isMoneyFieldFilled(data.kosztDostawy)) return 'Uzupełnij wartość dostawy';
     if (data.kursError) return data.kursError;
     if (parsePlNumber(data.kosztDostawy) > 0 && !isWalutaSelected(data.walutaDostawy)) {
       return 'Wybierz walutę dostawy';

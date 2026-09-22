@@ -366,9 +366,11 @@ export function validatePurchaseKursPair(
   walutaDostawy: WalutaFakturySelection,
   kursDostawyDisplay: string,
   walutaFaktury: WalutaFakturySelection,
-  kursFakturyDisplay: string
+  kursFakturyDisplay: string,
+  kosztDostawyDisplay = ''
 ): string | null {
-  if (needsKursToPln(walutaDostawy) && !isKursValueFilled(kursDostawyDisplay)) {
+  const deliveryCost = parsePlNumber(kosztDostawyDisplay);
+  if (deliveryCost > 0 && needsKursToPln(walutaDostawy) && !isKursValueFilled(kursDostawyDisplay)) {
     return `Wprowadź kurs 1 ${getKursToPlnSuffix(walutaDostawy)}`;
   }
   if (!isWalutaSelected(walutaFaktury)) {
@@ -384,11 +386,13 @@ export function getPurchaseKursInvalidFields(
   walutaDostawy: WalutaFakturySelection,
   kursDostawyDisplay: string,
   walutaFaktury: WalutaFakturySelection,
-  kursFakturyDisplay: string
+  kursFakturyDisplay: string,
+  kosztDostawyDisplay = ''
 ): { walutaFaktury: boolean; kursDostawy: boolean; kursFaktury: boolean } {
+  const deliveryCost = parsePlNumber(kosztDostawyDisplay);
   return {
     walutaFaktury: !isWalutaSelected(walutaFaktury),
-    kursDostawy: needsKursToPln(walutaDostawy) && !isKursValueFilled(kursDostawyDisplay),
+    kursDostawy: deliveryCost > 0 && needsKursToPln(walutaDostawy) && !isKursValueFilled(kursDostawyDisplay),
     kursFaktury: needsKursToPln(walutaFaktury) && walutaFaktury !== walutaDostawy && !isKursValueFilled(kursFakturyDisplay),
   };
 }

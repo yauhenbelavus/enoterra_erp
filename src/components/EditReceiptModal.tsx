@@ -41,8 +41,6 @@ import "./DatePicker.css";
 registerLocale('pl', pl);
 
 const INVALID_FIELD = '!border-red-400';
-const withInvalid = (className: string, invalid: boolean): string =>
-  invalid ? `${className} ${INVALID_FIELD}` : className;
 
 const TYPY_TOWARU = [
   { value: 'czerwone', label: 'Czerwone', color: 'bg-red-100 text-red-800 border-red-200' },
@@ -193,6 +191,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const [sumaBrutto, setSumaBrutto] = useState('');
   const [kodChangeConflicts, setKodChangeConflicts] = useState<KodChangeConflict[] | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
   const skipBruttoSyncRef = useRef(false);
 
   // Вычисляем стоимость доставки на бутылку
@@ -235,6 +234,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     podatekAkcyzowy,
   });
   const canSubmit = !isSaving && !purchaseValidationError;
+  const withInvalid = (className: string, invalid: boolean): string =>
+    showFieldErrors && invalid ? `${className} ${INVALID_FIELD}` : className;
 
   // Инициализация данных при открытии модального окна
   useEffect(() => {
@@ -558,16 +559,18 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     console.log('selectedDate:', selectedDate);
     console.log('receipt:', receipt);
     
-    if (!selectedDate || !receipt || isSaving) {
-      console.log('Early return: selectedDate or receipt is null');
+    if (isSaving || !receipt) {
+      console.log('Early return: receipt is null or saving');
       return;
     }
 
     const formError = purchaseValidationError;
     if (formError) {
+      setShowFieldErrors(true);
       toast.error(formError);
       return;
     }
+    if (!selectedDate) return;
 
     const formattedProducts = productRows.map(row => ({
       kod: row.kod,
@@ -636,6 +639,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     setExistingTransportInvoice(null);
     setKwotaVat('');
     setSumaBrutto('');
+    setShowFieldErrors(false);
     onClose();
   };
 
@@ -1084,7 +1088,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   <button
                     type="button"
                     onClick={() => toggleDataWaznosci(index)}
-                    className={`p-1 focus:outline-none pointer-events-auto relative z-[60] ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : rowInvalid.dataWaznosci ? 'text-red-500 hover:text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    className={`p-1 focus:outline-none pointer-events-auto relative z-[60] ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : showFieldErrors && rowInvalid.dataWaznosci ? 'text-red-500 hover:text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
                     title={row.dataWaznosci ? `Termin ważności: ${row.dataWaznosci}` : "Dodaj termin ważności"}
                   >
                     <Calendar size={16} />
@@ -1197,11 +1201,11 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         <div className="shrink-0 pt-4 mt-1 relative flex items-center justify-center">
           <button
             onClick={handleSubmit}
-            disabled={!canSubmit}
+            disabled={isSaving}
             title={purchaseValidationError || undefined}
-            className={`px-6 py-1.5 text-white text-xs rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors font-sora ${
+            className={`px-6 py-1.5 text-white text-xs rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors font-sora cursor-pointer ${
               !canSubmit
-                ? 'bg-gray-400 cursor-not-allowed' 
+                ? 'bg-gray-400'
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
           >

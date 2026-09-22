@@ -177,9 +177,6 @@ const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 
 const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
 
-const withInvalid = (className: string, invalid: boolean): string =>
-  invalid ? `${className} ${INVALID_FIELD}` : className;
-
 const SelectChevron = () => (
   <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -243,6 +240,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [sumaBrutto, setSumaBrutto] = useState('');
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const transportFileInputRef = useRef<HTMLInputElement>(null);
@@ -419,7 +417,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
-  const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
+  const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury, kosztDostawy);
   const headerInvalid = getHeaderInvalidFields({
     hasDate: Boolean(selectedDate),
     sprzedawca,
@@ -428,7 +426,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     products: productRows,
     podatekAkcyzowy,
   });
-  const kursInvalid = getPurchaseKursInvalidFields(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
+  const kursInvalid = getPurchaseKursInvalidFields(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury, kosztDostawy);
 
   const getPurchaseValidationError = (): string | null =>
     validatePurchaseReceipt({
@@ -443,10 +441,16 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const purchaseValidationError = getPurchaseValidationError();
   const canSubmit = !purchaseValidationError;
+  const withInvalid = (className: string, invalid: boolean): string =>
+    showFieldErrors && invalid ? `${className} ${INVALID_FIELD}` : className;
 
   const handleSubmit = async () => {
     const formError = getPurchaseValidationError();
-    if (formError) { toast.error(formError); return; }
+    if (formError) {
+      setShowFieldErrors(true);
+      toast.error(formError);
+      return;
+    }
     if (!selectedDate) return;
 
     const kursDostawyNumber = toKursToPln(walutaDostawy, kursDostawy);
@@ -933,7 +937,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleDataWaznosci(index)}
-                      className={`p-1 focus:outline-none ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : rowInvalid.dataWaznosci ? 'text-red-500 hover:text-red-600' : 'text-gray-400 hover:text-gray-600'}`}
+                      className={`p-1 focus:outline-none ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : showFieldErrors && rowInvalid.dataWaznosci ? 'text-red-500 hover:text-red-600' : 'text-gray-400 hover:text-gray-600'}`}
                       title={row.dataWaznosci ? `Termin ważności: ${row.dataWaznosci.toLocaleDateString('pl-PL')}` : 'Dodaj termin ważności'}
                     >
                       <Calendar size={16} />
@@ -1022,18 +1026,18 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <button
               type="button"
               onClick={() => navigate(ZAKUP_PATH)}
-              className="px-5 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora"
+              className="px-5 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors font-sora cursor-pointer"
             >
               Anuluj
             </button>
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={!canSubmit || isSaving}
+              disabled={isSaving}
               title={purchaseValidationError || undefined}
-              className={`px-5 py-2 text-sm font-medium rounded-md border transition-colors font-sora ${
+              className={`px-5 py-2 text-sm font-medium rounded-md border transition-colors font-sora cursor-pointer ${
                 !canSubmit || isSaving
-                  ? 'border-gray-300 text-gray-400 cursor-not-allowed bg-white'
+                  ? 'border-gray-300 text-gray-400 bg-white'
                   : 'border-blue-600 text-blue-600 hover:bg-blue-50 bg-white'
               }`}
             >
