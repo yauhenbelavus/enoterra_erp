@@ -26,3 +26,13 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #666;
 }
+
+.product-rows-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.product-rows-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -814,7 +814,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <span />
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden">
+          <div className="product-rows-scroll flex-1 min-h-0">
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
