@@ -750,15 +750,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         <div className="shrink-0 flex gap-1 mb-2">
             <div className="w-[75px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
             <div className="w-[155px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
-            <div className="w-[109px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
+            <div className="w-[120px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
             <div className="w-[68px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
             <div className="w-[78px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
-            <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość netto</span></div>
+            <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wart. netto</span></div>
             <div className="w-[64px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">VAT</span></div>
-            <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość brutto</span></div>
+            <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wart. brutto</span></div>
             <div className="w-[143px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
             <div className="w-[93px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
-            <div className="w-[160px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Koszt/but. (wg. wartości)</span></div>
+            <div className="w-[48px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Koszt/but. (wg. wartości)</span></div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
@@ -781,7 +781,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 />
                 <input
                   type="text"
-                  className="w-[109px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  className="w-[120px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                   placeholder="Kod kreskowy"
                   value={row.kod_kreskowy}
                   onChange={(e) => { const n = [...productRows]; n[index].kod_kreskowy = e.target.value; setProductRows(n); }}
@@ -884,7 +884,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   type="text"
                   value={formatPlMoney(getRowKosztButWgWartosci(row, totalLineValue, deliveryCostNumber))}
                   readOnly
-                  className="w-[160px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  className="w-[48px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
                 <div className="flex items-center gap-1 shrink-0">
                   <button
