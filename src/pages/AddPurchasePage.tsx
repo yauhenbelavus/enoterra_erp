@@ -176,6 +176,7 @@ const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md fo
 const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
 const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
+const PRODUCT_ROW_GRID = 'grid gap-2 items-center min-w-0 [grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_24px]';
 
 const SelectChevron = () => (
   <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -558,7 +559,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   return (
     <div className="font-sora h-screen w-full bg-gray-200 overflow-hidden">
-      <div className="h-full mx-6 lg:mx-10 bg-white flex flex-col shadow-sm overflow-hidden">
+      <div className="h-full mx-8 lg:mx-12 bg-white flex flex-col shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
             <button
@@ -795,54 +796,57 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="border-t border-gray-200" />
 
-        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-6 py-6 flex flex-col">
-        <div className="shrink-0 flex gap-2 mb-2 items-end min-w-0">
-            <div className="w-[90px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod</span></div>
-            <div className="flex-1 min-w-0"><span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span></div>
-            <div className="w-[132px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
-            <div className="w-[68px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
-            <div className="w-[78px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
-            <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wart. netto</span></div>
-            <div className="w-[70px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">VAT</span></div>
-            <div className="w-[91px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wart. brutto</span></div>
-            <div className="w-[114px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
-            <div className="w-[84px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
-            <div className="w-[81px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Koszt/but.</span></div>
+        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
+        <div className="shrink-0 mb-2 pr-2">
+          <div className={PRODUCT_ROW_GRID}>
+            <span className="text-xs font-medium text-gray-700 font-sora">Kod</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Ilość</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Cena</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Wart. netto</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">VAT</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Wart. brutto</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Typ</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Objętość</span>
+            <span className="text-xs font-medium text-gray-700 font-sora">Koszt/but.</span>
+            <span />
           </div>
+        </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-            <div className="space-y-2">
+            <div className="space-y-2 pr-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
               return (
               <div
                 key={index}
-                className="flex gap-2 relative items-center min-w-0"
+                className={`${PRODUCT_ROW_GRID} relative`}
               >
                 <input
                   type="text"
-                  className={withInvalid(`w-[90px] shrink-0 ${ROW_INPUT}`, rowInvalid.kod)}
+                  className={withInvalid(`w-full min-w-0 ${ROW_INPUT}`, rowInvalid.kod)}
                   placeholder="Kod"
                   value={row.kod}
                   onChange={(e) => { const n = [...productRows]; n[index].kod = e.target.value; setProductRows(n); }}
                 />
                 <input
                   type="text"
-                  className={withInvalid(`flex-1 min-w-0 ${ROW_INPUT}`, rowInvalid.nazwa)}
+                  className={withInvalid(`w-full min-w-0 ${ROW_INPUT}`, rowInvalid.nazwa)}
                   placeholder="Nazwa"
                   value={row.nazwa}
                   onChange={(e) => { const n = [...productRows]; n[index].nazwa = e.target.value; setProductRows(n); }}
                 />
                 <input
                   type="text"
-                  className={withInvalid(`w-[132px] shrink-0 ${ROW_INPUT}`, rowInvalid.kod_kreskowy)}
+                  className={withInvalid(`w-full min-w-0 ${ROW_INPUT}`, rowInvalid.kod_kreskowy)}
                   placeholder="Kod kreskowy"
                   value={row.kod_kreskowy}
                   onChange={(e) => { const n = [...productRows]; n[index].kod_kreskowy = e.target.value; setProductRows(n); }}
                 />
                 <input
                   type="number"
-                  className={withInvalid(`w-[68px] shrink-0 ${ROW_INPUT} [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`, rowInvalid.ilosc)}
+                  className={withInvalid(`w-full min-w-0 ${ROW_INPUT} [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`, rowInvalid.ilosc)}
                   placeholder="0"
                   value={row.ilosc}
                   onChange={(e) => { const v = e.target.value; if (v === '' || /^\d*$/.test(v)) { const n = [...productRows]; n[index].ilosc = v; setProductRows(n); } }}
@@ -850,16 +854,16 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <PlMoneyInput
                   value={row.cena}
                   onChange={(value) => { const n = [...productRows]; n[index].cena = value; n[index].cenaPelna = value ? parsePlNumber(value) : undefined; setProductRows(n); }}
-                  className={withInvalid(`w-[78px] shrink-0 ${ROW_INPUT}`, rowInvalid.cena)}
+                  className={withInvalid(`w-full min-w-0 ${ROW_INPUT}`, rowInvalid.cena)}
                   placeholder="0,00"
                 />
                 <input
                   type="text"
                   value={formatPlMoney(getRowLineValue(row))}
                   readOnly
-                  className="w-[91px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative dropdown-container w-[70px] shrink-0">
+                <div className="relative dropdown-container min-w-0">
                   <button
                     type="button"
                     onClick={() => {
@@ -886,9 +890,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   type="text"
                   value={formatPlMoney(getRowLineBrutto(row))}
                   readOnly
-                  className="w-[91px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative dropdown-container w-[114px] shrink-0">
+                <div className="relative dropdown-container min-w-0">
                   <button
                     type="button"
                     onClick={() => {
@@ -911,7 +915,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     </div>
                   )}
                 </div>
-                <div className="relative dropdown-container w-[84px] shrink-0">
+                <div className="relative dropdown-container min-w-0">
                   <button
                     type="button"
                     onClick={() => {
@@ -938,9 +942,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   type="text"
                   value={formatPlMoney(getRowKosztButWgWartosci(row, totalLineValue, deliveryCostNumber))}
                   readOnly
-                  className="w-[81px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center justify-end gap-1 min-w-0">
                   {row.typ === 'ferment' && (
                     <button
                       type="button"
