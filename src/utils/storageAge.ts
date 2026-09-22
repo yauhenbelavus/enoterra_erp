@@ -30,12 +30,12 @@ export interface StorageAgeOrderWithProducts {
 
 export interface StorageAgeReceipt {
   id?: number;
-  dataPrzyjecia: string;
+  data_przyjecia: string;
   products?: Array<{ kod?: string }>;
 }
 
 export interface StorageAgeRow {
-  dataPrzyjecia: string | null;
+  data_przyjecia: string | null;
   dataOstatniegoWydania: string | null;
   dni: number;
 }
@@ -165,9 +165,9 @@ export function computeStorageAgeByKod(inputs: StorageAgeInputs): Map<string, St
     }
   }
 
-  const newestReceiptByKod = new Map<string, { dataPrzyjecia: string; date: Date; id: number }>();
+  const newestReceiptByKod = new Map<string, { data_przyjecia: string; date: Date; id: number }>();
   for (const receipt of productReceipts) {
-    const receiptDate = parseLocalDate(receipt.dataPrzyjecia);
+    const receiptDate = parseLocalDate(receipt.data_przyjecia);
     if (!receiptDate) continue;
     const receiptId = receipt.id || 0;
     for (const item of receipt.products || []) {
@@ -179,7 +179,7 @@ export function computeStorageAgeByKod(inputs: StorageAgeInputs): Map<string, St
         (receiptDate.getTime() === previous.date.getTime() && receiptId > previous.id)
       ) {
         newestReceiptByKod.set(item.kod, {
-          dataPrzyjecia: receipt.dataPrzyjecia,
+          data_przyjecia: receipt.data_przyjecia,
           date: receiptDate,
           id: receiptId,
         });
@@ -191,13 +191,13 @@ export function computeStorageAgeByKod(inputs: StorageAgeInputs): Map<string, St
   for (const sheet of workingSheets) {
     if (!sheet.kod) continue;
     const remaining = Number(sheet.ilosc) || 0;
-    const dataPrzyjecia =
-      newestReceiptByKod.get(sheet.kod)?.dataPrzyjecia || newestBatchDateByKod.get(sheet.kod) || null;
+    const data_przyjecia =
+      newestReceiptByKod.get(sheet.kod)?.data_przyjecia || newestBatchDateByKod.get(sheet.kod) || null;
     const lastIssueDate =
       lastIssueByKod.get(sheet.kod) || lastSaleByKod.get(sheet.kod) || null;
     const dataOstatniegoWydania = lastIssueDate ? toDateKey(lastIssueDate) : null;
-    const dni = daysBetween(dataPrzyjecia, daysOnWarehouseEndDate(remaining, lastIssueDate));
-    result.set(sheet.kod, { dataPrzyjecia, dataOstatniegoWydania, dni });
+    const dni = daysBetween(data_przyjecia, daysOnWarehouseEndDate(remaining, lastIssueDate));
+    result.set(sheet.kod, { data_przyjecia, dataOstatniegoWydania, dni });
   }
 
   return result;

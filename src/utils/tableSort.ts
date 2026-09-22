@@ -199,7 +199,7 @@ export function compareClientSales<
   }
 }
 
-export function compareReceipts<T extends { dataPrzyjecia?: string; sprzedawca?: string; kosztDostawy?: number }>(
+export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; kosztDostawy?: number }>(
   a: T,
   b: T,
   field: string,
@@ -208,7 +208,8 @@ export function compareReceipts<T extends { dataPrzyjecia?: string; sprzedawca?:
 ): number {
   switch (field) {
     case 'dataPrzyjecia':
-      return compareSortValues(parseSortDate(a.dataPrzyjecia), parseSortDate(b.dataPrzyjecia), direction);
+    case 'data_przyjecia':
+      return compareSortValues(parseSortDate(a.data_przyjecia), parseSortDate(b.data_przyjecia), direction);
     case 'sprzedawca':
       return compareSortValues(lowerCase(a.sprzedawca), lowerCase(b.sprzedawca), direction);
     case 'wartosc':
@@ -278,7 +279,7 @@ export function compareCzasSkladowania<
     sprzedawca?: string | null;
     typ?: string | null;
     ilosc?: number;
-    dataPrzyjecia?: string | null;
+    data_przyjecia?: string | null;
     dataOstatniegoWydania?: string | null;
     dni?: number;
   }
@@ -295,7 +296,8 @@ export function compareCzasSkladowania<
     case 'ilosc':
       return compareSortValues(a.ilosc ?? 0, b.ilosc ?? 0, direction);
     case 'dataPrzyjecia':
-      return compareSortValues(parseSortDate(a.dataPrzyjecia), parseSortDate(b.dataPrzyjecia), direction);
+    case 'data_przyjecia':
+      return compareSortValues(parseSortDate(a.data_przyjecia), parseSortDate(b.data_przyjecia), direction);
     case 'dataOstatniegoWydania':
       return compareSortValues(parseSortDate(a.dataOstatniegoWydania), parseSortDate(b.dataOstatniegoWydania), direction);
     case 'dni':

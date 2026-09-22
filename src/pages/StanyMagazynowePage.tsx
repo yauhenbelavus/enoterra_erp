@@ -4,7 +4,7 @@ import { CzasSkladowaniaList } from '../components/CzasSkladowaniaList';
 
 interface ProductReceipt {
   id?: number;
-  dataPrzyjecia: string;
+  data_przyjecia: string;
   sprzedawca: string;
   wartosc: number;
   kosztDostawy: number;

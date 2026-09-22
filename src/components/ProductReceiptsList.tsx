@@ -10,7 +10,7 @@ import { compareReceipts, useTableSort } from '../utils/tableSort';
 
 interface ProductReceipt {
   id?: number;
-  dataPrzyjecia: string;
+  data_przyjecia: string;
   sprzedawca: string;
   wartosc: number;
   kosztDostawy: number;
@@ -168,7 +168,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
 
   // Получение уникальных годов и месяцев из данных
   const years = Array.from(new Set(receipts.map(receipt => {
-    const date = new Date(receipt.dataPrzyjecia);
+    const date = new Date(receipt.data_przyjecia);
     return date.getFullYear().toString();
   }))).sort((a, b) => parseInt(b) - parseInt(a));
 
@@ -209,13 +209,13 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
 
     // Фильтрация по году
     if (selectedYear) {
-      const receiptYear = new Date(receipt.dataPrzyjecia).getFullYear().toString();
+      const receiptYear = new Date(receipt.data_przyjecia).getFullYear().toString();
       if (receiptYear !== selectedYear) return false;
     }
 
     // Фильтрация по месяцу
     if (selectedMonth) {
-      const receiptMonth = (new Date(receipt.dataPrzyjecia).getMonth() + 1).toString().padStart(2, '0');
+      const receiptMonth = (new Date(receipt.data_przyjecia).getMonth() + 1).toString().padStart(2, '0');
       if (receiptMonth !== selectedMonth) return false;
     }
 
@@ -231,7 +231,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   const { sortField, sortDirection, handleSort, sortedItems: sortedReceipts } = useTableSort(
     filteredReceipts,
     {
-      defaultField: 'dataPrzyjecia',
+      defaultField: 'data_przyjecia',
       defaultDirection: 'desc',
       compareItems: compareReceiptItems,
     }
@@ -304,11 +304,11 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
             <tr>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
-                onClick={() => handleSort('dataPrzyjecia')}
+                onClick={() => handleSort('data_przyjecia')}
               >
                 <div className="flex items-center gap-1">
                   Data zakupu
-                  <SortIndicator field="dataPrzyjecia" sortField={sortField} sortDirection={sortDirection} />
+                  <SortIndicator field="data_przyjecia" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
@@ -345,7 +345,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
             {sortedReceipts.map((receipt) => (
               <tr key={receipt.id} className="hover:bg-gray-50">
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
-                  {receipt.dataPrzyjecia}
+                  {receipt.data_przyjecia}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   {receipt.sprzedawca}
@@ -501,7 +501,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
           if (receiptToEdit) {
             const preparedReceipt = {
               id: receiptToEdit.id || 0,
-              dataPrzyjecia: receiptToEdit.dataPrzyjecia,
+              data_przyjecia: receiptToEdit.data_przyjecia,
               sprzedawca: receiptToEdit.sprzedawca,
               wartosc: receiptToEdit.wartosc,
               kosztDostawy: receiptToEdit.kosztDostawy,

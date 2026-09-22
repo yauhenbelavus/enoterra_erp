@@ -58,7 +58,7 @@ interface WorkingSheet {
 
 interface ProductReceipt {
   id?: number;
-  dataPrzyjecia: string;
+  data_przyjecia: string;
   sprzedawca?: string;
   products?: Array<{ kod?: string }>;
 }
@@ -77,7 +77,7 @@ interface StorageRow {
   sprzedawca: string;
   typ: string | null;
   ilosc: number;
-  dataPrzyjecia: string | null;
+  data_przyjecia: string | null;
   dataOstatniegoWydania: string | null;
   dni: number;
 }
@@ -173,7 +173,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
           sprzedawca: sheet.sprzedawca || '',
           typ: sheet.typ || null,
           ilosc: Number(sheet.ilosc) || 0,
-          dataPrzyjecia: age?.dataPrzyjecia ?? null,
+          data_przyjecia: age?.data_przyjecia ?? null,
           dataOstatniegoWydania: age?.dataOstatniegoWydania ?? null,
           dni: age?.dni ?? 0,
         });
@@ -381,12 +381,12 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                 </th>
                 <th
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
-                  onClick={() => handleSort('dataPrzyjecia')}
+                  onClick={() => handleSort('data_przyjecia')}
                   style={{ width: '90px' }}
                 >
                   <div className="flex items-center gap-1">
                     <div className="whitespace-normal">Data<br/>przyjęcia</div>
-                    <SortIndicator field="dataPrzyjecia" sortField={sortField} sortDirection={sortDirection} />
+                    <SortIndicator field="data_przyjecia" sortField={sortField} sortDirection={sortDirection} />
                   </div>
                 </th>
                 <th
@@ -457,7 +457,7 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
                         )}
                       </td>
                       <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
-                        {formatDate(row.dataPrzyjecia)}
+                        {formatDate(row.data_przyjecia)}
                       </td>
                       <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                         {formatDate(row.dataOstatniegoWydania)}

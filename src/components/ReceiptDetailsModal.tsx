@@ -9,7 +9,7 @@ import { getReceiptProductSortValue, useTableSort } from '../utils/tableSort';
 
 interface ProductReceipt {
   id?: number;
-  dataPrzyjecia: string;
+  data_przyjecia: string;
   sprzedawca: string;
   wartosc: number;
   kosztDostawy: number;
@@ -150,7 +150,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 mb-4">
             <div className="flex items-center">
                               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Data zakupu</label>
-              <div className="text-xs text-gray-900 ml-2">{receipt.dataPrzyjecia}</div>
+              <div className="text-xs text-gray-900 ml-2">{receipt.data_przyjecia}</div>
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Sprzedawca</label>

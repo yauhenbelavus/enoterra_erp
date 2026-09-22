@@ -45,7 +45,7 @@ interface Client {
 
 interface ProductReceipt {
   id?: number;
-  dataPrzyjecia: string;
+  data_przyjecia: string;
   sprzedawca: string;
   wartosc: number;
   kosztDostawy: number;
@@ -462,7 +462,7 @@ function App() {
       // Данные уже обработаны на backend, просто возвращаем их
       return data.map((receipt: any) => ({
         id: receipt.id,
-        dataPrzyjecia: receipt.dataPrzyjecia,
+        data_przyjecia: receipt.data_przyjecia,
         sprzedawca: receipt.sprzedawca || '',
         wartosc: receipt.wartosc || 0,
         kosztDostawy: receipt.kosztDostawy || 0,

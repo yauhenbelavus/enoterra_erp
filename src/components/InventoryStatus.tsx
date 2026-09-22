@@ -318,11 +318,11 @@ const getLastReceiptDateBefore = (
   let lastReceiptDate: Date | null = null;
 
   for (const receipt of productReceipts || []) {
-    if (!receipt?.dataPrzyjecia || !Array.isArray(receipt.products)) continue;
+    if (!receipt?.data_przyjecia || !Array.isArray(receipt.products)) continue;
     const hasKod = receipt.products.some((product) => product.kod === kod);
     if (!hasKod) continue;
 
-    const receiptDate = new Date(receipt.dataPrzyjecia);
+    const receiptDate = new Date(receipt.data_przyjecia);
     if (Number.isNaN(receiptDate.getTime()) || receiptDate >= beforeDate) continue;
     if (!lastReceiptDate || receiptDate > lastReceiptDate) lastReceiptDate = receiptDate;
   }
@@ -567,7 +567,7 @@ interface InventoryStatusProps {
   refreshTrigger?: number;
   productReceipts?: Array<{
     id?: number;
-    dataPrzyjecia: string;
+    data_przyjecia: string;
     sprzedawca: string;
     wartosc: number;
     kosztDostawy: number;
@@ -1322,7 +1322,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         'Koszt własny': toExcelMoney(item.koszt_wlasny),
         'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy_pln),
         'Data ważności': formatDate(item.data_waznosci),
-        'Data przyjęcia': formatStorageDate(storageAgeMap.get(item.kod)?.dataPrzyjecia ?? null),
+        'Data przyjęcia': formatStorageDate(storageAgeMap.get(item.kod)?.data_przyjecia ?? null),
         'Data ostatniego wydania': formatStorageDate(
           storageAgeMap.get(item.kod)?.dataOstatniegoWydania ?? null
         ),

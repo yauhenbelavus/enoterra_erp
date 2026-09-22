@@ -289,171 +289,36 @@ function ensureWorkingSheetsUniqueIndex() {
   });
 }
 
-function ensureWorkingSheetsCenaEurToPln() {
-  db.run(
-    `CREATE TABLE IF NOT EXISTS schema_migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    (createErr) => {
-      if (createErr) {
-        console.error('❌ Error creating schema_migrations:', createErr.message);
-        return;
-      }
-      db.get(
-        'SELECT id FROM schema_migrations WHERE id = ?',
-        ['working_sheets_cena_eur_to_pln'],
-        (findErr, row) => {
-          if (findErr) {
-            console.error('❌ Error checking cena migration:', findErr.message);
-            return;
-          }
-          if (row) return;
-
-          const selectSql = `
-            WITH last_receipt AS (
-              SELECT kod, MAX(receipt_id) AS receipt_id
-              FROM products
-              WHERE receipt_id IS NOT NULL
-              GROUP BY kod
-            )
-            SELECT
-              ws.id,
-              ROUND(ws.cena_zakupu_pln * CASE
-                WHEN upper(COALESCE(pr.waluta_faktury, 'EUR')) = 'PLN' THEN pr.kurs_faktury
-                ELSE pr.aktualny_kurs
-              END, 2) AS cena_pln
-            FROM working_sheets ws
-            JOIN last_receipt lr ON lr.kod = ws.kod
-            JOIN product_receipts pr ON pr.id = lr.receipt_id
-            WHERE COALESCE(ws.cena_zakupu_pln, 0) > 0
-              AND (
-                (upper(COALESCE(pr.waluta_faktury, 'EUR')) = 'PLN' AND COALESCE(pr.kurs_faktury, 0) > 1)
-                OR (upper(COALESCE(pr.waluta_faktury, 'EUR')) != 'PLN' AND COALESCE(pr.aktualny_kurs, 0) > 1)
-              )
-          `;
-
-          db.all(selectSql, (selectErr, rows) => {
-            if (selectErr) {
-              console.error('❌ Error selecting cena rows to convert:', selectErr.message);
-              return;
-            }
-
-            const convertRows = async () => {
-              for (const item of rows || []) {
-                await new Promise((resolve, reject) => {
-                  db.run(
-                    'UPDATE working_sheets SET cena_zakupu_pln = ? WHERE id = ?',
-                    [item.cena_pln, item.id],
-                    (updateErr) => {
-                      if (updateErr) reject(updateErr);
-                      else resolve();
-                    }
-                  );
-                });
-              }
-              await new Promise((resolve, reject) => {
-                db.run(
-                  'INSERT INTO schema_migrations (id) VALUES (?)',
-                  ['working_sheets_cena_eur_to_pln'],
-                  (insertErr) => {
-                    if (insertErr) reject(insertErr);
-                    else resolve();
-                  }
-                );
-              });
-            };
-
-            convertRows()
-              .then(() => {
-                console.log(`✅ Converted working_sheets.cena_zakupu_pln EUR→PLN for ${rows.length} rows`);
-              })
-              .catch((convertErr) => {
-                console.error('❌ Error converting working_sheets.cena_zakupu_pln to PLN:', convertErr.message);
-              });
-          });
-        }
-      );
+function ensureProductReceiptsRenameDataPrzyjeciaColumn() {
+  db.all('PRAGMA table_info(product_receipts)', (err, columns) => {
+    if (err) {
+      console.error('❌ Error reading product_receipts schema:', err.message);
+      return;
     }
-  );
+    const hasOld = (columns || []).some((col) => col.name === 'dataPrzyjecia');
+    const hasNew = (columns || []).some((col) => col.name === 'data_przyjecia');
+    if (!hasOld || hasNew) return;
+    db.run(
+      'ALTER TABLE product_receipts RENAME COLUMN dataPrzyjecia TO data_przyjecia',
+      (renameErr) => {
+        if (renameErr) {
+          console.error('❌ Error renaming product_receipts.dataPrzyjecia:', renameErr.message);
+        } else {
+          console.log('✅ Column product_receipts.dataPrzyjecia renamed to data_przyjecia');
+        }
+      }
+    );
+  });
 }
 
-function ensureWorkingSheetsNoReceiptCenaKurs43() {
-  const migrationId = 'working_sheets_cena_no_receipt_kurs_4_3';
-  const kurs = 4.3;
-  db.run(
-    `CREATE TABLE IF NOT EXISTS schema_migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
-    (createErr) => {
-      if (createErr) {
-        console.error('❌ Error creating schema_migrations:', createErr.message);
-        return;
-      }
-      db.get(
-        'SELECT id FROM schema_migrations WHERE id = ?',
-        [migrationId],
-        (findErr, row) => {
-          if (findErr) {
-            console.error('❌ Error checking no-receipt cena migration:', findErr.message);
-            return;
-          }
-          if (row) return;
-
-          const selectSql = `
-            SELECT ws.id, ROUND(ws.cena_zakupu_pln * ?, 2) AS cena_pln
-            FROM working_sheets ws
-            WHERE COALESCE(ws.cena_zakupu_pln, 0) > 0
-              AND NOT EXISTS (
-                SELECT 1 FROM products p
-                WHERE p.kod = ws.kod AND p.receipt_id IS NOT NULL
-              )
-          `;
-
-          db.all(selectSql, [kurs], (selectErr, rows) => {
-            if (selectErr) {
-              console.error('❌ Error selecting no-receipt cena rows:', selectErr.message);
-              return;
-            }
-
-            const convertRows = async () => {
-              for (const item of rows || []) {
-                await new Promise((resolve, reject) => {
-                  db.run(
-                    'UPDATE working_sheets SET cena_zakupu_pln = ? WHERE id = ?',
-                    [item.cena_pln, item.id],
-                    (updateErr) => {
-                      if (updateErr) reject(updateErr);
-                      else resolve();
-                    }
-                  );
-                });
-              }
-              await new Promise((resolve, reject) => {
-                db.run(
-                  'INSERT INTO schema_migrations (id) VALUES (?)',
-                  [migrationId],
-                  (insertErr) => {
-                    if (insertErr) reject(insertErr);
-                    else resolve();
-                  }
-                );
-              });
-            };
-
-            convertRows()
-              .then(() => {
-                console.log(`✅ Converted working_sheets.cena_zakupu_pln × ${kurs} for ${rows.length} no-receipt rows`);
-              })
-              .catch((convertErr) => {
-                console.error('❌ Error converting no-receipt cena to PLN:', convertErr.message);
-              });
-          });
-        }
-      );
+function dropSchemaMigrationsTable() {
+  db.run('DROP TABLE IF EXISTS schema_migrations', (err) => {
+    if (err) {
+      console.error('❌ Error dropping schema_migrations:', err.message);
+    } else {
+      console.log('✅ Table schema_migrations dropped');
     }
-  );
+  });
 }
 
 function ensureWorkingSheetsRenameCenaColumn(done) {
@@ -1292,11 +1157,9 @@ db.serialize(() => {
       ensureWorkingSheetsFrozenColumns();
       ensureWorkingSheetsDropRezerwacjeColumn();
       ensureWorkingSheetsDropUnusedColumns();
+      dropSchemaMigrationsTable();
       ensureWorkingSheetsRenameCenaColumn(() => {
-        ensureWorkingSheetsRenameCenaSprzedazyColumn(() => {
-          ensureWorkingSheetsCenaEurToPln();
-          ensureWorkingSheetsNoReceiptCenaKurs43();
-        });
+        ensureWorkingSheetsRenameCenaSprzedazyColumn();
       });
     }
   });
@@ -1304,7 +1167,7 @@ db.serialize(() => {
   // Таблица приемок товаров
   db.run(`CREATE TABLE IF NOT EXISTS product_receipts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    dataPrzyjecia DATE NOT NULL,
+    data_przyjecia DATE NOT NULL,
     sprzedawca TEXT,
     wartosc REAL DEFAULT 0,
     kosztDostawy REAL DEFAULT 0,
@@ -1322,6 +1185,7 @@ db.serialize(() => {
       console.error('❌ Error creating product_receipts table:', err);
     } else {
       console.log('✅ Product receipts table ready');
+      ensureProductReceiptsRenameDataPrzyjeciaColumn();
 
       // Страховка: если таблица уже существовала без колонки rabat (старая БД,
       // созданная до её появления в этом CREATE TABLE) — добавляем её отдельно.
@@ -7957,7 +7821,7 @@ app.delete('/api/clients/:id', (req, res) => {
 // Product Receipts API
 app.get('/api/product-receipts', (req, res) => {
   console.log('📦 GET /api/product-receipts - Fetching all product receipts');
-  db.all('SELECT * FROM product_receipts ORDER BY dataPrzyjecia DESC', (err, rows) => {
+  db.all('SELECT * FROM product_receipts ORDER BY data_przyjecia DESC', (err, rows) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -7996,7 +7860,7 @@ app.get('/api/product-receipts/:id', (req, res) => {
       products: row.products ? JSON.parse(row.products) : []
     };
     
-    console.log(`✅ Found product receipt: ${processedRow.dataPrzyjecia} (${processedRow.products.length} products)`);
+    console.log(`✅ Found product receipt: ${processedRow.data_przyjecia} (${processedRow.products.length} products)`);
     res.json(processedRow);
   });
 });
@@ -8177,7 +8041,7 @@ app.post('/api/product-receipts', upload.fields([
     try {
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO product_receipts (dataPrzyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc, kosztDostawy, aktualny_kurs, podatek_akcyzowy, rabat, waluta_faktury, kurs_faktury, products, productInvoice, transportInvoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), (parseFloat(String(rabat||'').replace(',', '.'))||0), walutaFaktury, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
@@ -8639,7 +8503,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     try {
       // Сначала получаем старые данные для сравнения
       const oldReceipt = await new Promise((resolve, reject) => {
-        db.get('SELECT dataPrzyjecia, products, productInvoice, transportInvoice, podatek_akcyzowy, aktualny_kurs, kurs_faktury, waluta_faktury, kosztDostawy FROM product_receipts WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT data_przyjecia, products, productInvoice, transportInvoice, podatek_akcyzowy, aktualny_kurs, kurs_faktury, waluta_faktury, kosztDostawy FROM product_receipts WHERE id = ?', [id], (err, row) => {
           if (err) reject(err);
           else resolve(row);
         });
@@ -8689,7 +8553,7 @@ app.put('/api/product-receipts/:id', upload.fields([
             const documents = await findDocumentsBlockingKodChange(
               id,
               oldKod,
-              oldReceipt.dataPrzyjecia
+              oldReceipt.data_przyjecia
             );
             if (documents.length > 0) {
               const oldItem = oldProducts.find(
@@ -8738,7 +8602,7 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET dataPrzyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
+          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc = ?, kosztDostawy = ?, aktualny_kurs = ?, podatek_akcyzowy = ?, rabat = ?, waluta_faktury = ?, kurs_faktury = ?, products = ?, productInvoice = ?, transportInvoice = ?, created_at = ? WHERE id = ?',
           [date, sprzedawca || '', wartosc || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, kursFaktury, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
           function(err) {
             if (err) reject(err);
@@ -8784,12 +8648,12 @@ app.put('/api/product-receipts/:id', upload.fields([
             
             // Если изменилась дата закупки (data zakupu) — синхронизируем created_at
             // в products для этой приемки, даже если состав/количество товаров не менялись
-            const dataPrzyjeciaChanged = String(oldReceipt.dataPrzyjecia || '') !== String(date || '');
-            if (dataPrzyjeciaChanged) {
+            const data_przyjeciaChanged = String(oldReceipt.data_przyjecia || '') !== String(date || '');
+            if (data_przyjeciaChanged) {
               await new Promise((resolve, reject) => {
                 db.run('UPDATE products SET created_at = ? WHERE receipt_id = ?', [date, id], (err) => {
                   if (err) {
-                    console.error('❌ Error syncing products.created_at with new dataPrzyjecia:', err);
+                    console.error('❌ Error syncing products.created_at with new data_przyjecia:', err);
                     reject(err);
                   } else {
                     console.log(`✅ Synced products.created_at to ${date} for receipt ${id}`);
@@ -9203,10 +9067,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                 // Признак этого: created_at в working_sheets совпадает со старой (до изменения)
                 // датой приёмки — значит эта приёмка сбросила created_at (остаток был 0 при её создании).
                 // Если даты не совпадают — created_at принадлежит другой/более старой партии, не трогаем.
-                const oldReceiptDatePart = String(oldReceipt.dataPrzyjecia || '').slice(0, 10);
+                const oldReceiptDatePart = String(oldReceipt.data_przyjecia || '').slice(0, 10);
                 const wsCreatedAtPart = String(workingSheetRecord.created_at || '').slice(0, 10);
-                const shouldSyncCreatedAt = dataPrzyjeciaChanged && oldReceiptDatePart && wsCreatedAtPart === oldReceiptDatePart;
-                if (dataPrzyjeciaChanged) {
+                const shouldSyncCreatedAt = data_przyjeciaChanged && oldReceiptDatePart && wsCreatedAtPart === oldReceiptDatePart;
+                if (data_przyjeciaChanged) {
                   console.log(`🗓️ created_at sync check for ${productCode}: ws.created_at=${wsCreatedAtPart}, oldReceiptDate=${oldReceiptDatePart}, willSync=${shouldSyncCreatedAt}`);
                 }
                 
@@ -9244,7 +9108,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (kursChanged) updateReason.push('kurs');
                   if (kosztDostawyChanged) updateReason.push('kosztDostawy');
                   if (needsPodatekAkcyzowyUpdate) updateReason.push('podatek_akcyzowy');
-                  if (shouldSyncCreatedAt) updateReason.push('dataPrzyjecia');
+                  if (shouldSyncCreatedAt) updateReason.push('data_przyjecia');
                   console.log(`💰 Only receipt params changed for ${productCode} (${updateReason.join(', ')}), updating working_sheets`);
                   
                   // Сохраняем снимок ДО изменений
@@ -9605,7 +9469,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
   try {
     // 1) Считываем строку приёмки вместе с товарами и датой
     const receiptRow = await new Promise((resolve, reject) => {
-      db.get('SELECT products, dataPrzyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
+      db.get('SELECT products, data_przyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
         if (err) reject(err);
         else resolve(row);
       });
@@ -9617,7 +9481,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
     }
 
     const products = JSON.parse(receiptRow.products || '[]');
-    const receiptDate = receiptRow.dataPrzyjecia;
+    const receiptDate = receiptRow.data_przyjecia;
     const receiptDateOnly = (receiptDate || '').toString().substring(0,10);
     console.log(`🔍 ${products.length} product rows, date=${receiptDateOnly}`);
 

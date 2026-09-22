@@ -120,7 +120,7 @@ interface EditReceiptModalProps {
   }) => void | Promise<EditReceiptSubmitResult | void>;
   receipt: {
     id: number;
-    dataPrzyjecia: string;
+    data_przyjecia: string;
     sprzedawca: string;
     wartosc: number;
     kosztDostawy: number;
@@ -258,17 +258,17 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       if (Array.isArray(productsArray) && productsArray.length > 0) {
         // Парсим дату - поддерживаем разные форматы
         let selectedDateValue: Date | null = null;
-        if (receipt.dataPrzyjecia) {
-          if (receipt.dataPrzyjecia.includes('/')) {
+        if (receipt.data_przyjecia) {
+          if (receipt.data_przyjecia.includes('/')) {
             // Формат DD/MM/YYYY
-            const [day, month, year] = receipt.dataPrzyjecia.split('/');
+            const [day, month, year] = receipt.data_przyjecia.split('/');
             selectedDateValue = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-          } else if (receipt.dataPrzyjecia.includes('-')) {
+          } else if (receipt.data_przyjecia.includes('-')) {
             // Формат YYYY-MM-DD
-            selectedDateValue = new Date(receipt.dataPrzyjecia);
+            selectedDateValue = new Date(receipt.data_przyjecia);
           } else {
             // Попробуем парсить как есть
-            selectedDateValue = new Date(receipt.dataPrzyjecia);
+            selectedDateValue = new Date(receipt.data_przyjecia);
           }
         }
         setSelectedDate(selectedDateValue);
