@@ -3,7 +3,7 @@ import Modal from 'react-modal';
 import { X, Grape, Car } from 'lucide-react';
 import { ProductDetailsModal } from './ProductDetailsModal';
 import { API_URL } from '../config';
-import { getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
+import { formatPlMoney, getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
 import { SortableTh } from './SortIndicator';
 import { getReceiptProductSortValue, useTableSort } from '../utils/tableSort';
 
@@ -159,7 +159,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość netto</label>
-              <div className="text-xs text-gray-900 ml-2">{receipt.wartosc_przyjecia_netto} {walutaSymbol}</div>
+              <div className="text-xs text-gray-900 ml-2">{formatPlMoney(Number(receipt.wartosc_przyjecia_netto) || 0)} {walutaSymbol}</div>
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">VAT</label>
@@ -167,7 +167,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość brutto</label>
-              <div className="text-xs text-gray-900 ml-2">{receipt.wartosc_przyjecia_brutto ?? 0} {walutaSymbol}</div>
+              <div className="text-xs text-gray-900 ml-2">{formatPlMoney(Number(receipt.wartosc_przyjecia_brutto) || 0)} {walutaSymbol}</div>
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość dostawy</label>

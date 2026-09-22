@@ -4,7 +4,7 @@ import { ReceiptDetailsModal } from './ReceiptDetailsModal';
 import { EditReceiptModal, EditReceiptSubmitResult } from './EditReceiptModal';
 import toast from 'react-hot-toast';
 import Modal from 'react-modal';
-import { getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
+import { formatPlMoney, getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
 import { SortIndicator } from './SortIndicator';
 import { compareReceipts, useTableSort } from '../utils/tableSort';
 
@@ -334,6 +334,15 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                onClick={() => handleSort('wartosc_przyjecia_brutto')}
+              >
+                <div className="flex items-center gap-1">
+                  Wartość brutto
+                  <SortIndicator field="wartosc_przyjecia_brutto" sortField={sortField} sortDirection={sortDirection} />
+                </div>
+              </th>
+              <th 
+                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('kosztDostawy')}
               >
                 <div className="flex items-center gap-1">
@@ -354,7 +363,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   {receipt.sprzedawca}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
-                  {getReceiptDisplayWartosc(receipt).toFixed(2)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
+                  {formatPlMoney(getReceiptDisplayWartosc(receipt))} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
+                </td>
+                <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
+                  {formatPlMoney(Number(receipt.wartosc_przyjecia_brutto) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   {receipt.kosztDostawy.toFixed(2)} €

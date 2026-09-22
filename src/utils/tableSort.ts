@@ -199,7 +199,7 @@ export function compareClientSales<
   }
 }
 
-export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; kosztDostawy?: number }>(
+export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; kosztDostawy?: number; wartosc_przyjecia_brutto?: number }>(
   a: T,
   b: T,
   field: string,
@@ -215,6 +215,8 @@ export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?
     case 'wartosc':
     case 'wartosc_przyjecia_netto':
       return compareSortValues(getDisplayWartosc(a), getDisplayWartosc(b), direction);
+    case 'wartosc_przyjecia_brutto':
+      return compareSortValues(a.wartosc_przyjecia_brutto ?? 0, b.wartosc_przyjecia_brutto ?? 0, direction);
     case 'kosztDostawy':
       return compareSortValues(a.kosztDostawy ?? 0, b.kosztDostawy ?? 0, direction);
     default:
