@@ -404,8 +404,7 @@ function ensureWorkingSheetsNoReceiptCenaKurs43() {
           const selectSql = `
             SELECT ws.id, ROUND(ws.cena_zakupu_pln * ?, 2) AS cena_pln
             FROM working_sheets ws
-            WHERE COALESCE(ws.archived, 0) = 0
-              AND COALESCE(ws.cena_zakupu_pln, 0) > 0
+            WHERE COALESCE(ws.cena_zakupu_pln, 0) > 0
               AND NOT EXISTS (
                 SELECT 1 FROM products p
                 WHERE p.kod = ws.kod AND p.receipt_id IS NOT NULL
@@ -547,20 +546,59 @@ function ensureWorkingSheetsDropRezerwacjeColumn() {
 }
 
 function ensureWorkingSheetsDropUnusedColumns() {
-  dropWorkingSheetsColumnsIfPresent(['produkt_id', 'data']);
+  dropWorkingSheetsColumnsIfPresent(['produkt_id', 'data', 'archived', 'archived_at']);
 }
 
-function ensureWorkingSheetsArchivedColumns() {
-  db.run('ALTER TABLE working_sheets ADD COLUMN archived INTEGER DEFAULT 0', (alterErr) => {
-    if (alterErr && !String(alterErr.message).includes('duplicate column')) {
-      console.error('❌ Error adding archived:', alterErr.message);
-    }
+function receiptProductsIncludeKod(productsJson, kod) {
+  const normalized = normalizeProductKod(kod);
+  if (!normalized) return false;
+  try {
+    const products = typeof productsJson === 'string' ? JSON.parse(productsJson) : (productsJson || []);
+    return (products || []).some((p) => normalizeProductKod(p.kod) === normalized);
+  } catch {
+    return false;
+  }
+}
+
+function kodExistsInOtherReceipts(kod, excludeReceiptId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      'SELECT products FROM product_receipts WHERE id != ?',
+      [excludeReceiptId],
+      (err, rows) => {
+        if (err) return reject(err);
+        resolve((rows || []).some((row) => receiptProductsIncludeKod(row.products, kod)));
+      }
+    );
   });
-  db.run('ALTER TABLE working_sheets ADD COLUMN archived_at TIMESTAMP', (alterErr) => {
-    if (alterErr && !String(alterErr.message).includes('duplicate column')) {
-      console.error('❌ Error adding archived_at:', alterErr.message);
-    }
-  });
+}
+
+function keepWorkingSheetZeroOrDelete(kod, excludeReceiptId) {
+  return kodExistsInOtherReceipts(kod, excludeReceiptId).then((existsElsewhere) => (
+    new Promise((resolve, reject) => {
+      if (existsElsewhere) {
+        db.run(
+          'UPDATE working_sheets SET ilosc = 0 WHERE kod = ?',
+          [kod],
+          function (err) {
+            if (err) reject(err);
+            else {
+              console.log(`✅ Kept working_sheets ${kod} (ilosc=0), kod exists in another receipt`);
+              resolve('kept');
+            }
+          }
+        );
+      } else {
+        db.run('DELETE FROM working_sheets WHERE kod = ?', [kod], function (err) {
+          if (err) reject(err);
+          else {
+            console.log(`✅ Deleted working_sheets ${kod} (no other receipts with this kod)`);
+            resolve('deleted');
+          }
+        });
+      }
+    })
+  ));
 }
 
 function ensureWorkingSheetsFrozenColumns() {
@@ -1239,8 +1277,6 @@ db.serialize(() => {
     sprzedawca TEXT,
     cena_zakupu_pln REAL DEFAULT 0,
     cena_sprzedazy_pln REAL DEFAULT 0,
-    archived INTEGER DEFAULT 0,
-    archived_at TIMESTAMP,
     koszt_dostawy_per_unit REAL DEFAULT 0,
     podatek_akcyzowy REAL DEFAULT 0,
     koszt_wlasny REAL DEFAULT 0,
@@ -1256,7 +1292,6 @@ db.serialize(() => {
       ensureWorkingSheetsFrozenColumns();
       ensureWorkingSheetsDropRezerwacjeColumn();
       ensureWorkingSheetsDropUnusedColumns();
-      ensureWorkingSheetsArchivedColumns();
       ensureWorkingSheetsRenameCenaColumn(() => {
         ensureWorkingSheetsRenameCenaSprzedazyColumn(() => {
           ensureWorkingSheetsCenaEurToPln();
@@ -2174,8 +2209,7 @@ app.get('/api/products/wartosc-towaru', (req, res) => {
   console.log('📦 GET /api/products/wartosc-towaru - Fetching product values from working_sheets');
   db.all(
     `SELECT kod, (ilosc * cena_zakupu_pln) as wartosc 
-     FROM working_sheets 
-     WHERE archived = 0 OR archived IS NULL`,
+     FROM working_sheets`,
     [],
     (err, rows) => {
       if (err) {
@@ -3495,8 +3529,7 @@ app.get('/api/inventory/report/pdf', async (req, res) => {
     db.all(
       `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
        FROM working_sheets 
-       WHERE (archived = 0 OR archived IS NULL) 
-         AND ilosc > 0 
+       WHERE ilosc > 0 
          AND (typ IS NULL OR typ != 'aksesoria')
        ${inventoryReportOrderClause}`,
       [],
@@ -3548,8 +3581,7 @@ app.post('/api/inventory/report/pdf', async (req, res) => {
     db.all(
       `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
        FROM working_sheets 
-       WHERE (archived = 0 OR archived IS NULL) 
-         AND ilosc > 0 
+       WHERE ilosc > 0 
          AND (typ IS NULL OR typ != 'aksesoria')
          AND id IN (${placeholders})
        ${inventoryReportOrderClause}`,
@@ -3563,7 +3595,7 @@ app.post('/api/inventory/report/pdf', async (req, res) => {
         if (!rows || rows.length === 0) {
           return res.status(404).json({
             error:
-              'Żadna z zaznaczonych pozycji nie spełnia warunków raportu (ilość > 0, typ inny niż aksesoria, niezarchiwizowane).',
+              'Żadna z zaznaczonych pozycji nie spełnia warunków raportu (ilość > 0, typ inny niż aksesoria).',
           });
         }
         try {
@@ -9091,17 +9123,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                 });
                 
                 if (remainingCount === 0) {
-                  await new Promise((resolve, reject) => {
-                    db.run('DELETE FROM working_sheets WHERE kod = ?', [productCode], function(err) {
-                  if (err) {
-                        console.error(`❌ Error removing ${productCode} from working_sheets:`, err);
-                      reject(err);
-                  } else {
-                        console.log(`✅ Removed ${productCode} from working_sheets`);
-                        resolve();
-                      }
-                    });
-                    });
+                  const result = await keepWorkingSheetZeroOrDelete(productCode, id);
+                  if (result === 'kept') workingSheetsUpdated++;
                   } else {
                   // Товар есть в других приемках - пересчитываем количество
                   const totalQuantityResult = await new Promise((resolve, reject) => {
@@ -9687,13 +9710,9 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
             );
           });
         } else {
-          console.log(`🗑️ No snapshot found for ${productKod}, deleting from working_sheets`);
-          await new Promise((resolve, reject) => {
-            db.run('DELETE FROM working_sheets WHERE kod = ?', [productKod], function (delErr) {
-              if (delErr) reject(delErr);
-              else { wsDeleted++; resolve(); }
-            });
-          });
+          const result = await keepWorkingSheetZeroOrDelete(productKod, id);
+          if (result === 'deleted') wsDeleted++;
+          else wsUpdated++;
         }
       } else {
         // Есть другие партии этого kod — пересчитываем ilosc/cena из остатков.
@@ -9863,26 +9882,6 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
 
 
 
-// Получить архивированные записи
-app.get('/api/working-sheets/archived', (req, res) => {
-  console.log('📦 GET /api/working-sheets/archived - Fetching archived working sheets');
-  
-  if (!db) {
-    console.error('❌ Database not available');
-    return res.status(500).json({ error: 'Database not available' });
-  }
-  
-  db.all('SELECT * FROM working_sheets WHERE archived = 1 ORDER BY archived_at DESC', (err, rows) => {
-    if (err) {
-      console.error('❌ Database error:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    console.log(`✅ Found ${rows.length} archived working sheets`);
-    res.json(rows || []);
-  });
-});
-
 // Working Sheets API
 app.get('/api/working-sheets', (req, res) => {
   console.log('📝 GET /api/working-sheets - Fetching all working sheets');
@@ -9893,7 +9892,7 @@ app.get('/api/working-sheets', (req, res) => {
     return res.status(500).json({ error: 'Database not available' });
   }
   
-  db.all('SELECT * FROM working_sheets WHERE archived = 0 OR archived IS NULL ORDER BY id DESC', (err, rows) => {
+  db.all('SELECT * FROM working_sheets ORDER BY id DESC', (err, rows) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -9918,8 +9917,7 @@ app.get('/api/working-sheets/search-simple', (req, res) => {
   db.all(`
     SELECT DISTINCT kod, nazwa, cena_sprzedazy_pln
     FROM working_sheets 
-    WHERE (archived = 0 OR archived IS NULL)
-      AND (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
+    WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
     ORDER BY 
       CASE 
         WHEN kod LIKE ? THEN 0
