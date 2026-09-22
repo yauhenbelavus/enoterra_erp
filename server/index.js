@@ -404,8 +404,7 @@ function ensureWorkingSheetsNoReceiptCenaKurs43() {
           const selectSql = `
             SELECT ws.id, ROUND(ws.cena_zakupu_pln * ?, 2) AS cena_pln
             FROM working_sheets ws
-            WHERE COALESCE(ws.archived, 0) = 0
-              AND COALESCE(ws.cena_zakupu_pln, 0) > 0
+            WHERE COALESCE(ws.cena_zakupu_pln, 0) > 0
               AND NOT EXISTS (
                 SELECT 1 FROM products p
                 WHERE p.kod = ws.kod AND p.receipt_id IS NOT NULL
@@ -511,22 +510,43 @@ function ensureWorkingSheetsRenameCenaSprzedazyColumn(done) {
   });
 }
 
-function ensureWorkingSheetsDropRezerwacjeColumn() {
+function dropWorkingSheetsColumnIfPresent(columnName, done) {
   db.all('PRAGMA table_info(working_sheets)', (err, columns) => {
     if (err) {
       console.error('❌ Error reading working_sheets schema:', err.message);
+      if (done) done();
       return;
     }
-    const hasColumn = (columns || []).some((col) => col.name === 'rezerwacje');
-    if (!hasColumn) return;
-    db.run('ALTER TABLE working_sheets DROP COLUMN rezerwacje', (dropErr) => {
+    const hasColumn = (columns || []).some((col) => col.name === columnName);
+    if (!hasColumn) {
+      if (done) done();
+      return;
+    }
+    db.run(`ALTER TABLE working_sheets DROP COLUMN "${columnName}"`, (dropErr) => {
       if (dropErr) {
-        console.error('❌ Error dropping working_sheets.rezerwacje:', dropErr.message);
+        console.error(`❌ Error dropping working_sheets.${columnName}:`, dropErr.message);
       } else {
-        console.log('✅ Column working_sheets.rezerwacje dropped');
+        console.log(`✅ Column working_sheets.${columnName} dropped`);
       }
+      if (done) done();
     });
   });
+}
+
+function dropWorkingSheetsColumnsIfPresent(columnNames) {
+  const next = (i) => {
+    if (i >= columnNames.length) return;
+    dropWorkingSheetsColumnIfPresent(columnNames[i], () => next(i + 1));
+  };
+  next(0);
+}
+
+function ensureWorkingSheetsDropRezerwacjeColumn() {
+  dropWorkingSheetsColumnIfPresent('rezerwacje');
+}
+
+function ensureWorkingSheetsDropUnusedColumns() {
+  dropWorkingSheetsColumnsIfPresent(['produkt_id', 'data', 'archived', 'archived_at']);
 }
 
 function ensureWorkingSheetsFrozenColumns() {
@@ -1205,10 +1225,6 @@ db.serialize(() => {
     sprzedawca TEXT,
     cena_zakupu_pln REAL DEFAULT 0,
     cena_sprzedazy_pln REAL DEFAULT 0,
-    produkt_id INTEGER,
-    data DATE,
-    archived INTEGER DEFAULT 0,
-    archived_at TIMESTAMP,
     koszt_dostawy_per_unit REAL DEFAULT 0,
     podatek_akcyzowy REAL DEFAULT 0,
     koszt_wlasny REAL DEFAULT 0,
@@ -1223,6 +1239,7 @@ db.serialize(() => {
       ensureWorkingSheetsUniqueIndex();
       ensureWorkingSheetsFrozenColumns();
       ensureWorkingSheetsDropRezerwacjeColumn();
+      ensureWorkingSheetsDropUnusedColumns();
       ensureWorkingSheetsRenameCenaColumn(() => {
         ensureWorkingSheetsRenameCenaSprzedazyColumn(() => {
           ensureWorkingSheetsCenaEurToPln();
@@ -2140,8 +2157,7 @@ app.get('/api/products/wartosc-towaru', (req, res) => {
   console.log('📦 GET /api/products/wartosc-towaru - Fetching product values from working_sheets');
   db.all(
     `SELECT kod, (ilosc * cena_zakupu_pln) as wartosc 
-     FROM working_sheets 
-     WHERE archived = 0 OR archived IS NULL`,
+     FROM working_sheets`,
     [],
     (err, rows) => {
       if (err) {
@@ -3461,8 +3477,7 @@ app.get('/api/inventory/report/pdf', async (req, res) => {
     db.all(
       `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
        FROM working_sheets 
-       WHERE (archived = 0 OR archived IS NULL) 
-         AND ilosc > 0 
+       WHERE ilosc > 0 
          AND (typ IS NULL OR typ != 'aksesoria')
        ${inventoryReportOrderClause}`,
       [],
@@ -3514,8 +3529,7 @@ app.post('/api/inventory/report/pdf', async (req, res) => {
     db.all(
       `SELECT nazwa, sprzedawca, ilosc, typ, objetosc 
        FROM working_sheets 
-       WHERE (archived = 0 OR archived IS NULL) 
-         AND ilosc > 0 
+       WHERE ilosc > 0 
          AND (typ IS NULL OR typ != 'aksesoria')
          AND id IN (${placeholders})
        ${inventoryReportOrderClause}`,
@@ -9829,26 +9843,6 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
 
 
 
-// Получить архивированные записи
-app.get('/api/working-sheets/archived', (req, res) => {
-  console.log('📦 GET /api/working-sheets/archived - Fetching archived working sheets');
-  
-  if (!db) {
-    console.error('❌ Database not available');
-    return res.status(500).json({ error: 'Database not available' });
-  }
-  
-  db.all('SELECT * FROM working_sheets WHERE archived = 1 ORDER BY archived_at DESC', (err, rows) => {
-    if (err) {
-      console.error('❌ Database error:', err);
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    console.log(`✅ Found ${rows.length} archived working sheets`);
-    res.json(rows || []);
-  });
-});
-
 // Working Sheets API
 app.get('/api/working-sheets', (req, res) => {
   console.log('📝 GET /api/working-sheets - Fetching all working sheets');
@@ -9859,7 +9853,7 @@ app.get('/api/working-sheets', (req, res) => {
     return res.status(500).json({ error: 'Database not available' });
   }
   
-  db.all('SELECT * FROM working_sheets WHERE archived = 0 OR archived IS NULL ORDER BY id DESC', (err, rows) => {
+  db.all('SELECT * FROM working_sheets ORDER BY id DESC', (err, rows) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -9884,8 +9878,7 @@ app.get('/api/working-sheets/search-simple', (req, res) => {
   db.all(`
     SELECT DISTINCT kod, nazwa, cena_sprzedazy_pln
     FROM working_sheets 
-    WHERE (archived = 0 OR archived IS NULL)
-      AND (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
+    WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
     ORDER BY 
       CASE 
         WHEN kod LIKE ? THEN 0
@@ -10297,11 +10290,11 @@ app.get('/api/working-sheets/search', (req, res) => {
 });
 
 app.post('/api/working-sheets', (req, res) => {
-  const { data, produkt_id, kod, nazwa, ilosc, typ } = req.body;
+  const { kod, nazwa, ilosc, typ } = req.body;
   const normalizedKod = normalizeProductKod(kod);
   console.log('📝 POST /api/working-sheets - Creating new working sheet:', { kod: normalizedKod, nazwa, ilosc, typ });
 
-  if (!data || !normalizedKod || !nazwa || !ilosc) {
+  if (!normalizedKod || !nazwa || !ilosc) {
     console.log('❌ Validation failed: kod, nazwa, and ilosc are required');
     return res.status(400).json({ error: 'Kod, nazwa, and ilosc are required' });
   }
@@ -11207,17 +11200,16 @@ app.post('/api/sheets', (req, res) => {
         
         // Вставляем данные в working_sheets
         if (filteredData.length > 0) {
-          const placeholders = filteredData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+          const placeholders = filteredData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
           const values = filteredData.flatMap(item => [
             item.kod, item.nazwa, item.ilosc, item.kod_kreskowy, item.data_waznosci,
             item.objetosc, item.typ, item.sprzedawca,
             null, // cena_zakupu_pln (по умолчанию null)
             null, // cena_sprzedazy_pln (по умолчанию null)
-            null // produkt_id
           ]);
           
           db.run(
-            `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, data_waznosci, objetosc, typ, sprzedawca, cena_zakupu_pln, cena_sprzedazy_pln, produkt_id) VALUES ${placeholders}`,
+            `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, data_waznosci, objetosc, typ, sprzedawca, cena_zakupu_pln, cena_sprzedazy_pln) VALUES ${placeholders}`,
             values,
             function(err) {
               if (err) {

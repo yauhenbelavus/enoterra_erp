@@ -1,6 +1,6 @@
 /**
  * Match OCR product lines to working_sheets by nazwa and enrich with catalog fields.
- * Rules: active rows only (not archived), ilosc is ignored, no dropdown — pick one row or skip.
+ * Rules: match catalog rows by nazwa, ilosc is ignored, no dropdown — pick one row or skip.
  */
 
 const LEGAL_FORM_PATTERN =
@@ -96,8 +96,7 @@ function loadWorkingSheetsCatalog(db) {
   return new Promise((resolve, reject) => {
     db.all(
       `SELECT id, kod, nazwa, kod_kreskowy, typ, objetosc, sprzedawca
-       FROM working_sheets
-       WHERE archived = 0 OR archived IS NULL`,
+       FROM working_sheets`,
       [],
       (err, rows) => {
         if (err) reject(err);
