@@ -27,5 +27,10 @@
     /* SVG Support */
     "types": ["vite/client"]
   },
-  "include": ["src", "src/types/svg.d.ts"]
+  "include": [
+    "src",
+    "src/types/svg.d.ts",
+    "server/purchaseReceiptValidation.mjs",
+    "server/receiptKursValidation.mjs"
+  ]
 }

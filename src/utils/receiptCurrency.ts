@@ -1,3 +1,8 @@
+import {
+  isKursValueFilled as isKursValueFilledShared,
+  needsKursToPln as needsKursToPlnShared,
+} from '../../server/receiptKursValidation.mjs';
+
 export type WalutaFaktury = 'EUR' | 'PLN' | 'DKK';
 
 export type WalutaFakturySelection = WalutaFaktury | '';
@@ -319,7 +324,7 @@ export function getSecondaryKursLabel(waluta: WalutaFakturySelection): string {
 
 /** Kurs 1 / Kurs 2 na nowym przyjęciu: waluta → PLN. PLN nie wymaga kursu. */
 export function needsKursToPln(waluta: WalutaFakturySelection): boolean {
-  return waluta === 'EUR' || waluta === 'DKK';
+  return needsKursToPlnShared(waluta);
 }
 
 export function getKursToPlnSuffix(waluta: WalutaFakturySelection): string {
@@ -375,13 +380,22 @@ export function validatePurchaseKursPair(
   return null;
 }
 
+export function getPurchaseKursInvalidFields(
+  walutaDostawy: WalutaFakturySelection,
+  kursDostawyDisplay: string,
+  walutaFaktury: WalutaFakturySelection,
+  kursFakturyDisplay: string
+): { walutaFaktury: boolean; kursDostawy: boolean; kursFaktury: boolean } {
+  return {
+    walutaFaktury: !isWalutaSelected(walutaFaktury),
+    kursDostawy: needsKursToPln(walutaDostawy) && !isKursValueFilled(kursDostawyDisplay),
+    kursFaktury: needsKursToPln(walutaFaktury) && walutaFaktury !== walutaDostawy && !isKursValueFilled(kursFakturyDisplay),
+  };
+}
+
 /** Czy wartość kursu w polu formularza jest wypełniona i > 0. */
 export function isKursValueFilled(value: string | number | null | undefined): boolean {
-  if (value == null) return false;
-  const raw = String(value).trim();
-  if (!raw || raw === ',' || raw === '.') return false;
-  const n = parsePlNumber(raw);
-  return Number.isFinite(n) && n > 0;
+  return isKursValueFilledShared(value);
 }
 
 /**

@@ -4,6 +4,7 @@ import { X, Plus, Grape, Car, Calendar } from 'lucide-react';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { pl } from 'date-fns/locale';
 import { API_URL } from '../config';
+import toast from 'react-hot-toast';
 import {
   WALUTY_FAKTURY,
   WalutaFaktury,
@@ -17,6 +18,7 @@ import {
   getWalutaSymbol,
   isKursEurPlnActive,
   isKursFakturyActive,
+  isKursValueFilled,
   isPrimaryKursActive,
   isSecondaryKursActive,
   normalizeWalutaFaktury,
@@ -27,11 +29,20 @@ import {
   usesPrimaryKursFakturyState,
   validateRequiredKurs,
 } from '../utils/receiptCurrency';
+import {
+  getHeaderInvalidFields,
+  getRowInvalidFields,
+  validatePurchaseReceipt,
+} from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput } from './PlMoneyInput';
 import "react-datepicker/dist/react-datepicker.css";
 import "./DatePicker.css";
 
 registerLocale('pl', pl);
+
+const INVALID_FIELD = '!border-red-400';
+const withInvalid = (className: string, invalid: boolean): string =>
+  invalid ? `${className} ${INVALID_FIELD}` : className;
 
 const TYPY_TOWARU = [
   { value: 'czerwone', label: 'Czerwone', color: 'bg-red-100 text-red-800 border-red-200' },
@@ -174,7 +185,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
   const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
   const [aktualnyKurs, setAktualnyKurs] = useState('0,00');
-  const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('0,00');
+  const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
   const [rabat, setRabat] = useState('0,00');
   const [walutaFaktury, setWalutaFaktury] = useState<WalutaFaktury>('EUR');
   const [kursFaktury, setKursFaktury] = useState('');
@@ -205,14 +216,25 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     else setAktualnyKurs(value);
   };
 
-  const hasValidProducts = productRows.some(row =>
-    row.kod && row.nazwa && row.ilosc && row.cena
-  );
-  const canSubmit =
-    !isSaving &&
-    Boolean(selectedDate) &&
-    hasValidProducts &&
-    !validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+  const kursError = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+  const headerInvalid = getHeaderInvalidFields({
+    hasDate: Boolean(selectedDate),
+    sprzedawca,
+    skipDelivery: true,
+    products: productRows,
+    podatekAkcyzowy,
+  });
+  const invalidPrimaryKurs = isPrimaryKursActive(walutaFaktury) && !isKursValueFilled(primaryKursValue);
+  const invalidSecondaryKurs = isSecondaryKursActive(walutaFaktury) && !isKursValueFilled(aktualnyKurs);
+  const purchaseValidationError = validatePurchaseReceipt({
+    hasDate: Boolean(selectedDate),
+    sprzedawca,
+    skipDelivery: true,
+    kursError,
+    products: productRows,
+    podatekAkcyzowy,
+  });
+  const canSubmit = !isSaving && !purchaseValidationError;
 
   // Инициализация данных при открытии модального окна
   useEffect(() => {
@@ -541,20 +563,13 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       return;
     }
 
-    const validProducts = productRows.filter(row => 
-      row.kod && row.nazwa && row.ilosc && row.cena
-    );
-
-    if (validProducts.length === 0) {
-      console.log('Early return: no valid products');
+    const formError = purchaseValidationError;
+    if (formError) {
+      toast.error(formError);
       return;
     }
 
-    if (validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury)) {
-      return;
-    }
-
-    const formattedProducts = validProducts.map(row => ({
+    const formattedProducts = productRows.map(row => ({
       kod: row.kod,
       nazwa: row.nazwa,
       kod_kreskowy: row.kod_kreskowy || '',
@@ -723,7 +738,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   onChange={(date: Date | null) => setSelectedDate(date)}
                   locale="pl"
                   dateFormat="dd/MM/yyyy"
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  className={withInvalid("w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", headerInvalid.date)}
                   placeholderText="Wybierz datę"
                   popperClassName="z-50"
                 />
@@ -843,7 +858,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                     value={primaryKursValue}
                     onChange={setPrimaryKursValue}
                     placeholder="0,00"
-                    className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className={withInvalid("w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", invalidPrimaryKurs)}
                   />
                 </div>
               ) : (
@@ -862,7 +877,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 value={sprzedawca}
                 onChange={(e) => setSprzedawca(e.target.value)}
                 placeholder="Wprowadź imię sprzedawcy"
-                className="w-[300px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                className={withInvalid("w-[300px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", headerInvalid.sprzedawca)}
               />
             </div>
             <div className="shrink-0">
@@ -883,7 +898,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                     value={aktualnyKurs}
                     onChange={setAktualnyKurs}
                     placeholder="0,00"
-                    className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className={withInvalid("w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", invalidSecondaryKurs)}
                   />
                 </div>
               ) : (
@@ -899,7 +914,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   value={podatekAkcyzowy}
                   onChange={setPodatekAkcyzowy}
                   placeholder="0,00"
-                  className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  className={withInvalid("w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", headerInvalid.akcyza)}
                 />
                 <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
               </div>
@@ -969,12 +984,14 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pr-1 pb-10">
             <div className="space-y-1">
-            {productRows.map((row, index) => (
+            {productRows.map((row, index) => {
+              const rowInvalid = getRowInvalidFields(row);
+              return (
               <div key={index} className="grid grid-cols-12 gap-1 relative">
                 <div className="col-span-1.5 relative">
                   <input
                     type="text"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className={withInvalid("w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", rowInvalid.kod)}
                     placeholder="Kod"
                     value={row.kod}
                     onChange={(e) => {
@@ -995,7 +1012,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 <div className="col-span-2">
                   <input
                     type="text"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className={withInvalid("w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", rowInvalid.nazwa)}
                     placeholder="Nazwa"
                     value={row.nazwa}
                     onChange={(e) => {
@@ -1008,7 +1025,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 <div className="col-span-2">
                   <input
                     type="text"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    className={withInvalid("w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", rowInvalid.kod_kreskowy)}
                     placeholder="Kod kreskowy"
                     value={row.kod_kreskowy}
                     onChange={(e) => {
@@ -1021,7 +1038,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 <div className="col-span-1.5">
                   <input
                     type="number"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className={withInvalid("w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none", rowInvalid.ilosc)}
                     placeholder="0"
                     value={row.ilosc}
                     onChange={(e) => {
@@ -1043,7 +1060,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                         newRows[index].cena = value;
                         setProductRows(newRows);
                       }}
-                      className="w-[103%] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                      className={withInvalid("w-[103%] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", rowInvalid.cena)}
                       placeholder="0,00"
                     />
                   </div>
@@ -1067,7 +1084,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   <button
                     type="button"
                     onClick={() => toggleDataWaznosci(index)}
-                    className={`p-1 focus:outline-none pointer-events-auto relative z-[60] ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : 'text-gray-500 hover:text-gray-700'}`}
+                    className={`p-1 focus:outline-none pointer-events-auto relative z-[60] ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : rowInvalid.dataWaznosci ? 'text-red-500 hover:text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
                     title={row.dataWaznosci ? `Termin ważności: ${row.dataWaznosci}` : "Dodaj termin ważności"}
                   >
                     <Calendar size={16} />
@@ -1107,7 +1124,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleDropdown(index)}
-                      className={`w-[200%] px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ml-1 ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`}
+                      className={withInvalid(`w-[200%] px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ml-1 ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`, rowInvalid.typ)}
                     >
                       <span className="truncate">
                         {row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Wybierz typ' : 'Wybierz typ'}
@@ -1140,7 +1157,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleObjetoscDropdown(index)}
-                      className={`w-[60%] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
+                      className={withInvalid(`w-[60%] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`, rowInvalid.objetosc)}
                     >
                       <span className="truncate">
                         {row.objetosc ? OBJETOSCI_WINA.find(o => o.value === row.objetosc)?.label || row.objetosc : 'Wybierz'}
@@ -1170,7 +1187,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   </div>
                 </div>
               </div>
-            ))}
+            );
+            })}
             </div>
             </div>
           </div>
@@ -1180,6 +1198,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           <button
             onClick={handleSubmit}
             disabled={!canSubmit}
+            title={purchaseValidationError || undefined}
             className={`px-6 py-1.5 text-white text-xs rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors font-sora ${
               !canSubmit
                 ? 'bg-gray-400 cursor-not-allowed' 

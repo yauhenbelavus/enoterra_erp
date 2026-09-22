@@ -51,6 +51,8 @@ const ocrUpload = multer({
 });
 
 const { parsePurchaseInvoicePdf } = require('./purchaseInvoiceOcr');
+const { validatePurchaseReceipt } = require('./purchaseReceiptValidation.mjs');
+const { isKursValueFilled, needsKursToPln, validateRequiredKurs } = require('./receiptKursValidation.mjs');
 
 // Serve uploaded files from uploads directory (ДОЛЖЕН БЫТЬ ПЕРЕД ВСЕМИ API endpoints)
 app.use('/uploads', (req, res, next) => {
@@ -186,38 +188,6 @@ function parseKursValue(value, fallback = 1) {
   const n = parseFloat(String(value == null ? '' : value).replace(',', '.'));
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.round(n * 100) / 100;
-}
-
-function isKursValueFilled(value) {
-  if (value == null) return false;
-  const raw = String(value).trim();
-  if (!raw || raw === ',' || raw === '.') return false;
-  const n = parseFloat(raw.replace(',', '.'));
-  return Number.isFinite(n) && n > 0;
-}
-
-// Обязательные курсы: EUR → PLN/EUR; PLN → PLN/EUR; DKK → DKK/EUR + PLN/EUR.
-function validateRequiredKurs(waluta, aktualnyKurs, kursFaktury) {
-  const normalized = normalizeWalutaFaktury(waluta);
-  if (normalized === 'EUR') {
-    if (!isKursValueFilled(aktualnyKurs)) return 'Wprowadź kurs PLN/EUR';
-    return null;
-  }
-  if (normalized === 'PLN') {
-    if (!isKursValueFilled(kursFaktury)) return 'Wprowadź kurs PLN/EUR';
-    return null;
-  }
-  if (normalized === 'DKK') {
-    if (!isKursValueFilled(kursFaktury)) return 'Wprowadź kurs DKK/EUR';
-    if (!isKursValueFilled(aktualnyKurs)) return 'Wprowadź kurs PLN/EUR';
-    return null;
-  }
-  return 'Wybierz walutę faktury';
-}
-
-function needsKursToPln(waluta) {
-  const w = String(waluta || '').trim().toUpperCase();
-  return w === 'EUR' || w === 'DKK';
 }
 
 function parseKursToPln(waluta, value) {
@@ -7833,8 +7803,15 @@ app.post('/api/product-receipts', upload.fields([
   }
 
   products = normalizeReceiptProducts(products);
-  if (products.some((p) => !p.kod)) {
-    return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
+  const receiptError = validatePurchaseReceipt({
+    hasDate: true,
+    sprzedawca,
+    skipDelivery: true,
+    products,
+    podatekAkcyzowy,
+  });
+  if (receiptError) {
+    return res.status(400).json({ error: receiptError });
   }
 
   const kurs = kursMode === 'toPln' ? 1 : kursEurPln;
@@ -8306,8 +8283,15 @@ app.put('/api/product-receipts/:id', upload.fields([
   }
 
   products = normalizeReceiptProducts(products);
-  if (products.some((p) => !p.kod)) {
-    return res.status(400).json({ error: 'Kod produktu nie może być pusty' });
+  const receiptError = validatePurchaseReceipt({
+    hasDate: true,
+    sprzedawca,
+    skipDelivery: true,
+    products,
+    podatekAkcyzowy,
+  });
+  if (receiptError) {
+    return res.status(400).json({ error: receiptError });
   }
 
   const kursEurPln = getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury);

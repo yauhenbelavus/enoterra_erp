@@ -19,7 +19,13 @@ import {
   sharesKursToPlnPair,
   toKursToPln,
   validatePurchaseKursPair,
+  getPurchaseKursInvalidFields,
 } from '../utils/receiptCurrency';
+import {
+  getHeaderInvalidFields,
+  getRowInvalidFields,
+  validatePurchaseReceipt,
+} from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
@@ -168,6 +174,11 @@ const emptyRow = (): ProductRow => ({
 const HEADER_H = 'h-[30px] box-border';
 const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
 const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
+const INVALID_FIELD = '!border-red-400';
+const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
+
+const withInvalid = (className: string, invalid: boolean): string =>
+  invalid ? `${className} ${INVALID_FIELD}` : className;
 
 const SelectChevron = () => (
   <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -222,7 +233,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
   const [openVatDropdownIndex, setOpenVatDropdownIndex] = useState<number | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
-  const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('0,00');
+  const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
   const [rabat, setRabat] = useState('0,00');
   const [walutaFaktury, setWalutaFaktury] = useState<WalutaFakturySelection>('');
   const [walutaDostawy, setWalutaDostawy] = useState<WalutaFakturySelection>('');
@@ -408,22 +419,35 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
+  const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
+  const headerInvalid = getHeaderInvalidFields({
+    hasDate: Boolean(selectedDate),
+    sprzedawca,
+    kosztDostawy,
+    walutaDostawy,
+    products: productRows,
+    podatekAkcyzowy,
+  });
+  const kursInvalid = getPurchaseKursInvalidFields(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
 
-  const hasValidProducts = productRows.some(row => row.kod && row.nazwa && row.ilosc && row.cena);
-  const canSubmit =
-    Boolean(selectedDate) &&
-    hasValidProducts &&
-    !validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
+  const getPurchaseValidationError = (): string | null =>
+    validatePurchaseReceipt({
+      hasDate: Boolean(selectedDate),
+      sprzedawca,
+      kosztDostawy,
+      walutaDostawy,
+      kursError,
+      products: productRows,
+      podatekAkcyzowy,
+    });
+
+  const purchaseValidationError = getPurchaseValidationError();
+  const canSubmit = !purchaseValidationError;
 
   const handleSubmit = async () => {
-    if (!selectedDate || !hasValidProducts) return;
-    if (!isWalutaSelected(walutaFaktury)) { toast.error('Wybierz walutę faktury'); return; }
-    if (parsePlNumber(kosztDostawy) > 0 && !isWalutaSelected(walutaDostawy)) {
-      toast.error('Wybierz walutę dostawy');
-      return;
-    }
-    const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury);
-    if (kursError) { toast.error(kursError); return; }
+    const formError = getPurchaseValidationError();
+    if (formError) { toast.error(formError); return; }
+    if (!selectedDate) return;
 
     const kursDostawyNumber = toKursToPln(walutaDostawy, kursDostawy);
     const totalBottles = productRows.reduce((t, r) => t + (parseFloat(r.ilosc) || 0), 0);
@@ -431,9 +455,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       ? (parseFloat(kosztDostawy.replace(',', '.')) / totalBottles) * kursDostawyNumber
       : 0;
 
-    const formattedProducts = productRows
-      .filter(row => row.kod && row.nazwa && row.ilosc && row.cena)
-      .map(row => ({
+    const formattedProducts = productRows.map(row => ({
         kod: row.kod,
         nazwa: row.nazwa,
         kod_kreskowy: row.kod_kreskowy || '',
@@ -580,7 +602,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               onChange={(date: Date | null) => setSelectedDate(date)}
               locale="pl"
               dateFormat="dd/MM/yyyy"
-              className={`w-[200px] ${HEADER_FIELD}`}
+              className={withInvalid(`w-[200px] ${HEADER_FIELD}`, headerInvalid.date)}
               placeholderText="Wybierz datę"
               popperClassName="z-50"
             />
@@ -592,7 +614,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               <PlMoneyInput
                 value={kosztDostawy}
                 onChange={setKosztDostawy}
-                className={`w-full ${HEADER_FIELD} pr-9`}
+                className={withInvalid(`w-full ${HEADER_FIELD} pr-9`, headerInvalid.kosztDostawy)}
                 placeholder="0,00"
               />
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
@@ -618,7 +640,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     setKursDostawy(kursFaktury);
                   }
                 }}
-                className={HEADER_SELECT}
+                className={withInvalid(HEADER_SELECT, headerInvalid.walutaDostawy)}
               >
                 <option value="">—</option>
                 {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
@@ -631,7 +653,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div className="w-[96px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
               {kurs1Active ? (
-                <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+                <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursDostawy)} />
               ) : (
                 <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
@@ -691,7 +713,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               value={sprzedawca}
               onChange={(e) => setSprzedawca(e.target.value)}
               placeholder="Wprowadź imię sprzedawcy"
-              className={`w-[300px] ${HEADER_FIELD}`}
+              className={withInvalid(`w-[300px] ${HEADER_FIELD}`, headerInvalid.sprzedawca)}
             />
           </div>
 
@@ -726,7 +748,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     setKursFaktury('');
                   }
                 }}
-                className={HEADER_SELECT}
+                className={withInvalid(HEADER_SELECT, kursInvalid.walutaFaktury)}
               >
                 <option value="">—</option>
                 {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
@@ -739,7 +761,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div className="w-[96px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
-                <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={`w-[96px] ${HEADER_FIELD} pr-6`} />
+                <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursFaktury)} />
               ) : (
                 <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
@@ -747,7 +769,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
               <div className="relative">
-                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={`w-[112px] ${HEADER_FIELD} pr-10`} />
+                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={withInvalid(`w-[112px] ${HEADER_FIELD} pr-10`, headerInvalid.akcyza)} />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
               </div>
             </div>
@@ -778,32 +800,37 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
           <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="space-y-2">
-            {productRows.map((row, index) => (
-              <div key={index} className="flex gap-1 relative items-center">
+            {productRows.map((row, index) => {
+              const rowInvalid = getRowInvalidFields(row);
+              return (
+              <div
+                key={index}
+                className="flex gap-1 relative items-center"
+              >
                 <input
                   type="text"
-                  className="w-[90px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  className={withInvalid(`w-[90px] shrink-0 ${ROW_INPUT}`, rowInvalid.kod)}
                   placeholder="Kod"
                   value={row.kod}
                   onChange={(e) => { const n = [...productRows]; n[index].kod = e.target.value; setProductRows(n); }}
                 />
                 <input
                   type="text"
-                  className="w-[243px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  className={withInvalid(`w-[243px] shrink-0 ${ROW_INPUT}`, rowInvalid.nazwa)}
                   placeholder="Nazwa"
                   value={row.nazwa}
                   onChange={(e) => { const n = [...productRows]; n[index].nazwa = e.target.value; setProductRows(n); }}
                 />
                 <input
                   type="text"
-                  className="w-[132px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  className={withInvalid(`w-[132px] shrink-0 ${ROW_INPUT}`, rowInvalid.kod_kreskowy)}
                   placeholder="Kod kreskowy"
                   value={row.kod_kreskowy}
                   onChange={(e) => { const n = [...productRows]; n[index].kod_kreskowy = e.target.value; setProductRows(n); }}
                 />
                 <input
                   type="number"
-                  className="w-[68px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className={withInvalid(`w-[68px] shrink-0 ${ROW_INPUT} [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`, rowInvalid.ilosc)}
                   placeholder="0"
                   value={row.ilosc}
                   onChange={(e) => { const v = e.target.value; if (v === '' || /^\d*$/.test(v)) { const n = [...productRows]; n[index].ilosc = v; setProductRows(n); } }}
@@ -811,7 +838,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <PlMoneyInput
                   value={row.cena}
                   onChange={(value) => { const n = [...productRows]; n[index].cena = value; n[index].cenaPelna = value ? parsePlNumber(value) : undefined; setProductRows(n); }}
-                  className="w-[78px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                  className={withInvalid(`w-[78px] shrink-0 ${ROW_INPUT}`, rowInvalid.cena)}
                   placeholder="0,00"
                 />
                 <input
@@ -857,7 +884,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                       setOpenVatDropdownIndex(null);
                       setOpenObjetoscDropdownIndex(null);
                     }}
-                    className={`w-full px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`}
+                    className={withInvalid(`w-full px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`, rowInvalid.typ)}
                   >
                     <span className="truncate">{row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Typ' : 'Typ'}</span>
                     <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -880,7 +907,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                       setOpenVatDropdownIndex(null);
                       setOpenDropdownIndex(null);
                     }}
-                    className={`w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
+                    className={withInvalid(`w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`, rowInvalid.objetosc)}
                   >
                     <span className="truncate">{row.objetosc || '—'}</span>
                     <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -906,7 +933,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleDataWaznosci(index)}
-                      className={`p-1 focus:outline-none ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-600'}`}
+                      className={`p-1 focus:outline-none ${row.dataWaznosci ? 'text-green-600 hover:text-green-700' : rowInvalid.dataWaznosci ? 'text-red-500 hover:text-red-600' : 'text-gray-400 hover:text-gray-600'}`}
                       title={row.dataWaznosci ? `Termin ważności: ${row.dataWaznosci.toLocaleDateString('pl-PL')}` : 'Dodaj termin ważności'}
                     >
                       <Calendar size={16} />
@@ -932,7 +959,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
             </div>
               <button
                 type="button"
@@ -1002,6 +1030,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               type="button"
               onClick={handleSubmit}
               disabled={!canSubmit || isSaving}
+              title={purchaseValidationError || undefined}
               className={`px-5 py-2 text-sm font-medium rounded-md border transition-colors font-sora ${
                 !canSubmit || isSaving
                   ? 'border-gray-300 text-gray-400 cursor-not-allowed bg-white'
