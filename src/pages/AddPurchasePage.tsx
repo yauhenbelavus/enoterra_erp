@@ -176,7 +176,9 @@ const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md fo
 const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
 const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
-const PRODUCT_ROW_GRID = 'grid gap-2 items-center min-w-0 [grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_24px]';
+const PRODUCT_ROW_GRID = 'grid gap-2 min-w-0 [grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_52px]';
+const PRODUCT_ROW_HEADER = `${PRODUCT_ROW_GRID} items-end justify-items-stretch`;
+const PRODUCT_ROW_FIELDS = `${PRODUCT_ROW_GRID} items-center`;
 
 const SelectChevron = () => (
   <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -796,32 +798,29 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="border-t border-gray-200" />
 
-        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
-        <div className="shrink-0 mb-2 pr-2">
-          <div className={PRODUCT_ROW_GRID}>
-            <span className="text-xs font-medium text-gray-700 font-sora">Kod</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Nazwa</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Ilość</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Cena</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Wart. netto</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">VAT</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Wart. brutto</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Typ</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Objętość</span>
-            <span className="text-xs font-medium text-gray-700 font-sora">Koszt/but.</span>
+        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 overflow-y-auto overflow-x-hidden">
+          <div className={`sticky top-0 z-20 bg-white pb-2 ${PRODUCT_ROW_HEADER}`}>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Ilość</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Cena</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. netto</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">VAT</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. brutto</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Typ</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Objętość</span>
+            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Koszt/but.</span>
             <span />
           </div>
-        </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-            <div className="space-y-2 pr-2">
+            <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
               return (
               <div
                 key={index}
-                className={`${PRODUCT_ROW_GRID} relative`}
+                className={`${PRODUCT_ROW_FIELDS} relative`}
               >
                 <input
                   type="text"
@@ -944,7 +943,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="flex items-center justify-end gap-1 min-w-0">
+                <div className="flex items-center justify-end gap-1">
                   {row.typ === 'ferment' && (
                     <button
                       type="button"
@@ -986,7 +985,6 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               >
                 <Plus size={16} />
               </button>
-          </div>
         </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
