@@ -7,10 +7,11 @@ interface ProductReceipt {
   data_przyjecia: string;
   sprzedawca: string;
   wartosc_przyjecia_netto: number;
+  vat?: number;
+  wartosc_przyjecia_brutto?: number;
   kosztDostawy: number;
   rabat?: number;
-  waluta_faktury?: string;
-  walutaFaktury?: string;
+  waluta_przyjecia?: string;
   kurs_faktury?: number;
   kursFaktury?: number;
   aktualnyKurs?: number;

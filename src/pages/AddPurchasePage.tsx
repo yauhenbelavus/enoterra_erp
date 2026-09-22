@@ -40,10 +40,11 @@ interface ProductReceipt {
   data_przyjecia: string;
   sprzedawca: string;
   wartosc_przyjecia_netto: number;
+  vat?: number;
+  wartosc_przyjecia_brutto?: number;
   kosztDostawy: number;
   rabat?: number;
-  waluta_faktury?: string;
-  walutaFaktury?: string;
+  waluta_przyjecia?: string;
   kurs_faktury?: number;
   kursFaktury?: number;
   aktualnyKurs?: number;
@@ -197,10 +198,11 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       data_przyjecia: receipt.data_przyjecia,
       sprzedawca: receipt.sprzedawca || '',
       wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
+      vat: receipt.vat ?? 0,
+      wartosc_przyjecia_brutto: receipt.wartosc_przyjecia_brutto ?? 0,
       kosztDostawy: receipt.kosztDostawy || 0,
       rabat: receipt.rabat ?? 0,
-      waluta_faktury: receipt.waluta_faktury ?? 'EUR',
-      walutaFaktury: receipt.waluta_faktury ?? receipt.walutaFaktury ?? 'EUR',
+      waluta_przyjecia: receipt.waluta_przyjecia ?? 'EUR',
       kurs_faktury: receipt.kurs_faktury ?? 1,
       kursFaktury: receipt.kurs_faktury ?? receipt.kursFaktury ?? 1,
       aktualnyKurs: receipt.aktualny_kurs ?? receipt.aktualnyKurs ?? 0,
@@ -486,11 +488,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       date: selectedDate.toLocaleDateString('en-CA'),
       sprzedawca,
       wartosc_przyjecia_netto: roundMoney(kwotaNetto),
+      vat: roundMoney(kwotaVat),
+      wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
       kosztDostawy: deliveryCost,
       aktualnyKurs: String(kursDostawyNumber),
       podatekAkcyzowy,
       rabat,
-      walutaFaktury,
+      waluta_przyjecia: walutaFaktury,
       walutaDostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
       kursFaktury: kursFakturyNumber,
       kursMode: 'toPln' as const,

@@ -19,10 +19,11 @@ interface ProductReceipt {
   data_przyjecia: string;
   sprzedawca: string;
   wartosc_przyjecia_netto: number;
+  vat?: number;
+  wartosc_przyjecia_brutto?: number;
   kosztDostawy: number;
   rabat?: number;
-  waluta_faktury?: string;
-  walutaFaktury?: string;
+  waluta_przyjecia?: string;
   kurs_faktury?: number;
   kursFaktury?: number;
   aktualnyKurs?: number;
@@ -73,10 +74,11 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       data_przyjecia: receipt.data_przyjecia,
       sprzedawca: receipt.sprzedawca || '',
       wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
+      vat: receipt.vat ?? 0,
+      wartosc_przyjecia_brutto: receipt.wartosc_przyjecia_brutto ?? 0,
       kosztDostawy: receipt.kosztDostawy || 0,
       rabat: receipt.rabat ?? 0,
-      waluta_faktury: receipt.waluta_faktury ?? 'EUR',
-      walutaFaktury: receipt.waluta_faktury ?? receipt.walutaFaktury ?? 'EUR',
+      waluta_przyjecia: receipt.waluta_przyjecia ?? 'EUR',
       kurs_faktury: receipt.kurs_faktury ?? 1,
       kursFaktury: receipt.kurs_faktury ?? receipt.kursFaktury ?? 1,
       aktualny_kurs: receipt.aktualny_kurs,
@@ -141,11 +143,13 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     date: string;
     sprzedawca: string;
     wartosc_przyjecia_netto: number;
+    vat?: number;
+    wartosc_przyjecia_brutto?: number;
     kosztDostawy: number;
     aktualnyKurs?: number | string;
     podatekAkcyzowy?: number | string;
     rabat?: string;
-    walutaFaktury?: string;
+    waluta_przyjecia?: string;
     kursFaktury?: number;
     products: Array<{
       kod: string;
@@ -168,11 +172,13 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           date: data.date,
           sprzedawca: data.sprzedawca,
           wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
+          vat: data.vat,
+          wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
           kosztDostawy: data.kosztDostawy,
           aktualnyKurs: data.aktualnyKurs,
           podatekAkcyzowy: data.podatekAkcyzowy,
           rabat: data.rabat,
-          walutaFaktury: data.walutaFaktury,
+          waluta_przyjecia: data.waluta_przyjecia,
           kursFaktury: data.kursFaktury,
           products: data.products,
         };
@@ -188,11 +194,13 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             date: data.date,
             sprzedawca: data.sprzedawca,
             wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
+            vat: data.vat,
+            wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
             kosztDostawy: data.kosztDostawy,
             aktualnyKurs: data.aktualnyKurs,
             podatekAkcyzowy: data.podatekAkcyzowy,
             rabat: data.rabat,
-            walutaFaktury: data.walutaFaktury,
+            waluta_przyjecia: data.waluta_przyjecia,
             kursFaktury: data.kursFaktury,
             products: data.products,
           }),
@@ -225,11 +233,13 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     date: string;
     sprzedawca: string;
     wartosc_przyjecia_netto: number;
+    vat?: number;
+    wartosc_przyjecia_brutto?: number;
     kosztDostawy: number;
     aktualnyKurs?: number | string;
     podatekAkcyzowy?: number | string;
     rabat?: number | string;
-    walutaFaktury?: string;
+    waluta_przyjecia?: string;
     kursFaktury?: number;
     products: Array<{
       kod: string;
@@ -252,11 +262,13 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           date: data.date,
           sprzedawca: data.sprzedawca,
           wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
+          vat: data.vat,
+          wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
           kosztDostawy: data.kosztDostawy,
           aktualnyKurs: data.aktualnyKurs,
           podatekAkcyzowy: data.podatekAkcyzowy,
           rabat: data.rabat,
-          walutaFaktury: data.walutaFaktury,
+          waluta_przyjecia: data.waluta_przyjecia,
           kursFaktury: data.kursFaktury,
           products: data.products,
         };
@@ -272,11 +284,13 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             date: data.date,
             sprzedawca: data.sprzedawca,
             wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
+            vat: data.vat,
+            wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
             kosztDostawy: data.kosztDostawy,
             aktualnyKurs: data.aktualnyKurs,
             podatekAkcyzowy: data.podatekAkcyzowy,
             rabat: data.rabat,
-            walutaFaktury: data.walutaFaktury,
+            waluta_przyjecia: data.waluta_przyjecia,
             kursFaktury: data.kursFaktury,
             products: data.products,
           }),

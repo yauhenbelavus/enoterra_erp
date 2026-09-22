@@ -13,10 +13,11 @@ interface ProductReceipt {
   data_przyjecia: string;
   sprzedawca: string;
   wartosc_przyjecia_netto: number;
+  vat?: number;
+  wartosc_przyjecia_brutto?: number;
   kosztDostawy: number;
   rabat?: number;
-  waluta_faktury?: string;
-  walutaFaktury?: string;
+  waluta_przyjecia?: string;
   kurs_faktury?: number;
   kursFaktury?: number;
   aktualnyKurs?: number;
@@ -45,11 +46,13 @@ interface ProductReceiptsListProps {
     date: string;
     sprzedawca: string;
     wartosc_przyjecia_netto: number;
+    vat?: number;
+    wartosc_przyjecia_brutto?: number;
     kosztDostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
     rabat?: number;
-    walutaFaktury?: string;
+    waluta_przyjecia?: string;
     kursFaktury?: number;
     products: Array<{
       kod: string;
@@ -351,7 +354,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   {receipt.sprzedawca}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
-                  {getReceiptDisplayWartosc(receipt).toFixed(2)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_faktury ?? receipt.walutaFaktury))}
+                  {getReceiptDisplayWartosc(receipt).toFixed(2)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   {receipt.kosztDostawy.toFixed(2)} €
@@ -504,10 +507,11 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               data_przyjecia: receiptToEdit.data_przyjecia,
               sprzedawca: receiptToEdit.sprzedawca,
               wartosc_przyjecia_netto: receiptToEdit.wartosc_przyjecia_netto,
+              vat: receiptToEdit.vat,
+              wartosc_przyjecia_brutto: receiptToEdit.wartosc_przyjecia_brutto,
               kosztDostawy: receiptToEdit.kosztDostawy,
               rabat: receiptToEdit.rabat,
-              waluta_faktury: receiptToEdit.waluta_faktury,
-              walutaFaktury: receiptToEdit.walutaFaktury,
+              waluta_przyjecia: receiptToEdit.waluta_przyjecia,
               kurs_faktury: receiptToEdit.kurs_faktury,
               kursFaktury: receiptToEdit.kursFaktury,
               aktualnyKurs: receiptToEdit.aktualnyKurs,

@@ -100,11 +100,13 @@ interface EditReceiptModalProps {
     date: string; 
     sprzedawca: string; 
     wartosc_przyjecia_netto: number; 
+    vat?: number;
+    wartosc_przyjecia_brutto?: number;
     kosztDostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
     rabat?: number;
-    walutaFaktury?: WalutaFaktury;
+    waluta_przyjecia?: WalutaFaktury;
     kursFaktury?: number;
     products: Array<{
       kod: string;
@@ -124,14 +126,15 @@ interface EditReceiptModalProps {
     data_przyjecia: string;
     sprzedawca: string;
     wartosc_przyjecia_netto: number;
+    vat?: number;
+    wartosc_przyjecia_brutto?: number;
     kosztDostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
     aktualny_kurs?: number;
     podatek_akcyzowy?: number;
     rabat?: number;
-    waluta_faktury?: string;
-    walutaFaktury?: string;
+    waluta_przyjecia?: string;
     kurs_faktury?: number;
     kursFaktury?: number;
     products: Array<{
@@ -278,7 +281,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setKosztDostawy((receipt.kosztDostawy || 0).toFixed(2).replace('.', ','));
 
         // ➡️ Waluta faktury + kurs faktury
-        const waluta = normalizeWalutaFaktury(receipt.waluta_faktury ?? receipt.walutaFaktury);
+        const waluta = normalizeWalutaFaktury(receipt.waluta_przyjecia);
         setWalutaFaktury(waluta);
         const standardKursFaktury = Number(receipt.kurs_faktury ?? receipt.kursFaktury ?? 1);
         const standardKursEurPln = Number(receipt.aktualny_kurs ?? receipt.aktualnyKurs ?? 1);
@@ -295,9 +298,11 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           setAktualnyKurs(formatKursEurPlnForDisplay(standardKursEurPln));
         }
 
-        skipBruttoSyncRef.current = false;
-        setKwotaVat('');
-        setSumaBrutto('');
+        const savedVat = Number(receipt.vat ?? 0);
+        const savedBrutto = Number(receipt.wartosc_przyjecia_brutto ?? 0);
+        skipBruttoSyncRef.current = savedBrutto > 0;
+        setKwotaVat(savedVat > 0 ? formatPlMoney(savedVat) : '');
+        setSumaBrutto(savedBrutto > 0 ? formatPlMoney(savedBrutto) : '');
 
         // ➡️ 2. Podatek akcyzowy
         if (receipt.podatek_akcyzowy !== undefined && receipt.podatek_akcyzowy !== null) {
@@ -585,11 +590,13 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         date: selectedDate.toLocaleDateString('en-CA'),
         sprzedawca: sprzedawca,
         wartosc_przyjecia_netto: roundMoney(wartoscZRabatem),
+        vat: roundMoney(kwotaVat),
+        wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
         kosztDostawy: deliveryCost,
         aktualnyKurs: aktualnyKursStandard,
         podatekAkcyzowy: parseFloat(podatekAkcyzowy.replace(',', '.')) || 0,
         rabat: rabatValue,
-        walutaFaktury,
+        waluta_przyjecia: walutaFaktury,
         kursFaktury: kursFakturyStandard,
         products: formattedProducts,
         productInvoice: productInvoice || null,

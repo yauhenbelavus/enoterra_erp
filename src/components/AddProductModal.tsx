@@ -37,12 +37,14 @@ interface AddProductModalProps {
   onSubmit: (data: { 
     date: string; 
     sprzedawca: string; 
-    wartosc_przyjecia_netto: number; 
+    wartosc_przyjecia_netto: number;
+    vat?: number;
+    wartosc_przyjecia_brutto?: number; 
     kosztDostawy: number;
     aktualnyKurs?: string;
     podatekAkcyzowy?: string;
     rabat?: string;
-    walutaFaktury?: WalutaFaktury;
+    waluta_przyjecia?: WalutaFaktury;
     kursFaktury?: number;
     products: Array<{
       kod: string;
@@ -396,11 +398,13 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       date: selectedDate.toLocaleDateString('en-CA'),
       sprzedawca: sprzedawca,
       wartosc_przyjecia_netto: roundMoney(wartoscZRabatem),
+      vat: roundMoney(kwotaVat),
+      wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
       kosztDostawy: deliveryCost,
       aktualnyKurs: String(toStandardKursEurPln(walutaFaktury, aktualnyKurs)),
       podatekAkcyzowy: podatekAkcyzowy,
       rabat: rabat,
-      walutaFaktury,
+      waluta_przyjecia: walutaFaktury,
       kursFaktury: toStandardKursFaktury(walutaFaktury, kursFaktury),
       products: formattedProducts,
       productInvoice: productInvoice || null,

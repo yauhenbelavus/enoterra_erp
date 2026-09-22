@@ -12,9 +12,10 @@ interface ProductReceipt {
   data_przyjecia: string;
   sprzedawca: string;
   wartosc_przyjecia_netto: number;
+  vat?: number;
+  wartosc_przyjecia_brutto?: number;
   kosztDostawy: number;
-  waluta_faktury?: string;
-  walutaFaktury?: string;
+  waluta_przyjecia?: string;
   aktualnyKurs?: number;
   podatekAkcyzowy?: number;
   aktualny_kurs?: number;
@@ -97,7 +98,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
 
   if (!receipt) return null;
 
-  const waluta = normalizeWalutaFaktury(receipt.waluta_faktury ?? receipt.walutaFaktury);
+  const waluta = normalizeWalutaFaktury(receipt.waluta_przyjecia);
   const walutaSymbol = getWalutaSymbol(waluta);
 
   return (
@@ -159,6 +160,14 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość netto</label>
               <div className="text-xs text-gray-900 ml-2">{receipt.wartosc_przyjecia_netto} {walutaSymbol}</div>
+            </div>
+            <div className="flex items-center">
+              <label className="block text-xs font-bold text-gray-700 font-sora w-32">VAT</label>
+              <div className="text-xs text-gray-900 ml-2">{receipt.vat ?? 0} {walutaSymbol}</div>
+            </div>
+            <div className="flex items-center">
+              <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość brutto</label>
+              <div className="text-xs text-gray-900 ml-2">{receipt.wartosc_przyjecia_brutto ?? 0} {walutaSymbol}</div>
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość dostawy</label>
