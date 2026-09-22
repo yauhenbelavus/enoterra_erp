@@ -798,8 +798,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="border-t border-gray-200" />
 
-        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 overflow-y-auto overflow-x-hidden">
-          <div className={`sticky top-0 z-20 bg-white pb-2 ${PRODUCT_ROW_HEADER}`}>
+        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
+          <div className={`shrink-0 mb-2 bg-white ${PRODUCT_ROW_HEADER}`}>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
@@ -814,6 +814,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <span />
           </div>
 
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
@@ -943,7 +944,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="flex items-center justify-end gap-1">
+                <div className="flex items-center justify-start gap-1">
                   {row.typ === 'ferment' && (
                     <button
                       type="button"
@@ -985,6 +986,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               >
                 <Plus size={16} />
               </button>
+          </div>
         </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
