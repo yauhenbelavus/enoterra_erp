@@ -720,9 +720,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div className="w-[155px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span></div>
             <div className="w-[75px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Ilość</span></div>
             <div className="w-[78px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Cena</span></div>
-            <div className="w-[136px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
-            <div className="w-[151px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
-            <div className="w-[140px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
+            <div className="w-[151px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Wartość</span></div>
+            <div className="w-[143px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Typ</span></div>
+            <div className="w-[93px] shrink-0"><span className="text-xs font-medium text-gray-700 font-sora">Objętość</span></div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
@@ -767,9 +767,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   type="text"
                   value={formatPlMoney(getRowLineValue(row))}
                   readOnly
-                  className="w-[136px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  className="w-[151px] shrink-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative dropdown-container w-[151px] shrink-0">
+                <div className="relative dropdown-container w-[143px] shrink-0">
                   <button
                     type="button"
                     onClick={() => setOpenDropdownIndex(openDropdownIndex === index ? null : index)}
@@ -788,7 +788,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     </div>
                   )}
                 </div>
-                <div className="relative dropdown-container w-[140px] shrink-0">
+                <div className="relative dropdown-container w-[93px] shrink-0">
                   <button
                     type="button"
                     onClick={() => setOpenObjetoscDropdownIndex(openObjetoscDropdownIndex === index ? null : index)}
