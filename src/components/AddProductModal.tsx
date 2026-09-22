@@ -737,10 +737,18 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
               </label>
               <input
                 type="text"
+                name="sprzedawca_plain"
+                id="sprzedawca_plain_add"
+                autoComplete="nope"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                readOnly
+                onFocus={(e) => { e.currentTarget.readOnly = false; }}
                 value={sprzedawca}
                 onChange={(e) => setSprzedawca(e.target.value)}
                 placeholder="Wprowadź imię sprzedawcy"
-                className="w-[300px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                className="w-[300px] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs read-only:bg-white"
               />
             </div>
             <div className="shrink-0">

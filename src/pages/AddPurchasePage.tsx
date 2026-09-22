@@ -714,10 +714,18 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Sprzedawca</label>
             <input
               type="text"
+              name="sprzedawca_plain"
+              id="sprzedawca_plain"
+              autoComplete="nope"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              readOnly
+              onFocus={(e) => { e.currentTarget.readOnly = false; }}
               value={sprzedawca}
               onChange={(e) => setSprzedawca(e.target.value)}
               placeholder="Wprowadź imię sprzedawcy"
-              className={withInvalid(`w-[300px] ${HEADER_FIELD}`, headerInvalid.sprzedawca)}
+              className={withInvalid(`w-[300px] ${HEADER_FIELD} read-only:bg-white`, headerInvalid.sprzedawca)}
             />
           </div>
 
