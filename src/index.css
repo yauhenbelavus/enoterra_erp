@@ -27,10 +27,17 @@ body {
   background: #666;
 }
 
+.product-table {
+  container-type: inline-size;
+}
+
 .product-rows-scroll {
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-gutter: stable;
+}
+
+.product-rows-inner {
+  width: calc(100cqw - 8px);
 }
 
 .product-rows-scroll::-webkit-scrollbar-track {

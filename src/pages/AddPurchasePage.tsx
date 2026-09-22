@@ -798,8 +798,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="border-t border-gray-200" />
 
-        <div className="flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
-          <div className={`shrink-0 mb-2 bg-white pr-[8px] ${PRODUCT_ROW_HEADER}`}>
+        <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
+          <div className={`product-rows-inner shrink-0 mb-2 bg-white ${PRODUCT_ROW_HEADER}`}>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
@@ -815,6 +815,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div className="product-rows-scroll flex-1 min-h-0">
+            <div className="product-rows-inner">
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
@@ -986,6 +987,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               >
                 <Plus size={16} />
               </button>
+            </div>
           </div>
         </div>
 
