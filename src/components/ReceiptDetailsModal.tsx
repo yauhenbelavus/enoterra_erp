@@ -14,7 +14,7 @@ interface ProductReceipt {
   wartosc_przyjecia_netto: number;
   vat?: number;
   wartosc_przyjecia_brutto?: number;
-  kosztDostawy: number;
+  wartosc_dostawy: number;
   waluta_przyjecia?: string;
   aktualnyKurs?: number;
   podatekAkcyzowy?: number;
@@ -171,7 +171,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
             </div>
             <div className="flex items-center">
               <label className="block text-xs font-bold text-gray-700 font-sora w-32">Wartość dostawy</label>
-              <div className="text-xs text-gray-900 ml-2">{receipt.kosztDostawy} EUR</div>
+              <div className="text-xs text-gray-900 ml-2">{formatPlMoney(Number(receipt.wartosc_dostawy) || 0)} €</div>
             </div>
           </div>
           {(receipt.productInvoice || receipt.transportInvoice) && (

@@ -21,7 +21,7 @@ interface ProductReceipt {
   wartosc_przyjecia_netto: number;
   vat?: number;
   wartosc_przyjecia_brutto?: number;
-  kosztDostawy: number;
+  wartosc_dostawy: number;
   rabat?: number;
   waluta_przyjecia?: string;
   kurs_faktury?: number;
@@ -76,7 +76,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
       vat: receipt.vat ?? 0,
       wartosc_przyjecia_brutto: receipt.wartosc_przyjecia_brutto ?? 0,
-      kosztDostawy: receipt.kosztDostawy || 0,
+      wartosc_dostawy: receipt.wartosc_dostawy ?? 0,
       rabat: receipt.rabat ?? 0,
       waluta_przyjecia: receipt.waluta_przyjecia ?? 'EUR',
       kurs_faktury: receipt.kurs_faktury ?? 1,
@@ -145,7 +145,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     wartosc_przyjecia_netto: number;
     vat?: number;
     wartosc_przyjecia_brutto?: number;
-    kosztDostawy: number;
+    wartosc_dostawy: number;
     aktualnyKurs?: number | string;
     podatekAkcyzowy?: number | string;
     rabat?: string;
@@ -174,7 +174,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
           vat: data.vat,
           wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
-          kosztDostawy: data.kosztDostawy,
+          wartosc_dostawy: data.wartosc_dostawy,
           aktualnyKurs: data.aktualnyKurs,
           podatekAkcyzowy: data.podatekAkcyzowy,
           rabat: data.rabat,
@@ -196,7 +196,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
             vat: data.vat,
             wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
-            kosztDostawy: data.kosztDostawy,
+            wartosc_dostawy: data.wartosc_dostawy,
             aktualnyKurs: data.aktualnyKurs,
             podatekAkcyzowy: data.podatekAkcyzowy,
             rabat: data.rabat,
@@ -235,7 +235,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     wartosc_przyjecia_netto: number;
     vat?: number;
     wartosc_przyjecia_brutto?: number;
-    kosztDostawy: number;
+    wartosc_dostawy: number;
     aktualnyKurs?: number | string;
     podatekAkcyzowy?: number | string;
     rabat?: number | string;
@@ -264,7 +264,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
           vat: data.vat,
           wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
-          kosztDostawy: data.kosztDostawy,
+          wartosc_dostawy: data.wartosc_dostawy,
           aktualnyKurs: data.aktualnyKurs,
           podatekAkcyzowy: data.podatekAkcyzowy,
           rabat: data.rabat,
@@ -286,7 +286,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
             vat: data.vat,
             wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
-            kosztDostawy: data.kosztDostawy,
+            wartosc_dostawy: data.wartosc_dostawy,
             aktualnyKurs: data.aktualnyKurs,
             podatekAkcyzowy: data.podatekAkcyzowy,
             rabat: data.rabat,

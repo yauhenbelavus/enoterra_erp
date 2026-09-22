@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, type Dispatch, type SetStateAction } from 'react';
+import { getKosztWlasny } from './receiptCurrency';
 
 export type SortDirection = 'asc' | 'desc';
 export type SortValue = string | number | Date | null | undefined;
@@ -199,7 +200,7 @@ export function compareClientSales<
   }
 }
 
-export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; kosztDostawy?: number; wartosc_przyjecia_brutto?: number }>(
+export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; wartosc_dostawy?: number; kosztDostawy?: number; wartosc_przyjecia_brutto?: number }>(
   a: T,
   b: T,
   field: string,
@@ -218,7 +219,8 @@ export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?
     case 'wartosc_przyjecia_brutto':
       return compareSortValues(a.wartosc_przyjecia_brutto ?? 0, b.wartosc_przyjecia_brutto ?? 0, direction);
     case 'kosztDostawy':
-      return compareSortValues(a.kosztDostawy ?? 0, b.kosztDostawy ?? 0, direction);
+    case 'wartosc_dostawy':
+      return compareSortValues(a.wartosc_dostawy ?? a.kosztDostawy ?? 0, b.wartosc_dostawy ?? b.kosztDostawy ?? 0, direction);
     default:
       return compareSortValues(
         String((a as Record<string, unknown>)[field] ?? ''),
@@ -349,7 +351,8 @@ export function compareInventoryItems<TItem extends {
   sprzedawca?: string;
   cena_zakupu_pln?: number;
   cena_sprzedazy_pln?: number;
-  koszt_wlasny?: number;
+  koszt_dostawy_per_unit?: number;
+  podatek_akcyzowy?: number;
   typ?: string;
   objetosc?: number;
   data_waznosci?: string | number | null;
@@ -407,7 +410,7 @@ export function compareInventoryItems<TItem extends {
     case 'cena_sprzedazy_pln':
       return compareSortValues(a.cena_sprzedazy_pln ?? 0, b.cena_sprzedazy_pln ?? 0, direction);
     case 'koszt_wlasny':
-      return compareSortValues(a.koszt_wlasny ?? 0, b.koszt_wlasny ?? 0, direction);
+      return compareSortValues(getKosztWlasny(a), getKosztWlasny(b), direction);
     case 'srednieZuzycie':
       return compareSortValues(ctx.getDisplayAverage(a), ctx.getDisplayAverage(b), direction);
     case 'dniPozostalo': {

@@ -40,7 +40,7 @@ interface AddProductModalProps {
     wartosc_przyjecia_netto: number;
     vat?: number;
     wartosc_przyjecia_brutto?: number; 
-    kosztDostawy: number;
+    wartosc_dostawy: number;
     aktualnyKurs?: string;
     podatekAkcyzowy?: string;
     rabat?: string;
@@ -373,7 +373,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
         deliveryCostPerUnitPln: deliveryCostPerUnitPln,
-        podatekAkcyzowyPerLiter: parseFloat(podatekAkcyzowy.replace(',', '.')) || 0
+        podatekAkcyzowyPerLiter: roundMoney(podatekAkcyzowy)
       }));
 
     console.log('formattedProducts:', formattedProducts);
@@ -400,9 +400,9 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       wartosc_przyjecia_netto: roundMoney(wartoscZRabatem),
       vat: roundMoney(kwotaVat),
       wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
-      kosztDostawy: deliveryCost,
+      wartosc_dostawy: roundMoney(deliveryCost),
       aktualnyKurs: String(toStandardKursEurPln(walutaFaktury, aktualnyKurs)),
-      podatekAkcyzowy: podatekAkcyzowy,
+      podatekAkcyzowy: roundMoney(podatekAkcyzowy),
       rabat: rabat,
       waluta_przyjecia: walutaFaktury,
       kursFaktury: toStandardKursFaktury(walutaFaktury, kursFaktury),

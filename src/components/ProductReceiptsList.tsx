@@ -15,7 +15,7 @@ interface ProductReceipt {
   wartosc_przyjecia_netto: number;
   vat?: number;
   wartosc_przyjecia_brutto?: number;
-  kosztDostawy: number;
+  wartosc_dostawy: number;
   rabat?: number;
   waluta_przyjecia?: string;
   kurs_faktury?: number;
@@ -48,7 +48,7 @@ interface ProductReceiptsListProps {
     wartosc_przyjecia_netto: number;
     vat?: number;
     wartosc_przyjecia_brutto?: number;
-    kosztDostawy: number;
+    wartosc_dostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
     rabat?: number;
@@ -343,11 +343,11 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
-                onClick={() => handleSort('kosztDostawy')}
+                onClick={() => handleSort('wartosc_dostawy')}
               >
                 <div className="flex items-center gap-1">
                   Wartość dostawy
-                  <SortIndicator field="kosztDostawy" sortField={sortField} sortDirection={sortDirection} />
+                  <SortIndicator field="wartosc_dostawy" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora bg-gray-50" />
@@ -369,7 +369,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   {formatPlMoney(Number(receipt.wartosc_przyjecia_brutto) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
-                  {receipt.kosztDostawy.toFixed(2)} €
+                  {formatPlMoney(Number(receipt.wartosc_dostawy) || 0)} €
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   <div className="flex items-center space-x-2">
@@ -521,7 +521,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               wartosc_przyjecia_netto: receiptToEdit.wartosc_przyjecia_netto,
               vat: receiptToEdit.vat,
               wartosc_przyjecia_brutto: receiptToEdit.wartosc_przyjecia_brutto,
-              kosztDostawy: receiptToEdit.kosztDostawy,
+              wartosc_dostawy: receiptToEdit.wartosc_dostawy,
               rabat: receiptToEdit.rabat,
               waluta_przyjecia: receiptToEdit.waluta_przyjecia,
               kurs_faktury: receiptToEdit.kurs_faktury,

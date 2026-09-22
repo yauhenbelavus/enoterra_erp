@@ -33,6 +33,16 @@ export function formatPlMoney(value: number): string {
   return value.toFixed(2).replace('.', ',');
 }
 
+export function getKosztWlasny(item: {
+  cena_zakupu_pln?: number | null;
+  koszt_dostawy_per_unit?: number | null;
+  podatek_akcyzowy?: number | null;
+}): number {
+  return roundMoney(
+    (item.cena_zakupu_pln || 0) + (item.koszt_dostawy_per_unit || 0) + (item.podatek_akcyzowy || 0)
+  );
+}
+
 /** Zaokrąglenie kursu do 2 miejsc po przecinku przy zapisie. */
 export function roundKursValue(rate: number, fallback = 1): number {
   if (!Number.isFinite(rate) || rate <= 0) return fallback;
@@ -282,7 +292,7 @@ export function isKursFakturyActive(waluta: WalutaFakturySelection): boolean {
   return waluta === 'PLN' || waluta === 'DKK';
 }
 
-/** Kurs EUR/PLN: для koszt_wlasny и доставки. Активен для EUR и DKK. */
+/** Kurs EUR/PLN: для доставки. Активен для EUR и DKK. */
 export function isKursEurPlnActive(waluta: WalutaFakturySelection): boolean {
   return waluta === 'EUR' || waluta === 'DKK';
 }

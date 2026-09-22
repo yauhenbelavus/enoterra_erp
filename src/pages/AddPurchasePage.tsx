@@ -42,7 +42,7 @@ interface ProductReceipt {
   wartosc_przyjecia_netto: number;
   vat?: number;
   wartosc_przyjecia_brutto?: number;
-  kosztDostawy: number;
+  wartosc_dostawy: number;
   rabat?: number;
   waluta_przyjecia?: string;
   kurs_faktury?: number;
@@ -200,7 +200,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
       vat: receipt.vat ?? 0,
       wartosc_przyjecia_brutto: receipt.wartosc_przyjecia_brutto ?? 0,
-      kosztDostawy: receipt.kosztDostawy || 0,
+      wartosc_dostawy: receipt.wartosc_dostawy ?? 0,
       rabat: receipt.rabat ?? 0,
       waluta_przyjecia: receipt.waluta_przyjecia ?? 'EUR',
       kurs_faktury: receipt.kurs_faktury ?? 1,
@@ -476,7 +476,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
         deliveryCostPerUnitPln,
-        podatekAkcyzowyPerLiter: parseFloat(podatekAkcyzowy.replace(',', '.')) || 0,
+        podatekAkcyzowyPerLiter: roundMoney(podatekAkcyzowy),
       }));
 
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
@@ -490,9 +490,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       wartosc_przyjecia_netto: roundMoney(kwotaNetto),
       vat: roundMoney(kwotaVat),
       wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
-      kosztDostawy: deliveryCost,
+      wartosc_dostawy: roundMoney(deliveryCost),
       aktualnyKurs: String(kursDostawyNumber),
-      podatekAkcyzowy,
+      podatekAkcyzowy: roundMoney(podatekAkcyzowy),
       rabat,
       waluta_przyjecia: walutaFaktury,
       walutaDostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,

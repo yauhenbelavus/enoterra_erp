@@ -9,7 +9,7 @@ interface ProductReceipt {
   wartosc_przyjecia_netto: number;
   vat?: number;
   wartosc_przyjecia_brutto?: number;
-  kosztDostawy: number;
+  wartosc_dostawy: number;
   rabat?: number;
   waluta_przyjecia?: string;
   kurs_faktury?: number;

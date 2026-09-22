@@ -102,7 +102,7 @@ interface EditReceiptModalProps {
     wartosc_przyjecia_netto: number; 
     vat?: number;
     wartosc_przyjecia_brutto?: number;
-    kosztDostawy: number;
+    wartosc_dostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
     rabat?: number;
@@ -128,7 +128,7 @@ interface EditReceiptModalProps {
     wartosc_przyjecia_netto: number;
     vat?: number;
     wartosc_przyjecia_brutto?: number;
-    kosztDostawy: number;
+    wartosc_dostawy: number;
     aktualnyKurs?: number;
     podatekAkcyzowy?: number;
     aktualny_kurs?: number;
@@ -278,7 +278,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setSelectedDate(selectedDateValue);
         
         setSprzedawca(receipt.sprzedawca || '');
-        setKosztDostawy((receipt.kosztDostawy || 0).toFixed(2).replace('.', ','));
+        setKosztDostawy(formatPlMoney(Number(receipt.wartosc_dostawy) || 0));
 
         // ➡️ Waluta faktury + kurs faktury
         const waluta = normalizeWalutaFaktury(receipt.waluta_przyjecia);
@@ -592,9 +592,9 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         wartosc_przyjecia_netto: roundMoney(wartoscZRabatem),
         vat: roundMoney(kwotaVat),
         wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
-        kosztDostawy: deliveryCost,
+        wartosc_dostawy: roundMoney(deliveryCost),
         aktualnyKurs: aktualnyKursStandard,
-        podatekAkcyzowy: parseFloat(podatekAkcyzowy.replace(',', '.')) || 0,
+        podatekAkcyzowy: roundMoney(podatekAkcyzowy),
         rabat: rabatValue,
         waluta_przyjecia: walutaFaktury,
         kursFaktury: kursFakturyStandard,

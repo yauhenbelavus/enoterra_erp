@@ -68,8 +68,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
     cena_zakupu_pln: '',
     cena_sprzedazy_pln: '',
     koszt_dostawy_per_unit: '',
-    podatek_akcyzowy_per_liter: '2.22', // Значение на литр, которое умножается на objetosc (по умолчанию 2.22)
-    kurs: '4.25' // Курс валюты для расчета koszt_wlasny (по умолчанию 4.25)
+    podatek_akcyzowy_per_liter: '2.22' // Значение на литр, которое умножается на objetosc (по умолчанию 2.22)
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isTypDropdownOpen, setIsTypDropdownOpen] = useState(false);
@@ -79,26 +78,6 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
 
   useEffect(() => {
     if (item) {
-      // Загружаем курс из приемки товара
-      const fetchKurs = async () => {
-        try {
-          const response = await fetch(`/api/working-sheets/kurs/${encodeURIComponent(item.kod)}`);
-          if (response.ok) {
-            const data = await response.json();
-            console.log(`💰 Loaded exchange rate for ${item.kod}: ${data.kurs}`);
-            
-            setFormData(prev => ({
-              ...prev,
-              kurs: data.kurs.toString()
-            }));
-          } else {
-            console.warn(`⚠️ Failed to load exchange rate for ${item.kod}, using default 4.25`);
-          }
-        } catch (error) {
-          console.error('Error loading exchange rate:', error);
-        }
-      };
-
       setFormData({
         sprzedawca: item.sprzedawca || '',
         typ: item.typ || '',
@@ -119,12 +98,8 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
         koszt_dostawy_per_unit: item.koszt_dostawy_per_unit ? item.koszt_dostawy_per_unit.toString() : '',
         podatek_akcyzowy_per_liter: item.podatek_akcyzowy && item.objetosc && item.objetosc > 0 
           ? (item.podatek_akcyzowy / item.objetosc).toFixed(2) 
-          : '2.22',
-        kurs: '4.25' // По умолчанию 4.25, затем загрузится из приемки
+          : '2.22'
       });
-      
-      // Загружаем актуальный курс из базы данных
-      fetchKurs();
       
       // Устанавливаем selectedDate для DatePicker
       if (item.data_waznosci) {
@@ -229,8 +204,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
           koszt_dostawy_per_unit: parseFloat(String(formData.koszt_dostawy_per_unit || '0').replace(',', '.')) || undefined,
           podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc 
             ? parseFloat(String(formData.podatek_akcyzowy_per_liter || '0').replace(',', '.')) * parseFloat(String(formData.objetosc || '0').replace(',', '.')) 
-            : undefined,
-          kurs: parseFloat(formData.kurs) || 4.25
+            : undefined
         }),
       });
 
@@ -478,7 +452,7 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
             <div className="flex gap-4">
               <div className="flex-1">
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                  Cena zakupu (€)
+                  Cena zakupu (zł)
                 </label>
                 <input
                   type="number"
@@ -501,23 +475,6 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
                   value={formData.cena_sprzedazy_pln}
                   onChange={(e) => setFormData(prev => ({ ...prev, cena_sprzedazy_pln: e.target.value }))}
                   placeholder="0.00"
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                  Kurs walutowy
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.kurs}
-                  onChange={(e) => setFormData(prev => ({ ...prev, kurs: e.target.value }))}
-                  placeholder="4.25"
                   className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>

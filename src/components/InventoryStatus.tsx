@@ -8,6 +8,7 @@ import { EditInventoryModal } from './EditInventoryModal';
 import { SortIndicator } from './SortIndicator';
 import { compareInventoryItems, useTableSort } from '../utils/tableSort';
 import { computeStorageAgeByKod, formatDate as formatStorageDate } from '../utils/storageAge';
+import { getKosztWlasny } from '../utils/receiptCurrency';
 
 // Глобальные стили для тултипов и таблицы
 const tooltipStyles = `
@@ -122,7 +123,6 @@ interface InventoryItem {
   sprzedawca?: string; // Added sprzedawca field
   cena_zakupu_pln?: number; // цена закупки PLN из working_sheets
   cena_sprzedazy_pln?: number;
-  koszt_wlasny?: number; // Added koszt_wlasny field
   koszt_dostawy_per_unit?: number; // Added koszt_dostawy_per_unit field
   podatek_akcyzowy?: number; // Added podatek_akcyzowy field
   zamrozone_srednie_zuzycie?: number | null;
@@ -570,7 +570,7 @@ interface InventoryStatusProps {
     data_przyjecia: string;
     sprzedawca: string;
     wartosc_przyjecia_netto: number;
-    kosztDostawy: number;
+    wartosc_dostawy: number;
     products: Array<{
       kod: string;
       nazwa: string;
@@ -1319,7 +1319,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         Rezerwacje: reservationsCount[item.kod] || 0,
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
         'Cena zakupu': toExcelMoney(item.cena_zakupu_pln),
-        'Koszt własny': toExcelMoney(item.koszt_wlasny),
+        'Koszt własny': toExcelMoney(getKosztWlasny(item)),
         'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy_pln),
         'Data ważności': formatDate(item.data_waznosci),
         'Data przyjęcia': formatStorageDate(storageAgeMap.get(item.kod)?.data_przyjecia ?? null),
@@ -1815,7 +1815,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                     >
                       {(() => {
                         // Берем цену из working_sheets (как было раньше)
-                        return item.cena_zakupu_pln != null ? `${item.cena_zakupu_pln.toFixed(2)} €` : '-';
+                        return item.cena_zakupu_pln != null ? `${item.cena_zakupu_pln.toFixed(2)} zł` : '-';
                       })()}
                       <Tooltip
                         id={`price-tooltip-${item.kod}`}
@@ -1843,7 +1843,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                       className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap cursor-pointer"
                       data-tooltip-id={`koszt-tooltip-${item.kod}`}
                     >
-                      {item.koszt_wlasny != null ? `${item.koszt_wlasny.toFixed(2)} zł` : '-'}
+                      {`${getKosztWlasny(item).toFixed(2)} zł`}
                       <Tooltip
                         id={`koszt-tooltip-${item.kod}`}
                         className="max-w-md"
