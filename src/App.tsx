@@ -431,7 +431,6 @@ function App() {
         kod_kreskowy: item.kod_kreskowy || '',
         data_waznosci: item.data_waznosci ?? undefined,
         archiwalny: item.archiwalny,
-        rezerwacje: item.rezerwacje,
         ilosc_na_poleceniach: item.ilosc_na_poleceniach,
         waga_netto: item.waga_netto,
         waga_brutto: item.waga_brutto,

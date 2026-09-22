@@ -289,6 +289,24 @@ function ensureWorkingSheetsUniqueIndex() {
   });
 }
 
+function ensureWorkingSheetsDropRezerwacjeColumn() {
+  db.all('PRAGMA table_info(working_sheets)', (err, columns) => {
+    if (err) {
+      console.error('❌ Error reading working_sheets schema:', err.message);
+      return;
+    }
+    const hasColumn = (columns || []).some((col) => col.name === 'rezerwacje');
+    if (!hasColumn) return;
+    db.run('ALTER TABLE working_sheets DROP COLUMN rezerwacje', (dropErr) => {
+      if (dropErr) {
+        console.error('❌ Error dropping working_sheets.rezerwacje:', dropErr.message);
+      } else {
+        console.log('✅ Column working_sheets.rezerwacje dropped');
+      }
+    });
+  });
+}
+
 function ensureWorkingSheetsFrozenColumns() {
   db.run('ALTER TABLE working_sheets ADD COLUMN zamrozone_srednie_zuzycie REAL', (alterErr) => {
     if (alterErr && !String(alterErr.message).includes('duplicate column')) {
@@ -960,7 +978,6 @@ db.serialize(() => {
     ilosc INTEGER DEFAULT 0,
     kod_kreskowy TEXT,
     data_waznosci DATE,
-    rezerwacje INTEGER DEFAULT 0,
     objetosc TEXT,
     typ TEXT,
     sprzedawca TEXT,
@@ -983,6 +1000,7 @@ db.serialize(() => {
       console.log('✅ Working sheets table ready');
       ensureWorkingSheetsUniqueIndex();
       ensureWorkingSheetsFrozenColumns();
+      ensureWorkingSheetsDropRezerwacjeColumn();
     }
   });
 
@@ -10159,7 +10177,7 @@ app.get('/api/working-sheets/kurs/:kod', (req, res) => {
 });
 
 app.put('/api/working-sheets/update', (req, res) => {
-  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, rezerwacje, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy, kurs } = req.body;
+  const { id, kod, nazwa, ilosc, typ, kod_kreskowy, data_waznosci, objetosc, sprzedawca, cena, cena_sprzedazy, koszt_dostawy_per_unit, podatek_akcyzowy, kurs } = req.body;
   const normalizedKod = kod !== undefined && kod !== null ? normalizeProductKod(kod) : undefined;
   console.log(`📝 PUT /api/working-sheets/update - Updating working sheet:`, { 
     id, 
@@ -10227,7 +10245,7 @@ app.put('/api/working-sheets/update', (req, res) => {
     
     // Обновляем запись
     db.run(
-          'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
+          'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
       [
         productKod,
         nazwa || existingRecord.nazwa,
@@ -10235,7 +10253,6 @@ app.put('/api/working-sheets/update', (req, res) => {
         typ || existingRecord.typ,
         kod_kreskowy || existingRecord.kod_kreskowy,
         data_waznosci || existingRecord.data_waznosci,
-        rezerwacje || existingRecord.rezerwacje,
         objetosc || existingRecord.objetosc,
         sprzedawca || existingRecord.sprzedawca,
             finalCena,
@@ -10308,7 +10325,7 @@ app.put('/api/working-sheets/update', (req, res) => {
           
           // Обновляем запись
           db.run(
-            'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, rezerwacje = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
+            'UPDATE working_sheets SET kod = ?, nazwa = ?, ilosc = ?, typ = ?, kod_kreskowy = ?, data_waznosci = ?, objetosc = ?, sprzedawca = ?, cena = ?, cena_sprzedazy = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ?, koszt_wlasny = ? WHERE id = ?',
             [
               productKod,
               nazwa || existingRecord.nazwa,
@@ -10316,7 +10333,6 @@ app.put('/api/working-sheets/update', (req, res) => {
               typ || existingRecord.typ,
               kod_kreskowy || existingRecord.kod_kreskowy,
               data_waznosci || existingRecord.data_waznosci,
-              rezerwacje || existingRecord.rezerwacje,
               objetosc || existingRecord.objetosc,
               sprzedawca || existingRecord.sprzedawca,
               finalCena,
@@ -10501,10 +10517,6 @@ app.post('/api/working-sheets/bulk-update', (req, res) => {
     if (update.data_waznosci !== undefined) {
       updateFields.push('data_waznosci = ?');
       updateValues.push(update.data_waznosci);
-    }
-    if (update.rezerwacje !== undefined) {
-      updateFields.push('rezerwacje = ?');
-      updateValues.push(update.rezerwacje);
     }
     if (update.objetosc !== undefined) {
       updateFields.push('objetosc = ?');
@@ -10939,7 +10951,6 @@ app.post('/api/sheets', (req, res) => {
             typ: null, // не копируем из Excel
             kod_kreskowy: kodKreskowyIndex >= 0 ? getValueOrNull(row[kodKreskowyIndex]) : null,
             data_waznosci: null, // не копируем из Excel
-            rezerwacje: null, // не копируем из Excel
             objetosc: null, // не копируем из Excel
             sprzedawca: null // не копируем из Excel
           };
@@ -10968,17 +10979,17 @@ app.post('/api/sheets', (req, res) => {
         
         // Вставляем данные в working_sheets
         if (filteredData.length > 0) {
-          const placeholders = filteredData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+          const placeholders = filteredData.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
           const values = filteredData.flatMap(item => [
-            item.kod, item.nazwa, item.ilosc, item.kod_kreskowy, item.data_waznosci, 
-            item.rezerwacje, item.objetosc, item.typ, item.sprzedawca, // sprzedawca
+            item.kod, item.nazwa, item.ilosc, item.kod_kreskowy, item.data_waznosci,
+            item.objetosc, item.typ, item.sprzedawca,
             null, // cena (по умолчанию null)
             null, // cena_sprzedazy (по умолчанию null)
             null // produkt_id
           ]);
           
           db.run(
-            `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, data_waznosci, rezerwacje, objetosc, typ, sprzedawca, cena, cena_sprzedazy, produkt_id) VALUES ${placeholders}`,
+            `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, data_waznosci, objetosc, typ, sprzedawca, cena, cena_sprzedazy, produkt_id) VALUES ${placeholders}`,
             values,
             function(err) {
               if (err) {

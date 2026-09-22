@@ -115,7 +115,6 @@ interface InventoryItem {
   ilosc: number;
   kod_kreskowy: string;
   data_waznosci: string | number | null; // Может быть строкой (DATE), числом (timestamp) или null
-  rezerwacje: number;
   objetosc: number;
   typ?: string; // Added typ field
   updated_at: string;
