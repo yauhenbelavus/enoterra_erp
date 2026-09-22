@@ -51,7 +51,7 @@ const ocrUpload = multer({
 });
 
 const { parsePurchaseInvoicePdf } = require('./purchaseInvoiceOcr');
-const { validatePurchaseReceipt } = require('./purchaseReceiptValidation.mjs');
+const { validatePurchaseReceipt, toTitleCaseNazwa } = require('./purchaseReceiptValidation.mjs');
 const { isKursValueFilled, needsKursToPln, validateRequiredKurs } = require('./receiptKursValidation.mjs');
 
 // Serve uploaded files from uploads directory (ДОЛЖЕН БЫТЬ ПЕРЕД ВСЕМИ API endpoints)
@@ -92,6 +92,7 @@ function normalizeReceiptProducts(products) {
   return products.map((product) => ({
     ...product,
     kod: normalizeProductKod(product.kod),
+    nazwa: toTitleCaseNazwa(product.nazwa),
   }));
 }
 

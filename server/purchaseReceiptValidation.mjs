@@ -1,5 +1,21 @@
 'use strict';
 
+/**
+ * Title-case nazwa: trim, collapse spaces, capitalize first letter of each word.
+ * Matches the production SQL rule; uses pl-PL for Polish letters.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function toTitleCaseNazwa(value) {
+  const trimmed = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (!trimmed) return '';
+  return trimmed
+    .toLocaleLowerCase('pl-PL')
+    .split(' ')
+    .map((word) => word.charAt(0).toLocaleUpperCase('pl-PL') + word.slice(1))
+    .join(' ');
+}
+
 /** @type {Record<string, boolean>} */
 const TYPES_WITHOUT_AKCYZA = {
   bezalkoholowe: true,
@@ -195,6 +211,7 @@ function validatePurchaseReceipt(input) {
 }
 
 export {
+  toTitleCaseNazwa,
   getRowInvalidFields,
   getHeaderInvalidFields,
   getRowValidationError,
