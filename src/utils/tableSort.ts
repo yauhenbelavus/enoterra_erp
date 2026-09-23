@@ -352,6 +352,7 @@ export function compareInventoryItems<TItem extends {
   cena_zakupu_pln?: number;
   cena_sprzedazy_pln?: number;
   koszt_dostawy_per_unit?: number;
+  koszt_dostawy_per_unit_srednie?: number;
   podatek_akcyzowy?: number;
   typ?: string;
   objetosc?: number;

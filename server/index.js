@@ -397,14 +397,97 @@ function stampCenaZakupuOrg(products) {
   }));
 }
 
+function kosztDostawyPerUnitFromReceipt(receipt, lines) {
+  const kurs = getKursEurPln(receipt.waluta_przyjecia, receipt.kurs_1, receipt.kurs_2);
+  const wartosc = parseFloat(String(receipt.wartosc_dostawy ?? '0').replace(',', '.')) || 0;
+  const bottles = (lines || []).reduce((total, product) => {
+    if (product.typ === 'aksesoria') return total;
+    return total + (product.ilosc || 0);
+  }, 0);
+  return bottles > 0 ? roundMoney((wartosc / bottles) * kurs) : 0;
+}
+
+function stampKosztDostawyPerUnitSrednie(products, kosztDostawyPerUnit) {
+  if (!Array.isArray(products)) return products;
+  const value = roundMoney(kosztDostawyPerUnit);
+  for (const product of products) {
+    product.koszt_dostawy_per_unit_srednie = product.typ === 'aksesoria' ? 0 : value;
+  }
+  return products;
+}
+
+function productLineCena(product) {
+  return parseFloat(String(product == null || product.cena == null ? '0' : product.cena).replace(',', '.')) || 0;
+}
+
+function receiptLineValueTotal(products) {
+  return (products || []).reduce((sum, product) => sum + ((product.ilosc || 0) * productLineCena(product)), 0);
+}
+
+function kosztDostawyPerUnitFromKosztBut(product, totalValue, kosztDostawy, kurs) {
+  const qty = product.ilosc || 0;
+  const lineValue = qty * productLineCena(product);
+  if (totalValue <= 0 || qty <= 0) return 0;
+  return roundMoney(((kosztDostawy || 0) * lineValue) / (totalValue * qty) * (kurs || 0));
+}
+
+function stampKosztDostawyPerUnit(products, kosztDostawy, kurs) {
+  if (!Array.isArray(products)) return products;
+  const totalValue = receiptLineValueTotal(products);
+  for (const product of products) {
+    product.koszt_dostawy_per_unit = kosztDostawyPerUnitFromKosztBut(product, totalValue, kosztDostawy, kurs);
+  }
+  return products;
+}
+
+function deliveryCostWsPair(product, srednie, items) {
+  const list = items && items.length ? items : (product ? [product] : []);
+  const qty = list.reduce((sum, item) => sum + (item.ilosc || 0), 0);
+  const perUnit = qty > 0
+    ? roundMoney(list.reduce((sum, item) => sum + (roundMoney(item.koszt_dostawy_per_unit) * (item.ilosc || 0)), 0) / qty)
+    : roundMoney(product && product.koszt_dostawy_per_unit);
+  const typ = (product && product.typ) || (list[0] && list[0].typ);
+  return {
+    perUnit,
+    srednie: typ === 'aksesoria' ? 0 : roundMoney(srednie),
+  };
+}
+
+function isAkcyzaExemptTyp(typ) {
+  return typ === 'bezalkoholowe' || typ === 'ferment' || typ === 'aksesoria';
+}
+
+function podatekAkcyzowyForProduct(product, stawkaPerLiter) {
+  if (isAkcyzaExemptTyp(product && product.typ)) return 0;
+  const stawka = parseFloat(String(stawkaPerLiter == null ? '0' : stawkaPerLiter).replace(',', '.')) || 0;
+  if (stawka === 0) return 0;
+  const objetosc = parseFloat(String(product && product.objetosc != null && product.objetosc !== '' ? product.objetosc : '1').replace(',', '.')) || 1;
+  return roundMoney(stawka * objetosc);
+}
+
+function stampPodatekAkcyzowy(products, stawkaPerLiter) {
+  if (!Array.isArray(products)) return products;
+  for (const product of products) {
+    product.podatek_akcyzowy = podatekAkcyzowyForProduct(product, stawkaPerLiter);
+  }
+  return products;
+}
+
 function receiptLineFields(product) {
   const dataWaznosci = product.dataWaznosci || product.data_waznosci || null;
+  const fromStamp = product.koszt_dostawy_per_unit_srednie;
+  const fromJson = product.deliveryCostPerUnitPln;
   return {
     typ: product.typ || null,
     objetosc: product.objetosc != null && product.objetosc !== '' ? String(product.objetosc) : null,
     data_waznosci: dataWaznosci || null,
     vat: roundMoney(product.vat),
     cena_zakupu_org: orgPurchasePrice(product),
+    koszt_dostawy_per_unit: roundMoney(product.koszt_dostawy_per_unit),
+    koszt_dostawy_per_unit_srednie: product.typ === 'aksesoria'
+      ? 0
+      : roundMoney(fromStamp != null ? fromStamp : fromJson),
+    podatek_akcyzowy: roundMoney(product.podatek_akcyzowy),
   };
 }
 
@@ -427,7 +510,7 @@ function mapProductBatchToReceiptLine(row) {
 }
 
 function insertProductBatchSql() {
-  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, receipt_id, czy_probki, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, receipt_id, czy_probki, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org, koszt_dostawy_per_unit_srednie, koszt_dostawy_per_unit, podatek_akcyzowy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 }
 
 function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
@@ -447,6 +530,9 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
     line.data_waznosci,
     line.vat,
     line.cena_zakupu_org,
+    line.koszt_dostawy_per_unit_srednie,
+    line.koszt_dostawy_per_unit,
+    line.podatek_akcyzowy,
   ];
 }
 
@@ -487,10 +573,13 @@ const PRODUCTS_RECEIPT_LINE_COLUMNS = [
   { name: 'data_waznosci', sql: 'DATE' },
   { name: 'vat', sql: 'REAL DEFAULT 0' },
   { name: 'cena_zakupu_org', sql: 'REAL' },
+  { name: 'koszt_dostawy_per_unit_srednie', sql: 'REAL DEFAULT 0' },
+  { name: 'koszt_dostawy_per_unit', sql: 'REAL DEFAULT 0' },
+  { name: 'podatek_akcyzowy', sql: 'REAL DEFAULT 0' },
 ];
 
 function backfillProductsFromReceiptJson(done) {
-  db.all('SELECT id, products FROM product_receipts', (err, receipts) => {
+  db.all('SELECT id, products, wartosc_dostawy, kurs_1, kurs_2, waluta_przyjecia, stawka_podatek_akcyzowy FROM product_receipts', (err, receipts) => {
     if (err) {
       console.error('❌ Error reading product_receipts for products backfill:', err.message);
       if (done) done();
@@ -519,6 +608,10 @@ function backfillProductsFromReceiptJson(done) {
           return;
         }
         const unused = batches.slice();
+        const computedDelivery = kosztDostawyPerUnitFromReceipt(receipt, lines);
+        const kurs = getKursEurPln(receipt.waluta_przyjecia, receipt.kurs_1, receipt.kurs_2);
+        const wartoscDostawy = parseFloat(String(receipt.wartosc_dostawy ?? '0').replace(',', '.')) || 0;
+        const totalValue = receiptLineValueTotal(lines);
         const updates = [];
         for (const line of lines) {
           const kod = normalizeProductKod(line.kod);
@@ -526,6 +619,16 @@ function backfillProductsFromReceiptJson(done) {
           const batch = idx >= 0 ? unused.splice(idx, 1)[0] : null;
           if (!batch) continue;
           const lineCena = parseFloat(String(line.cena == null ? '' : line.cena).replace(',', '.'));
+          const jsonDelivery = parseFloat(String(line.deliveryCostPerUnitPln == null ? '' : line.deliveryCostPerUnitPln).replace(',', '.'));
+          const jsonKosztBut = parseFloat(String(line.koszt_dostawy_per_unit == null ? '' : line.koszt_dostawy_per_unit).replace(',', '.'));
+          const jsonAkcyzaAmount = parseFloat(String(line.podatek_akcyzowy == null ? '' : line.podatek_akcyzowy).replace(',', '.'));
+          const jsonAkcyzaRate = parseFloat(String(
+            line.podatekAkcyzowyPerLiter != null ? line.podatekAkcyzowyPerLiter : receipt.stawka_podatek_akcyzowy
+          ).replace(',', '.'));
+          const lineForAkcyza = {
+            typ: batch.typ || line.typ,
+            objetosc: batch.objetosc || line.objetosc,
+          };
           updates.push({
             id: batch.id,
             typ: batch.typ || line.typ || null,
@@ -535,6 +638,15 @@ function backfillProductsFromReceiptJson(done) {
             cena_zakupu_org: batch.cena_zakupu_org != null
               ? roundMoney(batch.cena_zakupu_org)
               : (Number.isFinite(lineCena) ? roundMoney(lineCena) : null),
+            koszt_dostawy_per_unit_srednie: (batch.typ || line.typ) === 'aksesoria'
+              ? 0
+              : (Number.isFinite(jsonDelivery) ? roundMoney(jsonDelivery) : computedDelivery),
+            koszt_dostawy_per_unit: Number.isFinite(jsonKosztBut)
+              ? roundMoney(jsonKosztBut)
+              : kosztDostawyPerUnitFromKosztBut(line, totalValue, wartoscDostawy, kurs),
+            podatek_akcyzowy: Number.isFinite(jsonAkcyzaAmount)
+              ? roundMoney(jsonAkcyzaAmount)
+              : podatekAkcyzowyForProduct(lineForAkcyza, Number.isFinite(jsonAkcyzaRate) ? jsonAkcyzaRate : 0),
           });
         }
         const runUpdate = (j) => {
@@ -544,8 +656,8 @@ function backfillProductsFromReceiptJson(done) {
           }
           const u = updates[j];
           db.run(
-            'UPDATE products SET typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ? WHERE id = ?',
-            [u.typ, u.objetosc, u.data_waznosci, u.vat, u.cena_zakupu_org, u.id],
+            'UPDATE products SET typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ?, koszt_dostawy_per_unit_srednie = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?',
+            [u.typ, u.objetosc, u.data_waznosci, u.vat, u.cena_zakupu_org, u.koszt_dostawy_per_unit_srednie, u.koszt_dostawy_per_unit, u.podatek_akcyzowy, u.id],
             () => runUpdate(j + 1)
           );
         };
@@ -641,7 +753,9 @@ function ensureProductsReceiptLineColumns(done) {
             const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
             const next = (i) => {
               if (i >= missing.length) {
-                backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(done)));
+                ensureWorkingSheetsKosztDostawyPerUnitSrednie(() => {
+                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(done)))));
+                });
                 return;
               }
               const col = missing[i];
@@ -771,6 +885,137 @@ function convertProductsCenaToPln(done, attempt = 0) {
   });
 }
 
+function ensureWorkingSheetsKosztDostawyPerUnitSrednie(done) {
+  const copySrednie = () => {
+    db.run(
+      `UPDATE working_sheets
+       SET koszt_dostawy_per_unit_srednie = ROUND(koszt_dostawy_per_unit, 2)
+       WHERE (koszt_dostawy_per_unit_srednie IS NULL OR koszt_dostawy_per_unit_srednie = 0)
+         AND koszt_dostawy_per_unit IS NOT NULL
+         AND koszt_dostawy_per_unit != 0`,
+      function (copyErr) {
+        if (copyErr) {
+          console.error('❌ Error copying working_sheets.koszt_dostawy_per_unit to srednie:', copyErr.message);
+        } else if (this.changes > 0) {
+          console.log(`✅ Copied working_sheets.koszt_dostawy_per_unit into koszt_dostawy_per_unit_srednie on ${this.changes} rows`);
+        }
+        if (done) done();
+      }
+    );
+  };
+
+  db.all('PRAGMA table_info(working_sheets)', (err, columns) => {
+    if (err) {
+      console.error('❌ Error reading working_sheets schema:', err.message);
+      if (done) done();
+      return;
+    }
+    const names = (columns || []).map((col) => col.name);
+    if (names.includes('koszt_dostawy_per_unit_srednie')) {
+      copySrednie();
+      return;
+    }
+    db.run(
+      'ALTER TABLE working_sheets ADD COLUMN koszt_dostawy_per_unit_srednie REAL DEFAULT 0',
+      (alterErr) => {
+        if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
+          console.error('❌ Error adding working_sheets.koszt_dostawy_per_unit_srednie:', alterErr.message);
+          if (done) done();
+          return;
+        }
+        console.log('✅ Column working_sheets.koszt_dostawy_per_unit_srednie ready');
+        copySrednie();
+      }
+    );
+  });
+}
+
+function backfillWorkingSheetsKosztDostawyPerUnit(done) {
+  db.all(
+    `SELECT p.kod,
+            AVG(p.koszt_dostawy_per_unit) AS koszt_dostawy_per_unit,
+            AVG(p.podatek_akcyzowy) AS podatek_akcyzowy
+     FROM products p
+     INNER JOIN (
+       SELECT kod, MAX(receipt_id) AS max_receipt
+       FROM products
+       WHERE receipt_id IS NOT NULL
+       GROUP BY kod
+     ) latest ON latest.kod = p.kod AND latest.max_receipt = p.receipt_id
+     GROUP BY p.kod`,
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Error reading products for working_sheets koszt_dostawy_per_unit backfill:', err.message);
+        if (done) done();
+        return;
+      }
+      const run = (i) => {
+        if (i >= (rows || []).length) {
+          if (done) done();
+          return;
+        }
+        const row = rows[i];
+        db.run(
+          'UPDATE working_sheets SET koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE kod = ?',
+          [roundMoney(row.koszt_dostawy_per_unit), roundMoney(row.podatek_akcyzowy), row.kod],
+          () => run(i + 1)
+        );
+      };
+      run(0);
+    }
+  );
+}
+
+function backfillProductsKosztDostawyWithoutReceipt(done) {
+  db.run(
+    `UPDATE products
+     SET koszt_dostawy_per_unit_srednie = (
+       SELECT ROUND(ws.koszt_dostawy_per_unit, 2)
+       FROM working_sheets ws
+       WHERE ws.kod = products.kod
+     )
+     WHERE receipt_id IS NULL
+       AND (koszt_dostawy_per_unit_srednie IS NULL OR koszt_dostawy_per_unit_srednie = 0)
+       AND EXISTS (
+         SELECT 1 FROM working_sheets ws
+         WHERE ws.kod = products.kod
+           AND ws.koszt_dostawy_per_unit IS NOT NULL
+           AND ws.koszt_dostawy_per_unit != 0
+       )`,
+    function (err) {
+      if (err) {
+        console.error('❌ Error backfilling products.koszt_dostawy_per_unit_srednie without receipt:', err.message);
+      } else if (this.changes > 0) {
+        console.log(`✅ Filled products.koszt_dostawy_per_unit_srednie from working_sheets on ${this.changes} rows without receipt`);
+      }
+      db.run(
+        `UPDATE products
+         SET podatek_akcyzowy = (
+           SELECT ROUND(ws.podatek_akcyzowy, 2)
+           FROM working_sheets ws
+           WHERE ws.kod = products.kod
+         )
+         WHERE receipt_id IS NULL
+           AND (podatek_akcyzowy IS NULL OR podatek_akcyzowy = 0)
+           AND EXISTS (
+             SELECT 1 FROM working_sheets ws
+             WHERE ws.kod = products.kod
+               AND ws.podatek_akcyzowy IS NOT NULL
+               AND ws.podatek_akcyzowy != 0
+           )`,
+        function (akcErr) {
+          if (akcErr) {
+            console.error('❌ Error backfilling products.podatek_akcyzowy without receipt:', akcErr.message);
+          } else if (this.changes > 0) {
+            console.log(`✅ Filled products.podatek_akcyzowy from working_sheets on ${this.changes} rows without receipt`);
+          }
+          if (done) done();
+        }
+      );
+    }
+  );
+}
+
 function roundExistingCenaZakupu(done) {
   const finish = () => {
     if (done) done();
@@ -799,7 +1044,37 @@ function roundExistingCenaZakupu(done) {
               } else if (this.changes > 0) {
                 console.log(`✅ Rounded working_sheets.cena_zakupu_pln on ${this.changes} rows`);
               }
-              finish();
+              db.run(
+                'UPDATE products SET koszt_dostawy_per_unit_srednie = ROUND(koszt_dostawy_per_unit_srednie, 2) WHERE koszt_dostawy_per_unit_srednie IS NOT NULL',
+                function (dostErr) {
+                  if (dostErr) {
+                    console.error('❌ Error rounding products.koszt_dostawy_per_unit_srednie:', dostErr.message);
+                  } else if (this.changes > 0) {
+                    console.log(`✅ Rounded products.koszt_dostawy_per_unit_srednie on ${this.changes} rows`);
+                  }
+                  db.run(
+                    'UPDATE products SET koszt_dostawy_per_unit = ROUND(koszt_dostawy_per_unit, 2) WHERE koszt_dostawy_per_unit IS NOT NULL',
+                    function (perUnitErr) {
+                      if (perUnitErr) {
+                        console.error('❌ Error rounding products.koszt_dostawy_per_unit:', perUnitErr.message);
+                      } else if (this.changes > 0) {
+                        console.log(`✅ Rounded products.koszt_dostawy_per_unit on ${this.changes} rows`);
+                      }
+                      db.run(
+                        'UPDATE products SET podatek_akcyzowy = ROUND(podatek_akcyzowy, 2) WHERE podatek_akcyzowy IS NOT NULL',
+                        function (akcErr) {
+                          if (akcErr) {
+                            console.error('❌ Error rounding products.podatek_akcyzowy:', akcErr.message);
+                          } else if (this.changes > 0) {
+                            console.log(`✅ Rounded products.podatek_akcyzowy on ${this.changes} rows`);
+                          }
+                          finish();
+                        }
+                      );
+                    }
+                  );
+                }
+              );
             }
           );
         }
@@ -1636,6 +1911,9 @@ db.serialize(() => {
     data_waznosci DATE,
     vat REAL DEFAULT 0,
     cena_zakupu_org REAL,
+    koszt_dostawy_per_unit_srednie REAL DEFAULT 0,
+    koszt_dostawy_per_unit REAL DEFAULT 0,
+    podatek_akcyzowy REAL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (receipt_id) REFERENCES product_receipts (id) ON DELETE CASCADE
   )`, (err) => {
@@ -1828,6 +2106,7 @@ db.serialize(() => {
     cena_zakupu_pln REAL DEFAULT 0,
     cena_sprzedazy_pln REAL DEFAULT 0,
     koszt_dostawy_per_unit REAL DEFAULT 0,
+    koszt_dostawy_per_unit_srednie REAL DEFAULT 0,
     podatek_akcyzowy REAL DEFAULT 0,
     zamrozone_srednie_zuzycie REAL,
     zamrozone_data_wyczerpania TEXT,
@@ -8782,6 +9061,9 @@ app.post('/api/product-receipts', upload.fields([
     return total + (product.ilosc || 0);
   }, 0);
   const kosztDostawyPerUnit = totalBottles > 0 ? Math.round((((kosztDostawy || 0) / totalBottles) * kursEurPln) * 100) / 100 : 0;
+  stampKosztDostawyPerUnitSrednie(productsInternal, kosztDostawyPerUnit);
+  stampKosztDostawyPerUnit(productsInternal, kosztDostawy, kursEurPln);
+  stampPodatekAkcyzowy(productsInternal, podatekAkcyzowy);
   
   console.log(`💰 Delivery cost calculation: ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kursEurPln} kurs EUR/PLN = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
   console.log(`📊 Podatek akcyzowy input: ${podatekAkcyzowy}`);
@@ -8920,8 +9202,9 @@ app.post('/api/product-receipts', upload.fields([
                       console.log(`🔍 UPDATE type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoriaUpd=${isBezalkoholoweOrFermentOrAksesoriaUpd}`);
                       const podatekValueUpd = isBezalkoholoweOrFermentOrAksesoriaUpd ? 0 :
                         (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
-                      // Для aksesoria транспорт не распределяется
-                      const kosztDostawyPerUnitForProduct = mainProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnit;
+                      const deliveryWs = deliveryCostWsPair(mainProduct, kosztDostawyPerUnit, productsList);
+                      const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
+                      const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
                       console.log(`📊 UPDATE ${productCode}:`);
                       console.log(`  - newPrice: ${newPrice} → ${cenaValue}`);
                       console.log(`  - objetosc: ${mainProduct.objetosc} → ${objetoscValue}`);
@@ -8948,6 +9231,7 @@ app.post('/api/product-receipts', upload.fields([
                             data_waznosci = ?,
                             objetosc = ?,
                             koszt_dostawy_per_unit = ?,
+                            koszt_dostawy_per_unit_srednie = ?,
                             podatek_akcyzowy = ?,
                             created_at = ?
                           WHERE kod = ?`
@@ -8961,6 +9245,7 @@ app.post('/api/product-receipts', upload.fields([
                             data_waznosci = ?,
                             objetosc = ?,
                             koszt_dostawy_per_unit = ?,
+                            koszt_dostawy_per_unit_srednie = ?,
                             podatek_akcyzowy = ?
                           WHERE kod = ?`;
 
@@ -8975,6 +9260,7 @@ app.post('/api/product-receipts', upload.fields([
                             mainProduct.dataWaznosci || null,
                             mainProduct.objetosc || null,
                             kosztDostawyPerUnitForProduct || 0,
+                            kosztDostawyPerUnitSrednieForProduct || 0,
                             podatekValueUpd || 0,
                             date,
                             productCode
@@ -8989,6 +9275,7 @@ app.post('/api/product-receipts', upload.fields([
                             mainProduct.dataWaznosci || null,
                             mainProduct.objetosc || null,
                             kosztDostawyPerUnitForProduct || 0,
+                            kosztDostawyPerUnitSrednieForProduct || 0,
                             podatekValueUpd || 0,
                             productCode
                           ];
@@ -9017,8 +9304,10 @@ app.post('/api/product-receipts', upload.fields([
                   console.log(`🔍 Product type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoria=${isBezalkoholoweOrFermentOrAksesoria}`);
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : 
                     (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
-                  // Для aksesoria транспорт не распределяется
-                  const kosztDostawyPerUnitForProduct = mainProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnit;
+                  // Для aksesoria транспорт (średnie) не распределяется
+                  const deliveryWs = deliveryCostWsPair(mainProduct, kosztDostawyPerUnit, productsList);
+                  const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
+                  const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
                   console.log(`💰 Final podatekValue for ${productCode}: ${podatekValue} (forced to 0: ${isBezalkoholoweOrFermentOrAksesoria})`);
                   
                   console.log(`📊 Product ${productCode}:`);
@@ -9030,6 +9319,7 @@ app.post('/api/product-receipts', upload.fields([
                   console.log(`  - podatekValue: ${podatekValue}`);
                   
                   const finalKosztDostawy = kosztDostawyPerUnitForProduct || 0;
+                  const finalKosztDostawySrednie = kosztDostawyPerUnitSrednieForProduct || 0;
                   const finalPodatek = podatekValue || 0;
                   
                   console.log(`🔍 FINAL VALUES for SQL INSERT:`);
@@ -9037,7 +9327,7 @@ app.post('/api/product-receipts', upload.fields([
                   console.log(`  - podatek_akcyzowy: ${finalPodatek} (type: ${typeof finalPodatek})`);
                   
                   db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [
                       productCode, 
                       mainProduct.nazwa, 
@@ -9049,6 +9339,7 @@ app.post('/api/product-receipts', upload.fields([
                       mainProduct.dataWaznosci || null,
                       mainProduct.objetosc || null,
                       finalKosztDostawy,
+                      finalKosztDostawySrednie,
                       finalPodatek,
                       date // created_at = data zakupu, а не текущая дата создания записи
                     ],
@@ -9397,6 +9688,9 @@ app.put('/api/product-receipts/:id', upload.fields([
               return total + (product.ilosc || 0);
             }, 0);
             const kosztDostawyPerUnit = totalBottles > 0 ? Math.round((((kosztDostawy || 0) / totalBottles) * kurs) * 100) / 100 : 0;
+            stampKosztDostawyPerUnitSrednie(products, kosztDostawyPerUnit);
+            stampKosztDostawyPerUnit(products, kosztDostawy, kurs);
+            stampPodatekAkcyzowy(products, podatekAkcyzowy);
             
             console.log(`💰 Delivery cost calculation (PUT): ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
             
@@ -9655,6 +9949,13 @@ app.put('/api/product-receipts/:id', upload.fields([
                     updateFields.push('objetosc = ?');
                     updateValues.push(newProduct.objetosc != null && newProduct.objetosc !== '' ? String(newProduct.objetosc) : null);
                   }
+                  const deliveryWs = deliveryCostWsPair(newProduct.items[0], kosztDostawyPerUnit, newProduct.items);
+                  updateFields.push('koszt_dostawy_per_unit = ?');
+                  updateValues.push(deliveryWs.perUnit);
+                  updateFields.push('koszt_dostawy_per_unit_srednie = ?');
+                  updateValues.push(deliveryWs.srednie);
+                  updateFields.push('podatek_akcyzowy = ?');
+                  updateValues.push(roundMoney(newProduct.items[0].podatek_akcyzowy));
                   
                   if (updateFields.length > 0) {
                     updateValues.push(id, productCode);
@@ -9678,6 +9979,21 @@ app.put('/api/product-receipts/:id', upload.fields([
                 }
               }
             }
+
+            await new Promise((resolve, reject) => {
+              db.run(
+                `UPDATE products SET koszt_dostawy_per_unit_srednie = CASE WHEN typ = 'aksesoria' THEN 0 ELSE ? END WHERE receipt_id = ?`,
+                [roundMoney(kosztDostawyPerUnit), id],
+                (err) => {
+                  if (err) {
+                    console.error('❌ Error updating products.koszt_dostawy_per_unit_srednie:', err);
+                    reject(err);
+                  } else {
+                    resolve();
+                  }
+                }
+              );
+            });
             
             // Шаг 3: Обновляем working_sheets только для товаров, где что-то изменилось
             console.log('🔄 Step 3: Updating working_sheets for changed products...');
@@ -9704,7 +10020,9 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                 const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                 const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
-                const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
+                const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnitValue, newProduct.items);
+                const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
+                const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
                 const existingWs = await new Promise((resolve, reject) => {
                   db.get(
                     'SELECT id FROM working_sheets WHERE kod = ?',
@@ -9719,14 +10037,14 @@ app.put('/api/product-receipts/:id', upload.fields([
                     db.run(
                       `UPDATE working_sheets SET
                         nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
-                        data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?,
+                        data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?, koszt_dostawy_per_unit_srednie = ?,
                         podatek_akcyzowy = ?
                        WHERE kod = ?`,
                       [
                         sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null,
                         sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena),
                         sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null,
-                        kosztDostawyPerUnitForProduct, podatekValue, normalizedCode,
+                        kosztDostawyPerUnitForProduct, kosztDostawyPerUnitSrednieForProduct, podatekValue, normalizedCode,
                       ],
                       function (err) {
                         if (err) {
@@ -9742,8 +10060,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   }
 
                   db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, date],
+                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, kosztDostawyPerUnitSrednieForProduct, podatekValue, date],
                     function (err) {
                       if (err) {
                         console.error(`❌ Error creating working_sheets for ${normalizedCode}:`, err);
@@ -9821,11 +10139,13 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
-                  const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
+                  const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnitValue, newProduct.items);
+                  const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
+                  const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
               await new Promise((resolve, reject) => {
                         db.run(
-                      'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                      [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, date],
+                      'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                      [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, kosztDostawyPerUnitSrednieForProduct, podatekValue, date],
                           function(err) {
                   if (err) {
                           console.error(`❌ Error creating working_sheets for ${productCode}:`, err);
@@ -9932,8 +10252,9 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
                   
-                  // Для aksesoria транспорт не распределяется
-                  const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
+                  const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnit, newProduct.items);
+                  const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
+                  const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
                   
                   // Формируем UPDATE запрос только для измененных полей
                   const updateFields = [];
@@ -9942,6 +10263,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (needsKosztDostawyUpdate) {
                     updateFields.push('koszt_dostawy_per_unit = ?');
                     updateValues.push(kosztDostawyPerUnitForProduct);
+                    updateFields.push('koszt_dostawy_per_unit_srednie = ?');
+                    updateValues.push(kosztDostawyPerUnitSrednieForProduct);
                       }
                       
                   if (needsPodatekAkcyzowyUpdate) {
@@ -10062,17 +10385,19 @@ app.put('/api/product-receipts/:id', upload.fields([
                   updateValues.push(sprzedawca || null);
             }
                 
-                // Обновляем koszt_dostawy_per_unit, если изменился kosztDostawy или kurs
-                const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
-                // Для aksesoria транспорт не распределяется
+                // Обновляем koszt_dostawy_per_unit из Koszt/but. и średnie, если изменилась доставка, курс или цена
                 const sourceProduct = newProduct.items[0];
-                const kosztDostawyPerUnitForProduct = sourceProduct.typ === 'aksesoria' ? 0 : kosztDostawyPerUnitValue;
+                const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnit, newProduct.items);
+                const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
+                const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
                 const kosztDostawyPerUnitChanged = Math.abs((workingSheetRecord.koszt_dostawy_per_unit || 0) - kosztDostawyPerUnitForProduct) > 0.01;
                 
                 // Обновляем, если значение изменилось ИЛИ если изменился курс или kosztDostawy в приемке
                 if (kosztDostawyPerUnitChanged || kursChanged || kosztDostawyChanged) {
                   updateFields.push('koszt_dostawy_per_unit = ?');
                   updateValues.push(kosztDostawyPerUnitForProduct);
+                  updateFields.push('koszt_dostawy_per_unit_srednie = ?');
+                  updateValues.push(kosztDostawyPerUnitSrednieForProduct);
                 }
                 
                 // Синхронизируем created_at с новой датой приемки, но только если её выставила именно эта приёмка

@@ -36,10 +36,14 @@ export function formatPlMoney(value: number): string {
 export function getKosztWlasny(item: {
   cena_zakupu_pln?: number | null;
   koszt_dostawy_per_unit?: number | null;
+  koszt_dostawy_per_unit_srednie?: number | null;
   podatek_akcyzowy?: number | null;
 }): number {
+  const kosztDostawy = item.koszt_dostawy_per_unit != null && item.koszt_dostawy_per_unit !== 0
+    ? item.koszt_dostawy_per_unit
+    : (item.koszt_dostawy_per_unit_srednie || 0);
   return roundMoney(
-    (item.cena_zakupu_pln || 0) + (item.koszt_dostawy_per_unit || 0) + (item.podatek_akcyzowy || 0)
+    (item.cena_zakupu_pln || 0) + kosztDostawy + (item.podatek_akcyzowy || 0)
   );
 }
 

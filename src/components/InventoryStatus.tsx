@@ -125,6 +125,7 @@ interface InventoryItem {
   cena_zakupu_pln?: number; // цена закупки PLN из working_sheets
   cena_sprzedazy_pln?: number;
   koszt_dostawy_per_unit?: number; // Added koszt_dostawy_per_unit field
+  koszt_dostawy_per_unit_srednie?: number;
   podatek_akcyzowy?: number; // Added podatek_akcyzowy field
   zamrozone_srednie_zuzycie?: number | null;
   zamrozone_data_wyczerpania?: string | null;
