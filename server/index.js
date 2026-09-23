@@ -427,7 +427,7 @@ function mapProductBatchToReceiptLine(row) {
 }
 
 function insertProductBatchSql() {
-  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, receipt_id, status, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, receipt_id, czy_probki, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 }
 
 function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
@@ -440,7 +440,7 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
     product.ilosc,
     iloscAktualna,
     receiptId,
-    (product.cena || 0) === 0 ? 'samples' : null,
+    (product.cena || 0) === 0 ? 1 : 0,
     date,
     line.typ,
     line.objetosc,
@@ -582,34 +582,80 @@ function renameProductsColumnIfPresent(fromName, toName, done) {
   });
 }
 
+function migrateProductsStatusToCzyProbki(done) {
+  const finish = () => {
+    if (done) done();
+  };
+  renameProductsColumnIfPresent('status', 'czy_probki', () => {
+    db.all('PRAGMA table_info(products)', (err, columns) => {
+      if (err) {
+        console.error('❌ Error reading products schema:', err.message);
+        finish();
+        return;
+      }
+      const names = (columns || []).map((col) => col.name);
+      const convertValues = () => {
+        db.run(
+          `UPDATE products SET czy_probki = CASE
+             WHEN LOWER(TRIM(CAST(czy_probki AS TEXT))) IN ('samples', '1') THEN 1
+             ELSE 0
+           END`,
+          function (updErr) {
+            if (updErr) {
+              console.error('❌ Error converting products.czy_probki values:', updErr.message);
+            } else {
+              console.log('✅ Column products.czy_probki ready (1 = próbki, 0 = zwykła partia)');
+            }
+            finish();
+          }
+        );
+      };
+      if (names.includes('czy_probki')) {
+        convertValues();
+        return;
+      }
+      db.run('ALTER TABLE products ADD COLUMN czy_probki INTEGER DEFAULT 0', (alterErr) => {
+        if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
+          console.error('❌ Error adding products.czy_probki:', alterErr.message);
+          finish();
+          return;
+        }
+        convertValues();
+      });
+    });
+  });
+}
+
 function ensureProductsReceiptLineColumns(done) {
   renameProductsColumnIfPresent('cena', 'cena_zakupu_pln', () => {
     renameProductsColumnIfPresent('cena_faktury', 'cena_zakupu_org', () => {
       renameProductsColumnIfPresent('ilosc', 'ilosc_pierwotna', () => {
-        db.all('PRAGMA table_info(products)', (err, columns) => {
-          if (err) {
-            console.error('❌ Error reading products schema:', err.message);
-            if (done) done();
-            return;
-          }
-          const names = new Set((columns || []).map((col) => col.name));
-          const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
-          const next = (i) => {
-            if (i >= missing.length) {
-              backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(done)));
+        migrateProductsStatusToCzyProbki(() => {
+          db.all('PRAGMA table_info(products)', (err, columns) => {
+            if (err) {
+              console.error('❌ Error reading products schema:', err.message);
+              if (done) done();
               return;
             }
-            const col = missing[i];
-            db.run(`ALTER TABLE products ADD COLUMN ${col.name} ${col.sql}`, (alterErr) => {
-              if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
-                console.error(`❌ Error adding products.${col.name}:`, alterErr.message);
-              } else {
-                console.log(`✅ Column products.${col.name} ready`);
+            const names = new Set((columns || []).map((col) => col.name));
+            const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
+            const next = (i) => {
+              if (i >= missing.length) {
+                backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(done)));
+                return;
               }
-              next(i + 1);
-            });
-          };
-          next(0);
+              const col = missing[i];
+              db.run(`ALTER TABLE products ADD COLUMN ${col.name} ${col.sql}`, (alterErr) => {
+                if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
+                  console.error(`❌ Error adding products.${col.name}:`, alterErr.message);
+                } else {
+                  console.log(`✅ Column products.${col.name} ready`);
+                }
+                next(i + 1);
+              });
+            };
+            next(0);
+          });
         });
       });
     });
@@ -1584,6 +1630,7 @@ db.serialize(() => {
     ilosc_pierwotna INTEGER DEFAULT 0,
     ilosc_aktualna INTEGER DEFAULT 0,
     receipt_id INTEGER,
+    czy_probki INTEGER DEFAULT 0,
     typ TEXT,
     objetosc TEXT,
     data_waznosci DATE,
@@ -2704,7 +2751,7 @@ app.get('/api/products/samples-count', (req, res) => {
   db.all(
     `SELECT kod, SUM(ilosc_aktualna) as total_ilosc 
      FROM products 
-     WHERE status = 'samples' 
+     WHERE czy_probki = 1 
      GROUP BY kod`,
     [],
     (err, rows) => {
@@ -7565,11 +7612,11 @@ app.put('/api/orders/:id', (req, res) => {
       const consumptionsSql = isSamples
         ? `SELECT oc.* FROM order_consumptions oc
            INNER JOIN products p ON p.id = oc.batch_id
-           WHERE oc.order_id = ? AND oc.product_kod = ? AND p.status = 'samples'
+           WHERE oc.order_id = ? AND oc.product_kod = ? AND p.czy_probki = 1
            ORDER BY oc.batch_id DESC`
         : `SELECT oc.* FROM order_consumptions oc
            INNER JOIN products p ON p.id = oc.batch_id
-           WHERE oc.order_id = ? AND oc.product_kod = ? AND (p.status IS NULL OR p.status != 'samples')
+           WHERE oc.order_id = ? AND oc.product_kod = ? AND COALESCE(p.czy_probki, 0) = 0
            ORDER BY oc.batch_id DESC`;
       db.all(consumptionsSql, [id, productKod], (err, consumptions) => {
         if (err) {
@@ -10515,7 +10562,7 @@ app.get('/api/working-sheets/search', (req, res) => {
       db.all(
         `SELECT kod, MAX(nazwa) as nazwa, SUM(ilosc_aktualna) as ilosc_samples
          FROM products
-         WHERE kod IN (${placeholders}) AND status = 'samples'
+         WHERE kod IN (${placeholders}) AND czy_probki = 1
          GROUP BY kod
          HAVING SUM(ilosc_aktualna) > 0`,
         codeList,
@@ -10568,6 +10615,7 @@ app.get('/api/working-sheets/search', (req, res) => {
             sprzedawca: ws.sprzedawca || '',
             ilosc: mainOnly,
             ilosc_reserved: reserved.ilosc_reserved,
+            czy_probki: 0,
             status: null
           };
           if (client_id) {
@@ -10593,6 +10641,7 @@ app.get('/api/working-sheets/search', (req, res) => {
             sprzedawca: sprzedawcaByKod.get(sp.kod) || '',
             ilosc: effectiveSampleQty,
             ilosc_reserved: reserved.ilosc_reserved,
+            czy_probki: 1,
             status: 'samples'
           };
           if (client_id) {
@@ -10708,7 +10757,7 @@ app.get('/api/working-sheets/search', (req, res) => {
 
   // Упрощённая логика поиска: запускаем 3 простых запроса параллельно и объединяем в JS.
   // 1) working_sheets — основной товар (суммарно по kod)
-  // 2) products (status='samples') — семплы
+  // 2) products (czy_probki=1) — семплы
   // 3) reservation_products + reservations — все активные резервации (общие и по клиенту)
   const includeZero = include_zero_stock === 'true';
   const limitRows = query.trim() === '' ? 500 : 50;
@@ -10729,7 +10778,7 @@ app.get('/api/working-sheets/search', (req, res) => {
       `SELECT kod, MAX(nazwa) as nazwa, SUM(ilosc_aktualna) as ilosc_samples
        FROM products
        WHERE (kod LIKE ? OR nazwa LIKE ? OR kod_kreskowy LIKE ?)
-         AND status = 'samples'
+         AND czy_probki = 1
        GROUP BY kod
        HAVING SUM(ilosc_aktualna) > 0`,
       [searchQuery, searchQuery, searchQuery],
@@ -10795,6 +10844,7 @@ app.get('/api/working-sheets/search', (req, res) => {
           sprzedawca: ws.sprzedawca || '',
           ilosc: mainOnly,
           ilosc_reserved: reserved.ilosc_reserved,
+          czy_probki: 0,
           status: null,
           _sort_priority: matchPriority(ws.kod, ws.nazwa)
         };
@@ -10832,6 +10882,7 @@ app.get('/api/working-sheets/search', (req, res) => {
           sprzedawca: sprzedawcaByKod.get(sp.kod) || '',
           ilosc: effectiveSampleQty,
           ilosc_reserved: reserved.ilosc_reserved,
+          czy_probki: 1,
           status: 'samples',
           _sort_priority: matchPriority(sp.kod, sp.nazwa)
         };
@@ -10847,7 +10898,7 @@ app.get('/api/working-sheets/search', (req, res) => {
         if (a._sort_priority !== b._sort_priority) return a._sort_priority - b._sort_priority;
         if (a.kod !== b.kod) return a.kod.localeCompare(b.kod);
         // в рамках одного kod: основной (status=null) до семплов
-        if ((a.status || '') !== (b.status || '')) return (a.status || '').localeCompare(b.status || '');
+        if ((a.czy_probki || 0) !== (b.czy_probki || 0)) return (a.czy_probki || 0) - (b.czy_probki || 0);
         return (a.nazwa || '').localeCompare(b.nazwa || '');
       });
 
@@ -12174,14 +12225,14 @@ app.post('/api/ocr/purchase-invoice', ocrUpload.single('pdf'), async (req, res) 
 });
 
 // ===== NEW CONSUME FROM PRODUCTS (FIFO) =====
-// status: 'samples' — списываем только из партий семплов
-//         null/'main' — списываем только из обычных партий (status IS NULL)
+// czy_probki=1 — списываем только из партий семплов
+//         0/null — списываем только из обычных партий
 function consumeFromProducts(productKod, quantity, status = null) {
   return new Promise((resolve, reject) => {
-    const isSamples = status === 'samples';
+    const isSamples = status === 'samples' || status === 1;
     const sql = isSamples
-      ? `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND status = 'samples' ORDER BY created_at ASC, id ASC`
-      : `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND (status IS NULL OR status != 'samples') ORDER BY created_at ASC, id ASC`;
+      ? `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND czy_probki = 1 ORDER BY created_at ASC, id ASC`
+      : `SELECT * FROM products WHERE kod = ? AND ilosc_aktualna > 0 AND COALESCE(czy_probki, 0) = 0 ORDER BY created_at ASC, id ASC`;
     db.all(
       sql,
       [productKod],

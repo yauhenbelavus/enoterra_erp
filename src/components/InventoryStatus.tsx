@@ -837,7 +837,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         
         // Группируем продукты по коду и создаем структуру для tooltip
         allProducts.forEach((product: any) => {
-          if (product.status === 'samples') return; // пропускаем семплы
+          if (Number(product.czy_probki) === 1 || product.status === 'samples') return;
           if (!newPriceHistory[product.kod]) {
             newPriceHistory[product.kod] = [];
           }

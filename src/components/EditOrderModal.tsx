@@ -8,7 +8,7 @@ import "../components/DatePicker.css";
 import toast from 'react-hot-toast';
 import { ProductSearchHintLines } from './ProductSearchHintLines';
 import { ReservationOverflowDialog } from './ReservationOverflowDialog';
-import { calculateMaxAllowed, collectReservationOverflows, collectStockOverflowLineIds, enrichStockLinesWithClientReservations } from '../utils/orderStock';
+import { calculateMaxAllowed, collectReservationOverflows, collectStockOverflowLineIds, enrichStockLinesWithClientReservations, isProbkiRow } from '../utils/orderStock';
 
 registerLocale('pl', pl);
 
@@ -227,11 +227,11 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
         const kodResults = resultsByKod.get(row.kod);
         if (!kodResults || kodResults.length === 0) return row;
 
-        // Для строки семплов (typ === 'probka') ищем строку с status === 'samples'
+        // Для строки семплов (typ === 'probka') ищем строку z czy_probki = 1
         const isSamplesTyp = row.typ === 'probka';
         const specificResult = isSamplesTyp
-          ? (kodResults.find((r: any) => r.status === 'samples') || kodResults[0])
-          : (kodResults.find((r: any) => r.status !== 'samples') || kodResults[0]);
+          ? (kodResults.find((r: any) => isProbkiRow(r)) || kodResults[0])
+          : (kodResults.find((r: any) => !isProbkiRow(r)) || kodResults[0]);
 
         const fromReservation = row.ilosc_from_reservation || specificResult.ilosc_from_reservation || 0;
         const freeClientReservation = specificResult.ilosc_client_reserved || 0;
@@ -241,6 +241,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
           availableQuantity: parseInt(specificResult.ilosc) || 0,
           ilosc_total: ilosc_totalByKod.get(row.kod) || parseInt(specificResult.ilosc) || 0,
           status: specificResult.status || null,
+          czy_probki: specificResult.czy_probki || 0,
           ilosc_reserved: specificResult.ilosc_reserved || 0,
           ilosc_reserved_effective: specificResult.ilosc_reserved_effective
             ?? ((specificResult.ilosc_reserved || 0) + fromReservation),
@@ -447,6 +448,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
           ilosc: item.ilosc ? item.ilosc.toString() : '0',
           ilosc_total: totalByKod.get(item.kod) || item.ilosc || 0,
           status: item.status || null,
+          czy_probki: item.czy_probki || 0,
           ilosc_reserved: item.ilosc_reserved || 0,
           ilosc_reserved_effective: item.ilosc_reserved_effective
             ?? ((item.ilosc_reserved || 0) + (item.ilosc_from_reservation || 0)),
@@ -600,7 +602,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
       .map((row, index) => ({ row, index }))
       .filter(({ row }) => row.kod.trim() && row.ilosc.trim())
       .map(({ row, index }) => {
-        const isSamplesRow = row.status === 'samples';
+        const isSamplesRow = isProbkiRow(row);
         const samplesOwnQuantity = row.availableQuantity || 0;
         const totalOnStock = row.ilosc_total ?? samplesOwnQuantity;
 
@@ -1020,7 +1022,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({ isOpen, onClose,
                         setProductRows(newRows);
                         
                         if (order?.typ !== 'odpisanie' && order?.typ !== 'przychod' && row.kod) {
-                          const isSamplesRow = row.status === 'samples';
+                          const isSamplesRow = isProbkiRow(row);
                           const samplesOwnQuantity = row.availableQuantity || 0;
                           const totalOnStock = isSamplesRow
                             ? samplesOwnQuantity

@@ -1,3 +1,11 @@
+export function isProbkiRow(row?: {
+  czy_probki?: number | boolean | string | null;
+  status?: string | null;
+} | null): boolean {
+  if (!row) return false;
+  return Number(row.czy_probki) === 1 || row.status === 'samples';
+}
+
 export interface ProductLineForStock {
   kod: string;
   nazwa: string;
@@ -177,7 +185,7 @@ export async function enrichStockLinesWithClientReservations(
 
         const data = await response.json();
         const match =
-          data.find((row: { kod: string; status?: string | null }) => row.kod === kod && row.status !== 'samples') ||
+          data.find((row: { kod: string; czy_probki?: number; status?: string | null }) => row.kod === kod && !isProbkiRow(row)) ||
           data.find((row: { kod: string }) => row.kod === kod);
 
         if (match) {

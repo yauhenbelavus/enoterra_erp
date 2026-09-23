@@ -8,7 +8,7 @@ import "../components/DatePicker.css";
 import toast from 'react-hot-toast';
 import { ReservationOverflowDialog } from './ReservationOverflowDialog';
 import { ProductSearchHintLines } from './ProductSearchHintLines';
-import { calculateMaxAllowed, collectReservationOverflows, collectStockOverflowLineIds, enrichStockLinesWithClientReservations } from '../utils/orderStock';
+import { calculateMaxAllowed, collectReservationOverflows, collectStockOverflowLineIds, enrichStockLinesWithClientReservations, isProbkiRow } from '../utils/orderStock';
 
 registerLocale('pl', pl);
 
@@ -239,13 +239,14 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
         // Преобразуем данные из working_sheets в формат Product
         // ilosc — остаток конкретной строки (для отображения)
         // ilosc_total — суммарный остаток по kod (основной + семплы, для проверки доступности основной строки)
-        // status === 'samples' — строка семплов, ограничена только своим ilosc
+        // czy_probki = 1 — строка семплов, ограничена только своим ilosc
         const transformedData = data.map((item: any) => ({
           kod: item.kod,
           nazwa: item.nazwa,
           ilosc: item.ilosc.toString(),
           ilosc_total: totalByKod.get(item.kod) || item.ilosc,
           status: item.status || null,
+          czy_probki: item.czy_probki || 0,
           kodKreskowy: '',
           selectedQuantity: 0,
           ilosc_reserved: item.ilosc_reserved || 0,
@@ -377,7 +378,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
       .filter(field => field.selectedProduct && (field.selectedProduct.selectedQuantity || 0) > 0)
       .map(field => {
         const product = field.selectedProduct!;
-        const isSamplesRow = product.status === 'samples';
+        const isSamplesRow = isProbkiRow(product);
         const samplesOwnQuantity = parseInt(product.ilosc) || 0;
         const totalOnStock = product.ilosc_total ?? samplesOwnQuantity;
 
@@ -748,7 +749,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({ isOpen, onClose, onOrder
                           const updatedField = updatedFields.find(f => f.id === field.id);
                           if (updatedField?.selectedProduct) {
                             const currentProductCode = updatedField.selectedProduct.kod;
-                            const isSamplesRow = updatedField.selectedProduct.status === 'samples';
+                            const isSamplesRow = isProbkiRow(updatedField.selectedProduct);
                             const samplesOwnQuantity = parseInt(updatedField.selectedProduct.ilosc) || 0;
                             const totalQuantity = updatedField.selectedProduct.ilosc_total ?? samplesOwnQuantity;
                             const reservedQuantity = updatedField.selectedProduct.ilosc_reserved || 0;
