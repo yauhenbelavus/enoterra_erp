@@ -319,7 +319,6 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
                           ? new Date(dataWaznosci * 1000).toLocaleDateString('pl-PL')
                           : new Date(dataWaznosci).toLocaleDateString('pl-PL');
                       })()}
-                        : '-'}
                     </td>
                   </tr>
                 ))}
