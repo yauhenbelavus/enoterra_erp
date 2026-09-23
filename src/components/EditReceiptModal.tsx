@@ -162,6 +162,7 @@ interface ProductRow {
   showDataWaznosci: boolean;
   typ: string;
   objetosc: string;
+  vat: number;
 }
 
 export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
@@ -175,7 +176,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const [sprzedawca, setSprzedawca] = useState('');
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const [productRows, setProductRows] = useState<ProductRow[]>([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);
+  const [productRows, setProductRows] = useState<ProductRow[]>([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
   const dragStartPos = useRef({ x: 0, y: 0 });
   const [kosztDostawy, setKosztDostawy] = useState('');
   const [productInvoice, setProductInvoice] = useState<File | null>(null);
@@ -312,10 +313,11 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           dataWaznosci: String(receiptLineDataWaznosci(product) || ''),
           showDataWaznosci: false,
           typ: product.typ || '',
-          objetosc: product.objetosc != null ? String(product.objetosc) : ''
+          objetosc: product.objetosc != null ? String(product.objetosc) : '',
+          vat: Number(product.vat) || 0
         }));
         
-        setProductRows(formattedProducts.length > 0 ? formattedProducts : [{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);
+        setProductRows(formattedProducts.length > 0 ? formattedProducts : [{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
         
         // Сохраняем ссылки на существующие файлы
         setExistingProductInvoice(receipt.product_invoice || null);
@@ -323,7 +325,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setProductInvoice(null);
         setTransportInvoice(null);
               } else {
-          setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);
+          setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
           setSelectedDate(null);
           setSprzedawca('');
           setKosztDostawy('');
@@ -333,7 +335,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           setExistingTransportInvoice(null);
         }
       } else {
-        setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);
+        setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
         setSelectedDate(null);
         setSprzedawca('');
         setKosztDostawy('');
@@ -400,7 +402,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   }, [productRows]);
 
   const addNewRow = () => {
-    setProductRows([...productRows, { kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);
+    setProductRows([...productRows, { kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
   };
 
   const deleteRow = (index: number) => {
@@ -550,7 +552,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       cena: parseFloat(row.cena.replace(',', '.')) || 0,
       dataWaznosci: row.dataWaznosci || undefined,
       typ: row.typ || undefined,
-      objetosc: row.objetosc ? parseFloat(row.objetosc) : undefined
+      objetosc: row.objetosc ? parseFloat(row.objetosc) : undefined,
+      vat: row.vat || 0
     }));
 
     const totalValue = formattedProducts.reduce((sum, product) => {
@@ -601,7 +604,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     setIsSaving(false);
     setSelectedDate(null);
     setPosition({ x: 0, y: 0 });
-    setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);
+    setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
     setKosztDostawy('');
     setSprzedawca('');
     setProductInvoice(null);

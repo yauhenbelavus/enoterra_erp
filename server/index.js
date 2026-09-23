@@ -10038,6 +10038,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   typ: p.typ,
                   dataWaznosci: p.dataWaznosci,
                   objetosc: p.objetosc,
+                  vat: p.vat,
                   items: []
                 };
               }
@@ -10095,6 +10096,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                 console.log(`🔄 Product exists: ${productCode}, comparing changes...`);
                 
                 // Определяем, что изменилось
+                const headerMoneyChanged = kursChanged || kosztDostawyChanged || podatekAkcyzowyChanged;
+                const newVat = roundMoney(newProduct.items[0]?.vat ?? newProduct.vat ?? oldProduct.vat);
                 const changes = {
                   ilosc: oldProduct.ilosc !== newProduct.ilosc,
                   nazwa: oldProduct.nazwa !== newProduct.nazwa,
@@ -10102,12 +10105,13 @@ app.put('/api/product-receipts/:id', upload.fields([
                   cena: Math.abs((oldProduct.cena || 0) - (newProduct.cena || 0)) > 0.01,
                   typ: (oldProduct.typ || '') !== (newProduct.typ || ''),
                   dataWaznosci: (oldProduct.dataWaznosci || '') !== (newProduct.dataWaznosci || ''),
-                  objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || '')
+                  objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || ''),
+                  vat: Math.abs(roundMoney(oldProduct.vat) - newVat) > 0.01,
                 };
                 
                 const hasChanges = Object.values(changes).some(v => v);
                 
-                if (!hasChanges) {
+                if (!hasChanges && !headerMoneyChanged) {
                   console.log(`✅ No changes for ${productCode}, skipping update`);
                   continue;
                 }
@@ -10157,6 +10161,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const newItemsCount = newProduct.items.length;
                   for (let itemIndex = 0; itemIndex < newItemsCount; itemIndex++) {
                     const item = newProduct.items[itemIndex];
+                    if (item.vat == null || item.vat === '') item.vat = oldProduct.vat;
                     const isLastItem = itemIndex === newItemsCount - 1;
                     let itemIloscAktualna;
                     if (isLastItem) {
@@ -10206,6 +10211,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                     const firstItem = newProduct.items[0] || {};
                     updateFields.push('cena_zakupu_org = ?');
                     updateValues.push(receiptLineFields(firstItem).cena_zakupu_org);
+                    updateFields.push('czy_probki = ?');
+                    updateValues.push((newProduct.cena || 0) === 0 ? 1 : 0);
                   }
                   if (changes.typ) {
                     updateFields.push('typ = ?');
@@ -10218,6 +10225,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (changes.objetosc) {
                     updateFields.push('objetosc = ?');
                     updateValues.push(newProduct.objetosc != null && newProduct.objetosc !== '' ? String(newProduct.objetosc) : null);
+                  }
+                  if (changes.vat) {
+                    updateFields.push('vat = ?');
+                    updateValues.push(newVat);
                   }
                   const deliveryWs = deliveryCostWsPair(newProduct.items[0], kosztDostawyPerUnit, newProduct.items);
                   updateFields.push('koszt_dostawy_per_unit = ?');
