@@ -36,6 +36,7 @@ import {
   validatePurchaseReceipt,
 } from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput } from './PlMoneyInput';
+import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
 import "react-datepicker/dist/react-datepicker.css";
 import "./DatePicker.css";
 
@@ -245,19 +246,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   useEffect(() => {
     if (isOpen && receipt) {
       // Обрабатываем случай, когда products приходит как JSON строка
-      let productsArray: any[] = [];
-      if (receipt.products) {
-        if (typeof receipt.products === 'string') {
-          try {
-            productsArray = JSON.parse(receipt.products);
-          } catch (error) {
-            console.error('Error parsing products JSON:', error);
-            productsArray = [];
-          }
-        } else if (Array.isArray(receipt.products)) {
-          productsArray = receipt.products;
-        }
-      }
+      const productsArray = normalizeReceiptProductLines(receipt.products);
       
       if (Array.isArray(productsArray) && productsArray.length > 0) {
         // Парсим дату - поддерживаем разные форматы
@@ -325,13 +314,13 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         const formattedProducts: ProductRow[] = productsArray.map(product => ({
           kod: product.kod || '',
           nazwa: product.nazwa || '',
-          kod_kreskowy: product.kod_kreskowy || product.ean || '', // Поддерживаем обратную совместимость
+          kod_kreskowy: product.kod_kreskowy || (product as { ean?: string }).ean || '',
           ilosc: (product.ilosc || 0).toString(),
           cena: (product.cena || 0).toFixed(2).replace('.', ','),
-          dataWaznosci: product.dataWaznosci || '',
+          dataWaznosci: String(receiptLineDataWaznosci(product) || ''),
           showDataWaznosci: false,
-          typ: product.typ || product.typTowaru || '',
-          objetosc: product.objetosc || ''
+          typ: product.typ || '',
+          objetosc: product.objetosc != null ? String(product.objetosc) : ''
         }));
         
         setProductRows(formattedProducts.length > 0 ? formattedProducts : [{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);

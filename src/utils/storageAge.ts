@@ -1,4 +1,5 @@
 import { extractDateFromOrderNumber } from './tableSort';
+import { normalizeReceiptProductLines } from './receiptProducts';
 
 // Единый источник расчёта "возраста на складе" (вкладка "Analiza magazynu"
 // и Excel-рапорт из "Stany magazynowy" должны показывать идентичные значения).
@@ -170,7 +171,7 @@ export function computeStorageAgeByKod(inputs: StorageAgeInputs): Map<string, St
     const receiptDate = parseLocalDate(receipt.data_przyjecia);
     if (!receiptDate) continue;
     const receiptId = receipt.id || 0;
-    for (const item of receipt.products || []) {
+    for (const item of normalizeReceiptProductLines(receipt.products)) {
       if (!item.kod) continue;
       const previous = newestReceiptByKod.get(item.kod);
       if (

@@ -243,7 +243,7 @@ function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
 
 // JSON приёмки хранит cena в валюте фактуры; для products — EUR; working_sheets.cena_zakupu_pln — PLN.
 function prepareReceiptProducts(products, walutaFaktury, aktualnyKurs, kursFaktury) {
-  const normalized = normalizeReceiptProducts(products);
+  const normalized = stampCenaFaktury(normalizeReceiptProducts(products));
   const productsForJson = normalized.map((p) => ({ ...p }));
   const productsInternal = withCenaEur(normalized, walutaFaktury, aktualnyKurs, kursFaktury);
   return { productsForJson, productsInternal };
@@ -292,6 +292,201 @@ function mapProductReceiptApiRow(row) {
       ? (typeof products === 'string' ? JSON.parse(products) : products)
       : [],
   };
+}
+
+function stampCenaFaktury(products) {
+  if (!Array.isArray(products)) return products;
+  return products.map((p) => ({
+    ...p,
+    cena_faktury: roundMoney(p.cena_faktury != null ? p.cena_faktury : p.cena),
+  }));
+}
+
+function receiptLineFields(product) {
+  const dataWaznosci = product.dataWaznosci || product.data_waznosci || null;
+  return {
+    typ: product.typ || null,
+    objetosc: product.objetosc != null && product.objetosc !== '' ? String(product.objetosc) : null,
+    data_waznosci: dataWaznosci || null,
+    vat: roundMoney(product.vat),
+    cena_faktury: roundMoney(product.cena_faktury != null ? product.cena_faktury : product.cena),
+  };
+}
+
+function mapProductBatchToReceiptLine(row) {
+  const cenaFaktury = row.cena_faktury != null ? row.cena_faktury : row.cena;
+  return {
+    id: row.id,
+    kod: row.kod,
+    nazwa: row.nazwa,
+    kod_kreskowy: row.kod_kreskowy,
+    ilosc: row.ilosc,
+    ilosc_aktualna: row.ilosc_aktualna,
+    cena: cenaFaktury,
+    dataWaznosci: row.data_waznosci || undefined,
+    data_waznosci: row.data_waznosci || undefined,
+    typ: row.typ || undefined,
+    objetosc: row.objetosc != null && row.objetosc !== '' ? row.objetosc : undefined,
+    vat: row.vat ?? 0,
+  };
+}
+
+function insertProductBatchSql() {
+  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at, typ, objetosc, data_waznosci, vat, cena_faktury) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+}
+
+function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
+  const line = receiptLineFields(product);
+  return [
+    product.kod,
+    product.nazwa,
+    product.kod_kreskowy || null,
+    product.cena || 0,
+    product.ilosc,
+    iloscAktualna,
+    receiptId,
+    (product.cena || 0) === 0 ? 'samples' : null,
+    date,
+    line.typ,
+    line.objetosc,
+    line.data_waznosci,
+    line.vat,
+    line.cena_faktury,
+  ];
+}
+
+function attachReceiptProductsFromTable(receipts, callback) {
+  if (!receipts || receipts.length === 0) {
+    callback(null, []);
+    return;
+  }
+  db.all(
+    'SELECT * FROM products WHERE receipt_id IS NOT NULL ORDER BY receipt_id ASC, id ASC',
+    (err, rows) => {
+      if (err) {
+        callback(err);
+        return;
+      }
+      const byReceipt = new Map();
+      for (const row of rows || []) {
+        const list = byReceipt.get(row.receipt_id) || [];
+        list.push(mapProductBatchToReceiptLine(row));
+        byReceipt.set(row.receipt_id, list);
+      }
+      const mapped = receipts.map((receipt) => {
+        const api = mapProductReceiptApiRow(receipt);
+        const fromTable = byReceipt.get(receipt.id);
+        if (fromTable && fromTable.length > 0) {
+          api.products = fromTable;
+        }
+        return api;
+      });
+      callback(null, mapped);
+    }
+  );
+}
+
+const PRODUCTS_RECEIPT_LINE_COLUMNS = [
+  { name: 'typ', sql: 'TEXT' },
+  { name: 'objetosc', sql: 'TEXT' },
+  { name: 'data_waznosci', sql: 'DATE' },
+  { name: 'vat', sql: 'REAL DEFAULT 0' },
+  { name: 'cena_faktury', sql: 'REAL' },
+];
+
+function backfillProductsFromReceiptJson(done) {
+  db.all('SELECT id, products FROM product_receipts', (err, receipts) => {
+    if (err) {
+      console.error('❌ Error reading product_receipts for products backfill:', err.message);
+      if (done) done();
+      return;
+    }
+    const processReceipt = (i) => {
+      if (i >= (receipts || []).length) {
+        console.log('✅ products receipt-line backfill finished');
+        if (done) done();
+        return;
+      }
+      const receipt = receipts[i];
+      let lines = [];
+      try {
+        lines = typeof receipt.products === 'string' ? JSON.parse(receipt.products) : (receipt.products || []);
+      } catch {
+        lines = [];
+      }
+      if (!Array.isArray(lines) || lines.length === 0) {
+        processReceipt(i + 1);
+        return;
+      }
+      db.all('SELECT * FROM products WHERE receipt_id = ? ORDER BY id ASC', [receipt.id], (batchErr, batches) => {
+        if (batchErr || !batches || batches.length === 0) {
+          processReceipt(i + 1);
+          return;
+        }
+        const unused = batches.slice();
+        const updates = [];
+        for (const line of lines) {
+          const kod = normalizeProductKod(line.kod);
+          const idx = unused.findIndex((b) => normalizeProductKod(b.kod) === kod);
+          const batch = idx >= 0 ? unused.splice(idx, 1)[0] : null;
+          if (!batch) continue;
+          const lineCena = parseFloat(String(line.cena == null ? '' : line.cena).replace(',', '.'));
+          updates.push({
+            id: batch.id,
+            typ: batch.typ || line.typ || null,
+            objetosc: batch.objetosc || (line.objetosc != null && line.objetosc !== '' ? String(line.objetosc) : null),
+            data_waznosci: batch.data_waznosci || line.dataWaznosci || line.data_waznosci || null,
+            vat: batch.vat || roundMoney(line.vat),
+            cena_faktury: batch.cena_faktury != null
+              ? batch.cena_faktury
+              : (Number.isFinite(lineCena) ? roundMoney(lineCena) : null),
+          });
+        }
+        const runUpdate = (j) => {
+          if (j >= updates.length) {
+            processReceipt(i + 1);
+            return;
+          }
+          const u = updates[j];
+          db.run(
+            'UPDATE products SET typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_faktury = ? WHERE id = ?',
+            [u.typ, u.objetosc, u.data_waznosci, u.vat, u.cena_faktury, u.id],
+            () => runUpdate(j + 1)
+          );
+        };
+        runUpdate(0);
+      });
+    };
+    processReceipt(0);
+  });
+}
+
+function ensureProductsReceiptLineColumns(done) {
+  db.all('PRAGMA table_info(products)', (err, columns) => {
+    if (err) {
+      console.error('❌ Error reading products schema:', err.message);
+      if (done) done();
+      return;
+    }
+    const names = new Set((columns || []).map((col) => col.name));
+    const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
+    const next = (i) => {
+      if (i >= missing.length) {
+        backfillProductsFromReceiptJson(done);
+        return;
+      }
+      const col = missing[i];
+      db.run(`ALTER TABLE products ADD COLUMN ${col.name} ${col.sql}`, (alterErr) => {
+        if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
+          console.error(`❌ Error adding products.${col.name}:`, alterErr.message);
+        } else {
+          console.log(`✅ Column products.${col.name} ready`);
+        }
+        next(i + 1);
+      });
+    };
+    next(0);
+  });
 }
 
 function ensureProductReceiptsRenameWalutaFakturyColumn(done) {
@@ -533,25 +728,19 @@ function ensureWorkingSheetsDropUnusedColumns() {
   });
 }
 
-function receiptProductsIncludeKod(productsJson, kod) {
-  const normalized = normalizeProductKod(kod);
-  if (!normalized) return false;
-  try {
-    const products = typeof productsJson === 'string' ? JSON.parse(productsJson) : (productsJson || []);
-    return (products || []).some((p) => normalizeProductKod(p.kod) === normalized);
-  } catch {
-    return false;
-  }
-}
-
 function kodExistsInOtherReceipts(kod, excludeReceiptId) {
   return new Promise((resolve, reject) => {
-    db.all(
-      'SELECT products FROM product_receipts WHERE id != ?',
-      [excludeReceiptId],
-      (err, rows) => {
+    const normalized = normalizeProductKod(kod);
+    if (!normalized) {
+      resolve(false);
+      return;
+    }
+    db.get(
+      'SELECT 1 AS found FROM products WHERE kod = ? AND receipt_id IS NOT NULL AND receipt_id != ? LIMIT 1',
+      [normalized, excludeReceiptId],
+      (err, row) => {
         if (err) return reject(err);
-        resolve((rows || []).some((row) => receiptProductsIncludeKod(row.products, kod)));
+        resolve(Boolean(row));
       }
     );
   });
@@ -1070,6 +1259,11 @@ db.serialize(() => {
     ilosc INTEGER DEFAULT 0,
     ilosc_aktualna INTEGER DEFAULT 0,
     receipt_id INTEGER,
+    typ TEXT,
+    objetosc TEXT,
+    data_waznosci DATE,
+    vat REAL DEFAULT 0,
+    cena_faktury REAL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (receipt_id) REFERENCES product_receipts (id) ON DELETE CASCADE
   )`, (err) => {
@@ -1596,17 +1790,7 @@ db.serialize(() => {
   });
 
   console.log('🎉 All database tables initialized successfully');
-  
-  // Миграция: добавляем недостающие поля в таблицу products
-  db.all("PRAGMA table_info(products)", (err, columns) => {
-    if (err) {
-      console.error('❌ Error checking products table structure:', err);
-      return;
-    }
-    
-    const columnNames = columns.map(col => col.name);
-    console.log('📋 Current products columns:', columnNames);
-  });
+  ensureProductsReceiptLineColumns();
 });
 
 // ===== RESERVATIONS ROUTES =====
@@ -7983,11 +8167,15 @@ app.get('/api/product-receipts', (req, res) => {
       res.status(500).json({ error: err.message });
       return;
     }
-    
-    const processedRows = rows.map(mapProductReceiptApiRow);
-    
-    console.log(`✅ Found ${processedRows.length} product receipts`);
-    res.json(processedRows || []);
+    attachReceiptProductsFromTable(rows || [], (attachErr, processedRows) => {
+      if (attachErr) {
+        console.error('❌ Error attaching receipt products:', attachErr);
+        res.status(500).json({ error: attachErr.message });
+        return;
+      }
+      console.log(`✅ Found ${processedRows.length} product receipts`);
+      res.json(processedRows);
+    });
   });
 });
 
@@ -8006,10 +8194,16 @@ app.get('/api/product-receipts/:id', (req, res) => {
       return res.status(404).json({ error: 'Product receipt not found' });
     }
     
-    const processedRow = mapProductReceiptApiRow(row);
-    
-    console.log(`✅ Found product receipt: ${processedRow.data_przyjecia} (${processedRow.products.length} products)`);
-    res.json(processedRow);
+    attachReceiptProductsFromTable([row], (attachErr, processedRows) => {
+      if (attachErr) {
+        console.error('❌ Error attaching receipt products:', attachErr);
+        res.status(500).json({ error: attachErr.message });
+        return;
+      }
+      const processedRow = processedRows[0];
+      console.log(`✅ Found product receipt: ${processedRow.data_przyjecia} (${processedRow.products.length} products)`);
+      res.json(processedRow);
+    });
   });
 });
 
@@ -8132,7 +8326,7 @@ app.post('/api/product-receipts', upload.fields([
     return res.status(400).json({ error: 'Date and products array are required' });
   }
 
-  products = normalizeReceiptProducts(products);
+  products = stampCenaFaktury(normalizeReceiptProducts(products));
   const receiptError = validatePurchaseReceipt({
     hasDate: true,
     sprzedawca,
@@ -8234,18 +8428,8 @@ app.post('/api/product-receipts', upload.fields([
               console.log(`➕ Creating new product record: ${product.kod} (ilosc: ${product.ilosc})`);
             await new Promise((resolve, reject) => {
               db.run(
-                  'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [
-                  product.kod, 
-                  product.nazwa, 
-                  product.kod_kreskowy || null, 
-                  product.cena || 0,
-                  product.ilosc,
-                  product.ilosc, // ilosc_aktualna
-                    receiptId,
-                    (product.cena || 0) === 0 ? 'samples' : null,
-                    date // created_at = data zakupu, а не текущая дата создания записи
-                ],
+                  insertProductBatchSql(),
+                insertProductBatchParams(product, receiptId, product.ilosc, date),
                 function(err) {
                   if (err) {
                     console.error('❌ Error inserting into products:', err);
@@ -8823,9 +9007,11 @@ app.put('/api/product-receipts/:id', upload.fields([
                   kod_kreskowy: p.kod_kreskowy,
                   cena: p.cena,
                   ilosc: 0,
-                  typ: null, // Будем брать из oldProducts JSON
-                  dataWaznosci: null,
-                  objetosc: null,
+                  typ: p.typ || null,
+                  dataWaznosci: p.data_waznosci || null,
+                  objetosc: p.objetosc || null,
+                  vat: p.vat || 0,
+                  cena_faktury: p.cena_faktury,
                   records: []
                 };
               }
@@ -8833,12 +9019,11 @@ app.put('/api/product-receipts/:id', upload.fields([
               oldProductsByKod[p.kod].records.push(p);
             });
             
-            // Дополняем данными из oldProducts JSON (тип, объем, дата)
             oldProducts.forEach(op => {
               if (oldProductsByKod[op.kod]) {
-                oldProductsByKod[op.kod].typ = op.typ || oldProductsByKod[op.kod].typ;
-                oldProductsByKod[op.kod].dataWaznosci = op.dataWaznosci || oldProductsByKod[op.kod].dataWaznosci;
-                oldProductsByKod[op.kod].objetosc = op.objetosc || oldProductsByKod[op.kod].objetosc;
+                oldProductsByKod[op.kod].typ = oldProductsByKod[op.kod].typ || op.typ || null;
+                oldProductsByKod[op.kod].dataWaznosci = oldProductsByKod[op.kod].dataWaznosci || op.dataWaznosci || op.data_waznosci || null;
+                oldProductsByKod[op.kod].objetosc = oldProductsByKod[op.kod].objetosc || op.objetosc || null;
               }
             });
             
@@ -8877,8 +9062,8 @@ app.put('/api/product-receipts/:id', upload.fields([
                 for (const item of newProduct.items) {
               await new Promise((resolve, reject) => {
                     db.run(
-                      'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                      [item.kod, item.nazwa, item.kod_kreskowy || null, item.cena || 0, item.ilosc, item.ilosc, id, (item.cena || 0) === 0 ? 'samples' : null, date],
+                      insertProductBatchSql(),
+                      insertProductBatchParams(item, id, item.ilosc, date),
                       function(err) {
                   if (err) {
                           console.error(`❌ Error inserting new product ${productCode}:`, err);
@@ -8987,8 +9172,8 @@ app.put('/api/product-receipts/:id', upload.fields([
 
                     await new Promise((resolve, reject) => {
                     db.run(
-                        'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [item.kod, item.nazwa, item.kod_kreskowy || null, item.cena || 0, item.ilosc, itemIloscAktualna, id, (item.cena || 0) === 0 ? 'samples' : null, date],
+                        insertProductBatchSql(),
+                        insertProductBatchParams(item, id, itemIloscAktualna, date),
                       function(err) {
                         if (err) {
                             console.error(`❌ Error inserting updated product ${productCode}:`, err);
@@ -9020,6 +9205,21 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (changes.cena) {
                     updateFields.push('cena = ?');
                     updateValues.push(newProduct.cena || 0);
+                    const firstItem = newProduct.items[0] || {};
+                    updateFields.push('cena_faktury = ?');
+                    updateValues.push(receiptLineFields(firstItem).cena_faktury);
+                  }
+                  if (changes.typ) {
+                    updateFields.push('typ = ?');
+                    updateValues.push(newProduct.typ || null);
+                  }
+                  if (changes.dataWaznosci) {
+                    updateFields.push('data_waznosci = ?');
+                    updateValues.push(newProduct.dataWaznosci || newProduct.data_waznosci || null);
+                  }
+                  if (changes.objetosc) {
+                    updateFields.push('objetosc = ?');
+                    updateValues.push(newProduct.objetosc != null && newProduct.objetosc !== '' ? String(newProduct.objetosc) : null);
                   }
                   
                   if (updateFields.length > 0) {

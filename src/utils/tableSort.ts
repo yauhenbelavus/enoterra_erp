@@ -515,8 +515,9 @@ export function getReceiptProductSortValue(
     ilosc?: number;
     cena?: number;
     typ?: string;
-    objetosc?: number;
+    objetosc?: number | string;
     dataWaznosci?: string | number;
+    data_waznosci?: string | number;
   },
   field: string
 ): SortValue {
@@ -536,12 +537,14 @@ export function getReceiptProductSortValue(
     case 'typ':
       return product.typ || '';
     case 'objetosc':
-      return product.objetosc ?? 0;
-    case 'dataWaznosci':
-      if (!product.dataWaznosci) return '';
-      return typeof product.dataWaznosci === 'number'
-        ? product.dataWaznosci
-        : new Date(product.dataWaznosci).getTime();
+      return parseFloat(String(product.objetosc ?? '').replace(',', '.')) || 0;
+    case 'dataWaznosci': {
+      const dataWaznosci = product.dataWaznosci ?? product.data_waznosci;
+      if (!dataWaznosci) return '';
+      return typeof dataWaznosci === 'number'
+        ? dataWaznosci
+        : new Date(dataWaznosci).getTime();
+    }
     default:
       return '';
   }

@@ -7,6 +7,7 @@ import Modal from 'react-modal';
 import { formatPlMoney, getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
 import { SortIndicator } from './SortIndicator';
 import { compareReceipts, useTableSort } from '../utils/tableSort';
+import { normalizeReceiptProductLines } from '../utils/receiptProducts';
 
 interface ProductReceipt {
   id?: number;
@@ -194,20 +195,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   const filteredReceipts = receipts.filter(receipt => {
     // Фильтрация по категории
     if (selectedCategory) {
-      if (typeof receipt.products === 'string') {
-        try {
-          const products = JSON.parse(receipt.products);
-          const hasCategory = products.some((product: any) => product.typ === selectedCategory);
-          if (!hasCategory) return false;
-        } catch {
-          return false;
-        }
-      } else if (Array.isArray(receipt.products)) {
-        const hasCategory = receipt.products.some(product => product.typ === selectedCategory);
-        if (!hasCategory) return false;
-      } else {
-        return false;
-      }
+      const hasCategory = normalizeReceiptProductLines(receipt.products).some(
+        (product) => product.typ === selectedCategory
+      );
+      if (!hasCategory) return false;
     }
 
     // Фильтрация по году

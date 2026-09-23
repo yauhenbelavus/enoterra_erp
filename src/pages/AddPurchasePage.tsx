@@ -30,6 +30,7 @@ import {
 import { PlMoneyInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
+import { normalizeReceiptProductLines } from '../utils/receiptProducts';
 
 registerLocale('pl', pl);
 
@@ -209,9 +210,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       podatekAkcyzowy: receipt.podatek_akcyzowy ?? receipt.podatekAkcyzowy ?? 0,
       aktualny_kurs: receipt.aktualny_kurs ?? 0,
       podatek_akcyzowy: receipt.podatek_akcyzowy ?? 0,
-      products: typeof receipt.products === 'string'
-        ? JSON.parse(receipt.products)
-        : receipt.products || [],
+      products: normalizeReceiptProductLines(receipt.products),
       productInvoice: receipt.productInvoice,
       transportInvoice: receipt.transportInvoice,
     }));

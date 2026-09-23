@@ -6,6 +6,7 @@ import { API_URL } from '../config';
 import { formatPlMoney, getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
 import { SortableTh } from './SortIndicator';
 import { getReceiptProductSortValue, useTableSort } from '../utils/tableSort';
+import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
 
 interface ProductReceipt {
   id?: number;
@@ -27,8 +28,9 @@ interface ProductReceipt {
     ilosc: number;
     cena: number;
     dataWaznosci?: string | number;
+    data_waznosci?: string | number;
     typ?: string;
-    objetosc?: number;
+    objetosc?: string | number;
   }>;
   productInvoice?: string;
   transportInvoice?: string;
@@ -76,18 +78,10 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
     };
   };
 
-  const productsArray = useMemo(() => {
-    if (!receipt) return [];
-    if (Array.isArray(receipt.products)) return receipt.products;
-    if (typeof receipt.products === 'string') {
-      try {
-        return JSON.parse(receipt.products);
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  }, [receipt]);
+  const productsArray = useMemo(
+    () => (receipt ? normalizeReceiptProductLines(receipt.products) : []),
+    [receipt]
+  );
 
   const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(
     productsArray,
@@ -317,10 +311,13 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
                       {product.objetosc || '-'}
                     </td>
                     <td className="px-2 py-2 w-[90px] break-words">
-                      {product.dataWaznosci
-                        ? (typeof product.dataWaznosci === 'number'
-                            ? new Date(product.dataWaznosci * 1000).toLocaleDateString('pl-PL')
-                            : (new Date(product.dataWaznosci).toLocaleDateString('pl-PL')))
+                      {(() => {
+                        const dataWaznosci = receiptLineDataWaznosci(product);
+                        if (!dataWaznosci) return '-';
+                        return typeof dataWaznosci === 'number'
+                          ? new Date(dataWaznosci * 1000).toLocaleDateString('pl-PL')
+                          : new Date(dataWaznosci).toLocaleDateString('pl-PL');
+                      })()}
                         : '-'}
                     </td>
                   </tr>

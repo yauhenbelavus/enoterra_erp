@@ -9,6 +9,7 @@ import { SortIndicator } from './SortIndicator';
 import { compareInventoryItems, useTableSort } from '../utils/tableSort';
 import { computeStorageAgeByKod, formatDate as formatStorageDate } from '../utils/storageAge';
 import { getKosztWlasny } from '../utils/receiptCurrency';
+import { normalizeReceiptProductLines } from '../utils/receiptProducts';
 
 // Глобальные стили для тултипов и таблицы
 const tooltipStyles = `
@@ -318,8 +319,8 @@ const getLastReceiptDateBefore = (
   let lastReceiptDate: Date | null = null;
 
   for (const receipt of productReceipts || []) {
-    if (!receipt?.data_przyjecia || !Array.isArray(receipt.products)) continue;
-    const hasKod = receipt.products.some((product) => product.kod === kod);
+    if (!receipt?.data_przyjecia) continue;
+    const hasKod = normalizeReceiptProductLines(receipt.products).some((product) => product.kod === kod);
     if (!hasKod) continue;
 
     const receiptDate = new Date(receipt.data_przyjecia);
@@ -765,11 +766,9 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
     const cache = new Map<string, string>();
     try {
       for (const receipt of productReceipts) {
-        if (Array.isArray(receipt.products)) {
-          for (const product of receipt.products) {
-            if (product.kod && !cache.has(product.kod)) {
-              cache.set(product.kod, receipt.sprzedawca);
-            }
+        for (const product of normalizeReceiptProductLines(receipt.products)) {
+          if (product.kod && !cache.has(product.kod)) {
+            cache.set(product.kod, receipt.sprzedawca);
           }
         }
       }
