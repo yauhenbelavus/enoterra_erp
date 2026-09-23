@@ -609,9 +609,6 @@ function backfillProductsFromReceiptJson(done) {
         }
         const unused = batches.slice();
         const computedDelivery = kosztDostawyPerUnitFromReceipt(receipt, lines);
-        const kurs = getKursEurPln(receipt.waluta_przyjecia, receipt.kurs_1, receipt.kurs_2);
-        const wartoscDostawy = parseFloat(String(receipt.wartosc_dostawy ?? '0').replace(',', '.')) || 0;
-        const totalValue = receiptLineValueTotal(lines);
         const updates = [];
         for (const line of lines) {
           const kod = normalizeProductKod(line.kod);
@@ -620,6 +617,7 @@ function backfillProductsFromReceiptJson(done) {
           if (!batch) continue;
           const lineCena = parseFloat(String(line.cena == null ? '' : line.cena).replace(',', '.'));
           const jsonDelivery = parseFloat(String(line.deliveryCostPerUnitPln == null ? '' : line.deliveryCostPerUnitPln).replace(',', '.'));
+          const hasNewKosztBut = Object.prototype.hasOwnProperty.call(line, 'koszt_dostawy_per_unit');
           const jsonKosztBut = parseFloat(String(line.koszt_dostawy_per_unit == null ? '' : line.koszt_dostawy_per_unit).replace(',', '.'));
           const jsonAkcyzaAmount = parseFloat(String(line.podatek_akcyzowy == null ? '' : line.podatek_akcyzowy).replace(',', '.'));
           const jsonAkcyzaRate = parseFloat(String(
@@ -629,6 +627,9 @@ function backfillProductsFromReceiptJson(done) {
             typ: batch.typ || line.typ,
             objetosc: batch.objetosc || line.objetosc,
           };
+          const srednie = (batch.typ || line.typ) === 'aksesoria'
+            ? 0
+            : (Number.isFinite(jsonDelivery) ? roundMoney(jsonDelivery) : computedDelivery);
           updates.push({
             id: batch.id,
             typ: batch.typ || line.typ || null,
@@ -638,12 +639,10 @@ function backfillProductsFromReceiptJson(done) {
             cena_zakupu_org: batch.cena_zakupu_org != null
               ? roundMoney(batch.cena_zakupu_org)
               : (Number.isFinite(lineCena) ? roundMoney(lineCena) : null),
-            koszt_dostawy_per_unit_srednie: (batch.typ || line.typ) === 'aksesoria'
-              ? 0
-              : (Number.isFinite(jsonDelivery) ? roundMoney(jsonDelivery) : computedDelivery),
-            koszt_dostawy_per_unit: Number.isFinite(jsonKosztBut)
+            koszt_dostawy_per_unit_srednie: srednie,
+            koszt_dostawy_per_unit: hasNewKosztBut && Number.isFinite(jsonKosztBut)
               ? roundMoney(jsonKosztBut)
-              : kosztDostawyPerUnitFromKosztBut(line, totalValue, wartoscDostawy, kurs),
+              : srednie,
             podatek_akcyzowy: Number.isFinite(jsonAkcyzaAmount)
               ? roundMoney(jsonAkcyzaAmount)
               : podatekAkcyzowyForProduct(lineForAkcyza, Number.isFinite(jsonAkcyzaRate) ? jsonAkcyzaRate : 0),
@@ -934,6 +933,7 @@ function backfillWorkingSheetsKosztDostawyPerUnit(done) {
   db.all(
     `SELECT p.kod,
             AVG(p.koszt_dostawy_per_unit) AS koszt_dostawy_per_unit,
+            AVG(p.koszt_dostawy_per_unit_srednie) AS koszt_dostawy_per_unit_srednie,
             AVG(p.podatek_akcyzowy) AS podatek_akcyzowy
      FROM products p
      INNER JOIN (
@@ -945,20 +945,35 @@ function backfillWorkingSheetsKosztDostawyPerUnit(done) {
      GROUP BY p.kod`,
     (err, rows) => {
       if (err) {
-        console.error('❌ Error reading products for working_sheets koszt_dostawy_per_unit backfill:', err.message);
+        console.error('❌ Error reading latest products batches for working_sheets backfill:', err.message);
         if (done) done();
         return;
       }
       const run = (i) => {
         if (i >= (rows || []).length) {
+          console.log(`✅ working_sheets koszt/akcyza synced from latest products batch (${(rows || []).length} kody)`);
           if (done) done();
           return;
         }
         const row = rows[i];
         db.run(
-          'UPDATE working_sheets SET koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE kod = ?',
-          [roundMoney(row.koszt_dostawy_per_unit), roundMoney(row.podatek_akcyzowy), row.kod],
-          () => run(i + 1)
+          `UPDATE working_sheets
+           SET koszt_dostawy_per_unit = ?,
+               koszt_dostawy_per_unit_srednie = ?,
+               podatek_akcyzowy = ?
+           WHERE kod = ?`,
+          [
+            roundMoney(row.koszt_dostawy_per_unit),
+            roundMoney(row.koszt_dostawy_per_unit_srednie),
+            roundMoney(row.podatek_akcyzowy),
+            row.kod,
+          ],
+          (updErr) => {
+            if (updErr) {
+              console.error(`❌ Error syncing working_sheets koszt/akcyza for ${row.kod}:`, updErr.message);
+            }
+            run(i + 1);
+          }
         );
       };
       run(0);
@@ -970,7 +985,7 @@ function backfillProductsKosztDostawyWithoutReceipt(done) {
   db.run(
     `UPDATE products
      SET koszt_dostawy_per_unit_srednie = (
-       SELECT ROUND(ws.koszt_dostawy_per_unit, 2)
+       SELECT ROUND(COALESCE(NULLIF(ws.koszt_dostawy_per_unit_srednie, 0), ws.koszt_dostawy_per_unit), 2)
        FROM working_sheets ws
        WHERE ws.kod = products.kod
      )
@@ -979,8 +994,10 @@ function backfillProductsKosztDostawyWithoutReceipt(done) {
        AND EXISTS (
          SELECT 1 FROM working_sheets ws
          WHERE ws.kod = products.kod
-           AND ws.koszt_dostawy_per_unit IS NOT NULL
-           AND ws.koszt_dostawy_per_unit != 0
+           AND (
+             (ws.koszt_dostawy_per_unit_srednie IS NOT NULL AND ws.koszt_dostawy_per_unit_srednie != 0)
+             OR (ws.koszt_dostawy_per_unit IS NOT NULL AND ws.koszt_dostawy_per_unit != 0)
+           )
        )`,
     function (err) {
       if (err) {
@@ -1009,7 +1026,20 @@ function backfillProductsKosztDostawyWithoutReceipt(done) {
           } else if (this.changes > 0) {
             console.log(`✅ Filled products.podatek_akcyzowy from working_sheets on ${this.changes} rows without receipt`);
           }
-          if (done) done();
+          db.run(
+            `UPDATE products
+             SET koszt_dostawy_per_unit = ROUND(koszt_dostawy_per_unit_srednie, 2)
+             WHERE receipt_id IS NULL
+               AND koszt_dostawy_per_unit_srednie IS NOT NULL`,
+            function (eqErr) {
+              if (eqErr) {
+                console.error('❌ Error equalizing products koszt_dostawy without receipt:', eqErr.message);
+              } else if (this.changes > 0) {
+                console.log(`✅ Set products.koszt_dostawy_per_unit = srednie on ${this.changes} rows without receipt`);
+              }
+              if (done) done();
+            }
+          );
         }
       );
     }
