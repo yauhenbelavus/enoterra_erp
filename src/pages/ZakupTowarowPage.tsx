@@ -99,7 +99,7 @@ const loadProductsFromDb = async (): Promise<Product[]> => {
     return data.map((item: any) => ({
       kod: item.kod,
       nazwa: item.nazwa,
-      ilosc: item.ilosc,
+      ilosc: item.ilosc_pierwotna ?? item.ilosc,
       jednostka_miary: item.jednostka_miary || '',
       kod_kreskowy: item.kod_kreskowy || '',
       data_waznosci: item.data_waznosci ?? undefined,

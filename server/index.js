@@ -275,8 +275,8 @@ function withCenaPln(products, walutaFaktury, kursFakturyToPln) {
   const waluta = normalizeWalutaFaktury(walutaFaktury);
   const rate = parseKursValue(kursFakturyToPln);
   return products.map((p) => {
-    const orig = parseFloat(String(p.cena == null ? '0' : p.cena).replace(',', '.')) || 0;
-    const cenaPln = waluta === 'PLN' ? orig : Math.round(orig * rate * 100) / 100;
+    const orig = roundMoney(p.cena);
+    const cenaPln = waluta === 'PLN' ? orig : roundMoney(orig * rate);
     return { ...p, cena: cenaPln, cenaOryginalna: cenaPln };
   });
 }
@@ -351,6 +351,15 @@ function roundMoney(value) {
   return Math.round(n * 100) / 100;
 }
 
+function formatProductCenaZakupu(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    cena_zakupu_pln: row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln),
+    cena_zakupu_org: row.cena_zakupu_org == null ? row.cena_zakupu_org : roundMoney(row.cena_zakupu_org),
+  };
+}
+
 function mapProductReceiptApiRow(row) {
   if (!row) return row;
   const { wartosc, waluta_faktury, walutaFaktury, kosztDostawy, products, aktualny_kurs, kurs_faktury, productInvoice, transportInvoice, podatek_akcyzowy, podatekAkcyzowy, ...rest } = row;
@@ -383,6 +392,7 @@ function stampCenaZakupuOrg(products) {
   if (!Array.isArray(products)) return products;
   return products.map((p) => ({
     ...p,
+    cena: roundMoney(p.cena),
     cena_zakupu_org: orgPurchasePrice(p),
   }));
 }
@@ -399,13 +409,13 @@ function receiptLineFields(product) {
 }
 
 function mapProductBatchToReceiptLine(row) {
-  const cenaFaktury = row.cena_zakupu_org != null ? row.cena_zakupu_org : row.cena_zakupu_pln;
+  const cenaFaktury = roundMoney(row.cena_zakupu_org != null ? row.cena_zakupu_org : row.cena_zakupu_pln);
   return {
     id: row.id,
     kod: row.kod,
     nazwa: row.nazwa,
     kod_kreskowy: row.kod_kreskowy,
-    ilosc: row.ilosc,
+    ilosc: row.ilosc_pierwotna != null ? row.ilosc_pierwotna : row.ilosc,
     ilosc_aktualna: row.ilosc_aktualna,
     cena: cenaFaktury,
     dataWaznosci: row.data_waznosci || undefined,
@@ -417,7 +427,7 @@ function mapProductBatchToReceiptLine(row) {
 }
 
 function insertProductBatchSql() {
-  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc, ilosc_aktualna, receipt_id, status, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, receipt_id, status, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 }
 
 function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
@@ -426,7 +436,7 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
     product.kod,
     product.nazwa,
     product.kod_kreskowy || null,
-    product.cena || 0,
+    roundMoney(product.cena || 0),
     product.ilosc,
     iloscAktualna,
     receiptId,
@@ -523,7 +533,7 @@ function backfillProductsFromReceiptJson(done) {
             data_waznosci: batch.data_waznosci || line.dataWaznosci || line.data_waznosci || null,
             vat: batch.vat || roundMoney(line.vat),
             cena_zakupu_org: batch.cena_zakupu_org != null
-              ? batch.cena_zakupu_org
+              ? roundMoney(batch.cena_zakupu_org)
               : (Number.isFinite(lineCena) ? roundMoney(lineCena) : null),
           });
         }
@@ -575,30 +585,32 @@ function renameProductsColumnIfPresent(fromName, toName, done) {
 function ensureProductsReceiptLineColumns(done) {
   renameProductsColumnIfPresent('cena', 'cena_zakupu_pln', () => {
     renameProductsColumnIfPresent('cena_faktury', 'cena_zakupu_org', () => {
-      db.all('PRAGMA table_info(products)', (err, columns) => {
-        if (err) {
-          console.error('❌ Error reading products schema:', err.message);
-          if (done) done();
-          return;
-        }
-        const names = new Set((columns || []).map((col) => col.name));
-        const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
-        const next = (i) => {
-          if (i >= missing.length) {
-            backfillProductsFromReceiptJson(() => convertProductsCenaToPln(done));
+      renameProductsColumnIfPresent('ilosc', 'ilosc_pierwotna', () => {
+        db.all('PRAGMA table_info(products)', (err, columns) => {
+          if (err) {
+            console.error('❌ Error reading products schema:', err.message);
+            if (done) done();
             return;
           }
-          const col = missing[i];
-          db.run(`ALTER TABLE products ADD COLUMN ${col.name} ${col.sql}`, (alterErr) => {
-            if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
-              console.error(`❌ Error adding products.${col.name}:`, alterErr.message);
-            } else {
-              console.log(`✅ Column products.${col.name} ready`);
+          const names = new Set((columns || []).map((col) => col.name));
+          const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
+          const next = (i) => {
+            if (i >= missing.length) {
+              backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(done)));
+              return;
             }
-            next(i + 1);
-          });
-        };
-        next(0);
+            const col = missing[i];
+            db.run(`ALTER TABLE products ADD COLUMN ${col.name} ${col.sql}`, (alterErr) => {
+              if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
+                console.error(`❌ Error adding products.${col.name}:`, alterErr.message);
+              } else {
+                console.log(`✅ Column products.${col.name} ready`);
+              }
+              next(i + 1);
+            });
+          };
+          next(0);
+        });
       });
     });
   });
@@ -711,6 +723,43 @@ function convertProductsCenaToPln(done, attempt = 0) {
       }
     );
   });
+}
+
+function roundExistingCenaZakupu(done) {
+  const finish = () => {
+    if (done) done();
+  };
+  db.run(
+    'UPDATE products SET cena_zakupu_pln = ROUND(cena_zakupu_pln, 2) WHERE cena_zakupu_pln IS NOT NULL',
+    function (plnErr) {
+      if (plnErr) {
+        console.error('❌ Error rounding products.cena_zakupu_pln:', plnErr.message);
+      } else if (this.changes > 0) {
+        console.log(`✅ Rounded products.cena_zakupu_pln on ${this.changes} rows`);
+      }
+      db.run(
+        'UPDATE products SET cena_zakupu_org = ROUND(cena_zakupu_org, 2) WHERE cena_zakupu_org IS NOT NULL',
+        function (orgErr) {
+          if (orgErr) {
+            console.error('❌ Error rounding products.cena_zakupu_org:', orgErr.message);
+          } else if (this.changes > 0) {
+            console.log(`✅ Rounded products.cena_zakupu_org on ${this.changes} rows`);
+          }
+          db.run(
+            'UPDATE working_sheets SET cena_zakupu_pln = ROUND(cena_zakupu_pln, 2) WHERE cena_zakupu_pln IS NOT NULL',
+            function (wsErr) {
+              if (wsErr) {
+                console.error('❌ Error rounding working_sheets.cena_zakupu_pln:', wsErr.message);
+              } else if (this.changes > 0) {
+                console.log(`✅ Rounded working_sheets.cena_zakupu_pln on ${this.changes} rows`);
+              }
+              finish();
+            }
+          );
+        }
+      );
+    }
+  );
 }
 
 function renameProductReceiptsColumnIfPresent(fromName, toName, done) {
@@ -1532,7 +1581,7 @@ db.serialize(() => {
     nazwa TEXT NOT NULL,
     kod_kreskowy TEXT,
     cena_zakupu_pln REAL DEFAULT 0,
-    ilosc INTEGER DEFAULT 0,
+    ilosc_pierwotna INTEGER DEFAULT 0,
     ilosc_aktualna INTEGER DEFAULT 0,
     receipt_id INTEGER,
     typ TEXT,
@@ -2592,7 +2641,7 @@ app.get('/api/products', (req, res) => {
       return;
     }
     console.log(`✅ Found ${rows.length} products`);
-    res.json(rows || []);
+    res.json((rows || []).map(formatProductCenaZakupu));
   });
 });
 
@@ -2606,8 +2655,8 @@ app.post('/api/products', (req, res) => {
   }
   
   db.run(
-    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc, ilosc_aktualna, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [kod, nazwa, kod_kreskowy, cena_zakupu_pln || cena || 0, ilosc || 0, ilosc || 0, data_waznosci],
+    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [kod, nazwa, kod_kreskowy, roundMoney(cena_zakupu_pln || cena || 0), ilosc || 0, ilosc || 0, data_waznosci],
     function(err) {
       if (err) {
         console.error('❌ Database error:', err);
@@ -2640,7 +2689,7 @@ app.get('/api/products/search', (req, res) => {
       }
       console.log(`✅ Found ${rows.length} products matching "${query}"`);
       res.json({
-        products: rows || [],
+        products: (rows || []).map(formatProductCenaZakupu),
         query: query,
         count: rows.length,
         timestamp: new Date().toISOString()
@@ -2782,7 +2831,7 @@ app.get('/api/products/:id', (req, res) => {
     
     console.log(`✅ Found product: ${row.nazwa} (${row.kod})`);
     res.json({
-      product: row,
+      product: formatProductCenaZakupu(row),
       selected: true,
       timestamp: new Date().toISOString()
     });
@@ -8815,7 +8864,7 @@ app.post('/api/product-receipts', upload.fields([
                       // 2. Затем обновляем working_sheets
                       console.log(`📝 Updating working_sheets for ${productCode}`);
                       
-                      const cenaValue = parseFloat(newPrice) || 0;
+                      const cenaValue = roundMoney(newPrice);
                       const objetoscValue = parseFloat(String(mainProduct.objetosc || '1').replace(',', '.')) || 1;
                       const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                       
@@ -8912,7 +8961,7 @@ app.post('/api/product-receipts', upload.fields([
                   } else {
                   // Если товара нет - создаем новую запись в working_sheets
                   console.log(`➕ Creating new product: ${productCode}`);
-                  const cenaValue = maxCena;
+                  const cenaValue = roundMoney(maxCena);
                   const objetoscValue = parseFloat(String(mainProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   
@@ -9353,7 +9402,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   records: []
                 };
               }
-              oldProductsByKod[p.kod].ilosc += p.ilosc || 0;
+              oldProductsByKod[p.kod].ilosc += p.ilosc_pierwotna || p.ilosc || 0;
               oldProductsByKod[p.kod].records.push(p);
             });
             
@@ -9542,7 +9591,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   }
                   if (changes.cena) {
                     updateFields.push('cena_zakupu_pln = ?');
-                    updateValues.push(newProduct.cena || 0);
+                    updateValues.push(roundMoney(newProduct.cena || 0));
                     const firstItem = newProduct.items[0] || {};
                     updateFields.push('cena_zakupu_org = ?');
                     updateValues.push(receiptLineFields(firstItem).cena_zakupu_org);
@@ -9628,7 +9677,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                        WHERE kod = ?`,
                       [
                         sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null,
-                        sourceProduct.typ || null, sprzedawca || null, maxCena,
+                        sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena),
                         sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null,
                         kosztDostawyPerUnitForProduct, podatekValue, normalizedCode,
                       ],
@@ -9647,7 +9696,7 @@ app.put('/api/product-receipts/:id', upload.fields([
 
                   db.run(
                     'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, date],
+                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, date],
                     function (err) {
                       if (err) {
                         console.error(`❌ Error creating working_sheets for ${normalizedCode}:`, err);
@@ -9729,7 +9778,7 @@ app.put('/api/product-receipts/:id', upload.fields([
               await new Promise((resolve, reject) => {
                         db.run(
                       'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                      [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, maxCena, sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, date],
+                      [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, podatekValue, date],
                           function(err) {
                   if (err) {
                           console.error(`❌ Error creating working_sheets for ${productCode}:`, err);
@@ -9957,7 +10006,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
                 if (Math.abs((workingSheetRecord.cena_zakupu_pln || 0) - maxCena) > 0.01) {
                   updateFields.push('cena_zakupu_pln = ?');
-                  updateValues.push(maxCena);
+                  updateValues.push(roundMoney(maxCena));
                 }
                 
                 // Обновляем sprzedawca, если он изменился
@@ -10179,7 +10228,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
                 snapshot.kod_kreskowy,
                 snapshot.typ,
                 snapshot.sprzedawca,
-                snapshot.cena,
+                roundMoney(snapshot.cena),
                 snapshot.data_waznosci,
                 snapshot.objetosc,
                 snapshot.koszt_dostawy_per_unit,
@@ -10265,7 +10314,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
                 snapshot.kod_kreskowy,
                 snapshot.typ,
                 snapshot.sprzedawca,
-                price,
+                roundMoney(price),
                 snapshot.data_waznosci,
                 snapshot.objetosc,
                 snapshot.koszt_dostawy_per_unit,
@@ -10288,7 +10337,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
           await new Promise((resolve, reject) => {
             db.run(
               'UPDATE working_sheets SET ilosc = ?, cena_zakupu_pln = ? WHERE kod = ?',
-              [qty, price, productKod],
+              [qty, roundMoney(price), productKod],
               function (upErr) {
                 if (upErr) reject(upErr);
                 else { wsUpdated++; resolve(); }
@@ -10389,7 +10438,10 @@ app.get('/api/working-sheets', (req, res) => {
       return;
     }
     console.log(`✅ Found ${rows.length} working sheets`);
-    res.json(rows || []);
+    res.json((rows || []).map((row) => ({
+      ...row,
+      cena_zakupu_pln: row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln),
+    })));
   });
 });
 
@@ -10934,7 +10986,7 @@ app.put('/api/working-sheets/update', (req, res) => {
     const finalTyp = typ !== undefined ? typ : existingRecord.typ;
     
     // Получаем значения для расчета
-    const finalCena = cena_zakupu_pln !== undefined ? cena_zakupu_pln : existingRecord.cena_zakupu_pln;
+    const finalCena = roundMoney(cena_zakupu_pln !== undefined ? cena_zakupu_pln : existingRecord.cena_zakupu_pln);
     let finalKosztDostawyPerUnit = koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit;
     let finalPodatekAkcyzowy = podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy;
     
@@ -10991,7 +11043,7 @@ app.put('/api/working-sheets/update', (req, res) => {
           
           db.run(
             'UPDATE products SET cena_zakupu_pln = ? WHERE kod = ? AND receipt_id IS NULL',
-            [cena_zakupu_pln, productKod],
+            [roundMoney(cena_zakupu_pln), productKod],
             function(updateErr) {
               if (updateErr) {
                 console.error(`❌ Error updating products table:`, updateErr);
@@ -11156,7 +11208,7 @@ app.post('/api/working-sheets/bulk-update', (req, res) => {
     }
     if (update.cena_zakupu_pln !== undefined) {
       updateFields.push('cena_zakupu_pln = ?');
-      updateValues.push(update.cena_zakupu_pln);
+      updateValues.push(roundMoney(update.cena_zakupu_pln));
     }
     if (update.cena_sprzedazy_pln !== undefined) {
       updateFields.push('cena_sprzedazy_pln = ?');
@@ -12151,7 +12203,7 @@ function consumeFromProducts(productKod, quantity, status = null) {
 
           db.run('UPDATE products SET ilosc_aktualna = ? WHERE id = ?', [newLeft, batch.id], function (upErr) {
             if (upErr) return reject(upErr);
-            consumptions.push({ batchId: batch.id, qty: take, cena: batch.cena_zakupu_pln || 0 });
+            consumptions.push({ batchId: batch.id, qty: take, cena: roundMoney(batch.cena_zakupu_pln || 0) });
             remaining -= take;
             next();
           });
