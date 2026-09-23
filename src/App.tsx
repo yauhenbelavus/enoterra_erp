@@ -53,6 +53,7 @@ interface ProductReceipt {
   wartosc_dostawy: number;
   rabat?: number;
   waluta_przyjecia?: string;
+  waluta_dostawy?: string;
   kurs_faktury?: number;
   kursFaktury?: number;
   aktualnyKurs?: number;
@@ -471,6 +472,7 @@ function App() {
         wartosc_dostawy: receipt.wartosc_dostawy ?? 0,
         rabat: receipt.rabat ?? 0,
         waluta_przyjecia: receipt.waluta_przyjecia ?? 'EUR',
+        waluta_dostawy: receipt.waluta_dostawy,
         kurs_faktury: receipt.kurs_faktury ?? 1,
         kursFaktury: receipt.kurs_faktury ?? receipt.kursFaktury ?? 1,
         aktualny_kurs: receipt.aktualny_kurs,

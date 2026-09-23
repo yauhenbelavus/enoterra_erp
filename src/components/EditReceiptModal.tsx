@@ -108,6 +108,7 @@ interface EditReceiptModalProps {
     podatekAkcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: WalutaFaktury;
+    waluta_dostawy?: string;
     kursFaktury?: number;
     products: Array<{
       kod: string;
@@ -136,6 +137,7 @@ interface EditReceiptModalProps {
     podatek_akcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: string;
+    waluta_dostawy?: string;
     kurs_faktury?: number;
     kursFaktury?: number;
     products: Array<{
@@ -586,6 +588,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         podatekAkcyzowy: roundMoney(podatekAkcyzowy),
         rabat: rabatValue,
         waluta_przyjecia: walutaFaktury,
+        waluta_dostawy: receipt.waluta_dostawy,
         kursFaktury: kursFakturyStandard,
         products: formattedProducts,
         productInvoice: productInvoice || null,
@@ -737,7 +740,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                       className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
                       placeholder="0,00"
                     />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">EUR</span>
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">{getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_dostawy)) || 'EUR'}</span>
                   </div>
                 </div>
               </div>

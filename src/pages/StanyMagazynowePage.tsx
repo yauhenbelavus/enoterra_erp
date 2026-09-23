@@ -12,6 +12,7 @@ interface ProductReceipt {
   wartosc_dostawy: number;
   rabat?: number;
   waluta_przyjecia?: string;
+  waluta_dostawy?: string;
   kurs_faktury?: number;
   kursFaktury?: number;
   aktualnyKurs?: number;

@@ -19,6 +19,7 @@ interface ProductReceipt {
   wartosc_dostawy: number;
   rabat?: number;
   waluta_przyjecia?: string;
+  waluta_dostawy?: string;
   kurs_faktury?: number;
   kursFaktury?: number;
   aktualnyKurs?: number;
@@ -54,6 +55,7 @@ interface ProductReceiptsListProps {
     podatekAkcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: string;
+  waluta_dostawy?: string;
     kursFaktury?: number;
     products: Array<{
       kod: string;
@@ -360,7 +362,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   {formatPlMoney(Number(receipt.wartosc_przyjecia_brutto) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
-                  {formatPlMoney(Number(receipt.wartosc_dostawy) || 0)} €
+                  {formatPlMoney(Number(receipt.wartosc_dostawy) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_dostawy))}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   <div className="flex items-center space-x-2">
@@ -515,6 +517,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               wartosc_dostawy: receiptToEdit.wartosc_dostawy,
               rabat: receiptToEdit.rabat,
               waluta_przyjecia: receiptToEdit.waluta_przyjecia,
+              waluta_dostawy: receiptToEdit.waluta_dostawy,
               kurs_faktury: receiptToEdit.kurs_faktury,
               kursFaktury: receiptToEdit.kursFaktury,
               aktualnyKurs: receiptToEdit.aktualnyKurs,
