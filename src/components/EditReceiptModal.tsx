@@ -293,12 +293,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setSumaBrutto(savedBrutto > 0 ? formatPlMoney(savedBrutto) : '');
 
         // ➡️ 2. Podatek akcyzowy
-        if (receipt.stawka_podatek_akcyzowy !== undefined && receipt.stawka_podatek_akcyzowy !== null) {
-          setPodatekAkcyzowy(Number(receipt.stawka_podatek_akcyzowy).toFixed(2).replace('.', ','));
-        } else {
-          const firstProductAkc = productsArray[0]?.podatekAkcyzowyPerLiter ?? productsArray[0]?.podatekAkcyzowy ?? productsArray[0]?.podatek_akcyzowy ?? 0;
-          setPodatekAkcyzowy(firstProductAkc.toFixed(2).replace('.', ','));
-        }
+        setPodatekAkcyzowy(Number(receipt.stawka_podatek_akcyzowy ?? 0).toFixed(2).replace('.', ','));
 
         // ➡️ 3. Rabat
         if (receipt.rabat !== undefined && receipt.rabat !== null) {

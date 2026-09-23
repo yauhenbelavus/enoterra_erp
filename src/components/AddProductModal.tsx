@@ -11,7 +11,6 @@ import {
   WalutaFaktury,
   WalutaFakturySelection,
   getCenaColumnLabel,
-  getKursEurPlnForDelivery,
   getPrimaryKursLabel,
   getSecondaryKursLabel,
   getWalutaSymbol,
@@ -55,8 +54,6 @@ interface AddProductModalProps {
       dataWaznosci?: string;
       typ?: string;
       objetosc?: string;
-      deliveryCostPerUnitPln?: number;
-      podatekAkcyzowyPerLiter?: number;
     }>;
     product_invoice?: File | null;
     transport_invoice?: File | null;
@@ -357,10 +354,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       return;
     }
 
-    const kursNumber = getKursEurPlnForDelivery(walutaFaktury, aktualnyKurs, kursFaktury);
-    const totalBottles = productRows.reduce((t,r)=>t+(parseFloat(r.ilosc)||0),0);
-    const deliveryCostPerUnitPln = totalBottles>0 ? (parseFloat(kosztDostawy.replace(',', '.'))/totalBottles)*kursNumber : 0;
-
     const formattedProducts = productRows
       .filter(row => row.kod && row.nazwa && row.ilosc && row.cena)
       .map(row => ({
@@ -372,8 +365,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         dataWaznosci: row.dataWaznosci ? row.dataWaznosci.toLocaleDateString('en-CA') : undefined,
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
-        deliveryCostPerUnitPln: deliveryCostPerUnitPln,
-        podatekAkcyzowyPerLiter: roundMoney(podatekAkcyzowy)
       }));
 
     console.log('formattedProducts:', formattedProducts);

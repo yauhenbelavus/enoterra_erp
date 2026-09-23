@@ -300,9 +300,9 @@ function getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury) {
   return parseKursValue(aktualnyKurs);
 }
 
-// Готовит рабочую копию позиций приёмки для внутренней обработки (products,
-// working_sheets): цена конвертируется в EUR, а оригинальная цена в валюте
-// фактуры сохраняется в cenaOryginalna (для обратной записи в JSON приёмки).
+// Готовит рабочую копию позиций приёмки для внутренней обработки (таблица
+// products, working_sheets): цена конвертируется в EUR, а оригинальная цена в валюте
+// фактуры сохраняется в cenaOryginalna.
 function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
   if (!Array.isArray(products)) return products;
   const waluta = normalizeWalutaFaktury(walutaFaktury);
@@ -315,7 +315,7 @@ function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
   });
 }
 
-// JSON приёмки хранит cena в валюте фактуры; products.cena_zakupu_pln и working_sheets.cena_zakupu_pln — PLN.
+// Тело запроса хранит cena в валюте фактуры; products.cena_zakupu_pln и working_sheets.cena_zakupu_pln — PLN.
 function prepareReceiptProducts(products, walutaFaktury, aktualnyKurs, kursFaktury) {
   const normalized = stampCenaZakupuOrg(normalizeReceiptProducts(products));
   const productsForJson = normalized.map((p) => ({ ...p }));
@@ -377,9 +377,7 @@ function mapProductReceiptApiRow(row) {
     transport_invoice: rest.transport_invoice ?? transportInvoice ?? null,
     stawka_podatek_akcyzowy: roundMoney(rest.stawka_podatek_akcyzowy ?? podatek_akcyzowy ?? podatekAkcyzowy),
     rabat: roundMoney(rest.rabat),
-    products: products
-      ? (typeof products === 'string' ? JSON.parse(products) : products)
-      : [],
+    products: [],
   };
 }
 
@@ -475,8 +473,6 @@ function stampPodatekAkcyzowy(products, stawkaPerLiter) {
 
 function receiptLineFields(product) {
   const dataWaznosci = product.dataWaznosci || product.data_waznosci || null;
-  const fromStamp = product.koszt_dostawy_per_unit_srednie;
-  const fromJson = product.deliveryCostPerUnitPln;
   return {
     typ: product.typ || null,
     objetosc: product.objetosc != null && product.objetosc !== '' ? String(product.objetosc) : null,
@@ -486,7 +482,7 @@ function receiptLineFields(product) {
     koszt_dostawy_per_unit: roundMoney(product.koszt_dostawy_per_unit),
     koszt_dostawy_per_unit_srednie: product.typ === 'aksesoria'
       ? 0
-      : roundMoney(fromStamp != null ? fromStamp : fromJson),
+      : roundMoney(product.koszt_dostawy_per_unit_srednie),
     podatek_akcyzowy: roundMoney(product.podatek_akcyzowy),
   };
 }
@@ -506,6 +502,9 @@ function mapProductBatchToReceiptLine(row) {
     typ: row.typ || undefined,
     objetosc: row.objetosc != null && row.objetosc !== '' ? row.objetosc : undefined,
     vat: row.vat ?? 0,
+    koszt_dostawy_per_unit: roundMoney(row.koszt_dostawy_per_unit),
+    koszt_dostawy_per_unit_srednie: roundMoney(row.koszt_dostawy_per_unit_srednie),
+    podatek_akcyzowy: roundMoney(row.podatek_akcyzowy),
   };
 }
 
@@ -556,15 +555,59 @@ function attachReceiptProductsFromTable(receipts, callback) {
       }
       const mapped = receipts.map((receipt) => {
         const api = mapProductReceiptApiRow(receipt);
-        const fromTable = byReceipt.get(receipt.id);
-        if (fromTable && fromTable.length > 0) {
-          api.products = fromTable;
-        }
+        api.products = byReceipt.get(receipt.id) || [];
         return api;
       });
       callback(null, mapped);
     }
   );
+}
+
+function loadReceiptProductBatches(receiptId) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      'SELECT * FROM products WHERE receipt_id = ? ORDER BY id ASC',
+      [receiptId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+}
+
+function uniqueReceiptKodsFromRows(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows || []) {
+    const kod = normalizeProductKod(row.kod);
+    if (!kod || seen.has(kod)) continue;
+    seen.add(kod);
+    out.push({ kod, nazwa: row.nazwa });
+  }
+  return out;
+}
+
+function dropProductReceiptsProductsJsonColumn(done) {
+  db.all('PRAGMA table_info(product_receipts)', (err, columns) => {
+    if (err) {
+      console.error('❌ Error reading product_receipts schema:', err.message);
+      if (done) done();
+      return;
+    }
+    if (!(columns || []).some((col) => col.name === 'products')) {
+      if (done) done();
+      return;
+    }
+    db.run('ALTER TABLE product_receipts DROP COLUMN products', (dropErr) => {
+      if (dropErr) {
+        console.error('❌ Error dropping product_receipts.products:', dropErr.message);
+      } else {
+        console.log('✅ Column product_receipts.products dropped');
+      }
+      if (done) done();
+    });
+  });
 }
 
 const PRODUCTS_RECEIPT_LINE_COLUMNS = [
@@ -579,7 +622,17 @@ const PRODUCTS_RECEIPT_LINE_COLUMNS = [
 ];
 
 function backfillProductsFromReceiptJson(done) {
-  db.all('SELECT id, products, wartosc_dostawy, kurs_1, kurs_2, waluta_przyjecia, stawka_podatek_akcyzowy FROM product_receipts', (err, receipts) => {
+  db.all('PRAGMA table_info(product_receipts)', (pragmaErr, columns) => {
+    if (pragmaErr) {
+      console.error('❌ Error reading product_receipts schema for JSON backfill:', pragmaErr.message);
+      if (done) done();
+      return;
+    }
+    if (!(columns || []).some((col) => col.name === 'products')) {
+      if (done) done();
+      return;
+    }
+  db.all('SELECT id, products, data_przyjecia, wartosc_dostawy, kurs_1, kurs_2, waluta_przyjecia, stawka_podatek_akcyzowy FROM product_receipts', (err, receipts) => {
     if (err) {
       console.error('❌ Error reading product_receipts for products backfill:', err.message);
       if (done) done();
@@ -603,8 +656,45 @@ function backfillProductsFromReceiptJson(done) {
         return;
       }
       db.all('SELECT * FROM products WHERE receipt_id = ? ORDER BY id ASC', [receipt.id], (batchErr, batches) => {
-        if (batchErr || !batches || batches.length === 0) {
+        if (batchErr) {
           processReceipt(i + 1);
+          return;
+        }
+        if (!batches || batches.length === 0) {
+          stampCenaZakupuOrg(lines);
+          const computedDelivery = kosztDostawyPerUnitFromReceipt(receipt, lines);
+          stampKosztDostawyPerUnitSrednie(lines, computedDelivery);
+          stampKosztDostawyPerUnit(
+            lines,
+            receipt.wartosc_dostawy,
+            getKursEurPln(receipt.waluta_przyjecia, receipt.kurs_1, receipt.kurs_2)
+          );
+          stampPodatekAkcyzowy(lines, receipt.stawka_podatek_akcyzowy);
+          const date = receipt.data_przyjecia || getTodayDateString();
+          const runInsert = (j) => {
+            if (j >= lines.length) {
+              processReceipt(i + 1);
+              return;
+            }
+            const line = lines[j];
+            const kod = normalizeProductKod(line.kod);
+            if (!kod) {
+              runInsert(j + 1);
+              return;
+            }
+            line.kod = kod;
+            db.run(
+              insertProductBatchSql(),
+              insertProductBatchParams(line, receipt.id, line.ilosc || 0, date),
+              (insErr) => {
+                if (insErr) {
+                  console.error(`❌ Error inserting missing batch for receipt ${receipt.id}:`, insErr.message);
+                }
+                runInsert(j + 1);
+              }
+            );
+          };
+          runInsert(0);
           return;
         }
         const unused = batches.slice();
@@ -616,20 +706,15 @@ function backfillProductsFromReceiptJson(done) {
           const batch = idx >= 0 ? unused.splice(idx, 1)[0] : null;
           if (!batch) continue;
           const lineCena = parseFloat(String(line.cena == null ? '' : line.cena).replace(',', '.'));
-          const jsonDelivery = parseFloat(String(line.deliveryCostPerUnitPln == null ? '' : line.deliveryCostPerUnitPln).replace(',', '.'));
           const hasNewKosztBut = Object.prototype.hasOwnProperty.call(line, 'koszt_dostawy_per_unit');
           const jsonKosztBut = parseFloat(String(line.koszt_dostawy_per_unit == null ? '' : line.koszt_dostawy_per_unit).replace(',', '.'));
           const jsonAkcyzaAmount = parseFloat(String(line.podatek_akcyzowy == null ? '' : line.podatek_akcyzowy).replace(',', '.'));
-          const jsonAkcyzaRate = parseFloat(String(
-            line.podatekAkcyzowyPerLiter != null ? line.podatekAkcyzowyPerLiter : receipt.stawka_podatek_akcyzowy
-          ).replace(',', '.'));
+          const jsonAkcyzaRate = parseFloat(String(receipt.stawka_podatek_akcyzowy == null ? '' : receipt.stawka_podatek_akcyzowy).replace(',', '.'));
           const lineForAkcyza = {
             typ: batch.typ || line.typ,
             objetosc: batch.objetosc || line.objetosc,
           };
-          const srednie = (batch.typ || line.typ) === 'aksesoria'
-            ? 0
-            : (Number.isFinite(jsonDelivery) ? roundMoney(jsonDelivery) : computedDelivery);
+          const srednie = (batch.typ || line.typ) === 'aksesoria' ? 0 : computedDelivery;
           updates.push({
             id: batch.id,
             typ: batch.typ || line.typ || null,
@@ -664,6 +749,7 @@ function backfillProductsFromReceiptJson(done) {
       });
     };
     processReceipt(0);
+  });
   });
 }
 
@@ -753,7 +839,7 @@ function ensureProductsReceiptLineColumns(done) {
             const next = (i) => {
               if (i >= missing.length) {
                 ensureWorkingSheetsKosztDostawyPerUnitSrednie(() => {
-                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(done)))));
+                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(() => dropProductReceiptsProductsJsonColumn(done))))));
                 });
                 return;
               }
@@ -1410,18 +1496,162 @@ function ensureWorkingSheetsDropRezerwacjeColumn() {
   dropWorkingSheetsColumnIfPresent('rezerwacje');
 }
 
+function insertWorkingSheetsHistoryBeforeReceiptSql() {
+  return `INSERT INTO working_sheets_history
+    (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, action, receipt_id)
+    SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy,
+           'before_receipt', ?
+    FROM working_sheets WHERE kod = ?`;
+}
+
+function restoreWorkingSheetFromHistorySql() {
+  return `UPDATE working_sheets SET
+    nazwa = ?,
+    ilosc = ?,
+    kod_kreskowy = ?,
+    typ = ?,
+    sprzedawca = ?,
+    cena_zakupu_pln = ?,
+    data_waznosci = ?,
+    objetosc = ?,
+    koszt_dostawy_per_unit = ?,
+    koszt_dostawy_per_unit_srednie = ?,
+    podatek_akcyzowy = ?
+  WHERE kod = ?`;
+}
+
+function historySnapshotCenaZakupuPln(snapshot) {
+  if (!snapshot) return 0;
+  return roundMoney(snapshot.cena_zakupu_pln != null ? snapshot.cena_zakupu_pln : snapshot.cena);
+}
+
+function historySnapshotKosztSrednie(snapshot) {
+  if (!snapshot) return 0;
+  return roundMoney(
+    snapshot.koszt_dostawy_per_unit_srednie != null
+      ? snapshot.koszt_dostawy_per_unit_srednie
+      : snapshot.koszt_dostawy_per_unit
+  );
+}
+
+function restoreWorkingSheetFromHistoryParams(snapshot, ilosc, cenaZakupuPln, kod) {
+  return [
+    snapshot.nazwa,
+    ilosc,
+    snapshot.kod_kreskowy,
+    snapshot.typ,
+    snapshot.sprzedawca,
+    roundMoney(cenaZakupuPln),
+    snapshot.data_waznosci,
+    snapshot.objetosc,
+    roundMoney(snapshot.koszt_dostawy_per_unit),
+    historySnapshotKosztSrednie(snapshot),
+    roundMoney(snapshot.podatek_akcyzowy),
+    kod,
+  ];
+}
+
+function ensureWorkingSheetsHistorySchema(done) {
+  const finish = () => {
+    if (done) done();
+  };
+  db.run(
+    `CREATE TABLE IF NOT EXISTS working_sheets_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kod TEXT NOT NULL,
+      nazwa TEXT,
+      ilosc INTEGER,
+      kod_kreskowy TEXT,
+      typ TEXT,
+      sprzedawca TEXT,
+      cena_zakupu_pln REAL,
+      data_waznosci TEXT,
+      objetosc REAL,
+      koszt_dostawy_per_unit REAL DEFAULT 0,
+      koszt_dostawy_per_unit_srednie REAL DEFAULT 0,
+      podatek_akcyzowy REAL DEFAULT 0,
+      action TEXT NOT NULL,
+      receipt_id INTEGER,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (receipt_id) REFERENCES product_receipts (id)
+    )`,
+    (createErr) => {
+      if (createErr) {
+        console.error('❌ Error creating working_sheets_history:', createErr.message);
+        finish();
+        return;
+      }
+      db.all('PRAGMA table_info(working_sheets_history)', (err, columns) => {
+        if (err) {
+          console.error('❌ Error reading working_sheets_history schema:', err.message);
+          finish();
+          return;
+        }
+        const names = (columns || []).map((col) => col.name);
+        const addSrednie = () => {
+          const afterSrednie = () => {
+            db.run('CREATE INDEX IF NOT EXISTS idx_working_sheets_history_kod ON working_sheets_history(kod)');
+            db.run('CREATE INDEX IF NOT EXISTS idx_working_sheets_history_receipt_id ON working_sheets_history(receipt_id)');
+            db.run('CREATE INDEX IF NOT EXISTS idx_working_sheets_history_action ON working_sheets_history(action)');
+            finish();
+          };
+          if (names.includes('koszt_dostawy_per_unit_srednie')) {
+            afterSrednie();
+            return;
+          }
+          db.run(
+            'ALTER TABLE working_sheets_history ADD COLUMN koszt_dostawy_per_unit_srednie REAL DEFAULT 0',
+            (alterErr) => {
+              if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
+                console.error('❌ Error adding working_sheets_history.koszt_dostawy_per_unit_srednie:', alterErr.message);
+                finish();
+                return;
+              }
+              db.run(
+                'UPDATE working_sheets_history SET koszt_dostawy_per_unit_srednie = ROUND(koszt_dostawy_per_unit, 2)',
+                function (updErr) {
+                  if (updErr) {
+                    console.error('❌ Error backfilling working_sheets_history.koszt_dostawy_per_unit_srednie:', updErr.message);
+                  } else {
+                    console.log(`✅ working_sheets_history.koszt_dostawy_per_unit_srednie filled from koszt_dostawy_per_unit on ${this.changes} rows`);
+                  }
+                  afterSrednie();
+                }
+              );
+            }
+          );
+        };
+        if (names.includes('koszt_wlasny')) {
+          db.run('ALTER TABLE working_sheets_history DROP COLUMN koszt_wlasny', (dropErr) => {
+            if (dropErr) {
+              console.error('❌ Error dropping working_sheets_history.koszt_wlasny:', dropErr.message);
+            } else {
+              console.log('✅ Column working_sheets_history.koszt_wlasny dropped');
+            }
+          });
+        }
+        if (names.includes('cena') && !names.includes('cena_zakupu_pln')) {
+          db.run(
+            'ALTER TABLE working_sheets_history RENAME COLUMN cena TO cena_zakupu_pln',
+            (renameErr) => {
+              if (renameErr) {
+                console.error('❌ Error renaming working_sheets_history.cena:', renameErr.message);
+              } else {
+                console.log('✅ Column working_sheets_history.cena renamed to cena_zakupu_pln');
+              }
+              addSrednie();
+            }
+          );
+          return;
+        }
+        addSrednie();
+      });
+    }
+  );
+}
+
 function ensureWorkingSheetsDropUnusedColumns() {
   dropWorkingSheetsColumnsIfPresent(['produkt_id', 'data', 'archived', 'archived_at', 'koszt_wlasny']);
-  db.all('PRAGMA table_info(working_sheets_history)', (err, columns) => {
-    if (err || !(columns || []).some((col) => col.name === 'koszt_wlasny')) return;
-    db.run('ALTER TABLE working_sheets_history DROP COLUMN koszt_wlasny', (dropErr) => {
-      if (dropErr) {
-        console.error('❌ Error dropping working_sheets_history.koszt_wlasny:', dropErr.message);
-      } else {
-        console.log('✅ Column working_sheets_history.koszt_wlasny dropped');
-      }
-    });
-  });
 }
 
 function kodExistsInOtherReceipts(kod, excludeReceiptId) {
@@ -2182,7 +2412,9 @@ db.serialize(() => {
       ensureWorkingSheetsDropUnusedColumns();
       dropSchemaMigrationsTable();
       ensureWorkingSheetsRenameCenaColumn(() => {
-        ensureWorkingSheetsRenameCenaSprzedazyColumn();
+        ensureWorkingSheetsRenameCenaSprzedazyColumn(() => {
+          ensureWorkingSheetsHistorySchema();
+        });
       });
     }
   });
@@ -2202,7 +2434,6 @@ db.serialize(() => {
     waluta_przyjecia TEXT DEFAULT 'EUR',
     waluta_dostawy TEXT,
     kurs_2 REAL DEFAULT 1,
-    products TEXT, -- JSON массив товаров
     product_invoice TEXT,
     transport_invoice TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -9152,8 +9383,8 @@ app.post('/api/product-receipts', upload.fields([
     try {
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, products, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -9236,11 +9467,7 @@ app.post('/api/product-receipts', upload.fields([
                   // 1. Сначала сохраняем снимок ДО изменений в working_sheets_history
                   console.log(`📸 Saving snapshot BEFORE changes for ${productCode}`);
                   db.run(
-                    `INSERT INTO working_sheets_history 
-                     (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, action, receipt_id)
-                     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy,
-                            'before_receipt', ?
-                     FROM working_sheets WHERE kod = ?`,
+                    insertWorkingSheetsHistoryBeforeReceiptSql(),
                     [receiptId, productCode],
                     function(err) {
                       if (err) {
@@ -9619,7 +9846,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     try {
       // Сначала получаем старые данные для сравнения
       const oldReceipt = await new Promise((resolve, reject) => {
-        db.get('SELECT data_przyjecia, products, product_invoice, transport_invoice, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy FROM product_receipts WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT data_przyjecia, product_invoice, transport_invoice, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy FROM product_receipts WHERE id = ?', [id], (err, row) => {
           if (err) reject(err);
           else resolve(row);
         });
@@ -9630,7 +9857,8 @@ app.put('/api/product-receipts/:id', upload.fields([
         throw Object.assign(new Error('Product receipt not found'), { statusCode: 404 });
       }
 
-      const oldProducts = JSON.parse(oldReceipt.products || '[]');
+      const oldProductRows = await loadReceiptProductBatches(id);
+      const oldProducts = oldProductRows.map(mapProductBatchToReceiptLine);
       const oldPodatekAkcyzowy = parseFloat(String(oldReceipt.stawka_podatek_akcyzowy || '0').replace(',', '.')) || 0;
       const newPodatekAkcyzowy = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
       const podatekAkcyzowyChanged = Math.abs(oldPodatekAkcyzowy - newPodatekAkcyzowy) > 0.01;
@@ -9719,8 +9947,8 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, products = ?, product_invoice = ?, transport_invoice = ?, created_at = ? WHERE id = ?',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, JSON.stringify(productsForJson), finalProductInvoice, finalTransportInvoice, date, id],
+          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, product_invoice = ?, transport_invoice = ?, created_at = ? WHERE id = ?',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, finalProductInvoice, finalTransportInvoice, date, id],
           function(err) {
             if (err) reject(err);
             else resolve();
@@ -9754,19 +9982,9 @@ app.put('/api/product-receipts/:id', upload.fields([
             
             console.log(`💰 Delivery cost calculation (PUT): ${kosztDostawy || 0}€ / ${totalBottles} bottles * ${kurs} kurs = ${kosztDostawyPerUnit.toFixed(4)} zł per unit`);
             
-            // Шаг 1: Получаем старые записи из products для этой приемки
-            console.log('🔄 Step 1: Getting old product records from database...');
-            const oldProductsFromDb = await new Promise((resolve, reject) => {
-              db.all('SELECT * FROM products WHERE receipt_id = ?', [id], (err, rows) => {
-                if (err) {
-                  console.error('❌ Error fetching old products from database:', err);
-                  reject(err);
-                } else {
-                  console.log(`✅ Found ${rows.length} old product records in database`);
-                  resolve(rows);
-                }
-              });
-            });
+            // Шаг 1: Берём старые партии этой приемки (уже загружены до сравнения kod)
+            const oldProductsFromDb = oldProductRows;
+            console.log(`✅ Found ${oldProductsFromDb.length} old product records in database`);
             
             // Если изменилась дата закупки (data zakupu) — синхронизируем created_at
             // в products для этой приемки, даже если состав/количество товаров не менялись
@@ -9805,14 +10023,6 @@ app.put('/api/product-receipts/:id', upload.fields([
               }
               oldProductsByKod[p.kod].ilosc += p.ilosc_pierwotna || p.ilosc || 0;
               oldProductsByKod[p.kod].records.push(p);
-            });
-            
-            oldProducts.forEach(op => {
-              if (oldProductsByKod[op.kod]) {
-                oldProductsByKod[op.kod].typ = oldProductsByKod[op.kod].typ || op.typ || null;
-                oldProductsByKod[op.kod].dataWaznosci = oldProductsByKod[op.kod].dataWaznosci || op.dataWaznosci || op.data_waznosci || null;
-                oldProductsByKod[op.kod].objetosc = oldProductsByKod[op.kod].objetosc || op.objetosc || null;
-              }
             });
             
             // Группируем новые товары по kod и суммируем количества
@@ -10272,11 +10482,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   // Сохраняем снимок ДО изменений
                   await new Promise((resolve, reject) => {
                     db.run(
-                      `INSERT INTO working_sheets_history 
-                       (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, action, receipt_id)
-                       SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy,
-                              'before_receipt', ?
-                       FROM working_sheets WHERE kod = ?`,
+                      insertWorkingSheetsHistoryBeforeReceiptSql(),
                       [id, productCode],
                       function(err) {
                         if (err) {
@@ -10364,11 +10570,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 // Сохраняем снимок ДО изменений
                 await new Promise((resolve, reject) => {
                         db.run(
-                    `INSERT INTO working_sheets_history 
-                     (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy, action, receipt_id)
-                     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, podatek_akcyzowy,
-                            'before_receipt', ?
-                     FROM working_sheets WHERE kod = ?`,
+                    insertWorkingSheetsHistoryBeforeReceiptSql(),
                     [id, productCode],
                           function(err) {
                             if (err) {
@@ -10571,9 +10773,9 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
   });
 
   try {
-    // 1) Считываем строку приёмки вместе с товарами и датой
+    // 1) Считываем шапку приёмки и партии из таблицы products
     const receiptRow = await new Promise((resolve, reject) => {
-      db.get('SELECT products, data_przyjecia, product_invoice, transport_invoice FROM product_receipts WHERE id = ?', [id], (err, row) => {
+      db.get('SELECT data_przyjecia, product_invoice, transport_invoice FROM product_receipts WHERE id = ?', [id], (err, row) => {
         if (err) reject(err);
         else resolve(row);
       });
@@ -10584,7 +10786,8 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
       throw Object.assign(new Error('Product receipt not found'), { statusCode: 404 });
     }
 
-    const products = JSON.parse(receiptRow.products || '[]');
+    const productRows = await loadReceiptProductBatches(id);
+    const products = uniqueReceiptKodsFromRows(productRows);
     const receiptDate = receiptRow.data_przyjecia;
     const receiptDateOnly = (receiptDate || '').toString().substring(0,10);
     console.log(`🔍 ${products.length} product rows, date=${receiptDateOnly}`);
@@ -10643,29 +10846,13 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
           console.log(`🔄 Restoring ${productKod} from snapshot (receipt_id: ${id})`);
           await new Promise((resolve, reject) => {
             db.run(
-              `UPDATE working_sheets SET
-                nazwa = ?,
-                ilosc = ?,
-                kod_kreskowy = ?,
-                typ = ?,
-                sprzedawca = ?,
-                cena_zakupu_pln = ?,
-                data_waznosci = ?,
-                objetosc = ?,
-                koszt_dostawy_per_unit = ?
-              WHERE kod = ?`,
-              [
-                snapshot.nazwa,
+              restoreWorkingSheetFromHistorySql(),
+              restoreWorkingSheetFromHistoryParams(
+                snapshot,
                 snapshot.ilosc,
-                snapshot.kod_kreskowy,
-                snapshot.typ,
-                snapshot.sprzedawca,
-                roundMoney(snapshot.cena),
-                snapshot.data_waznosci,
-                snapshot.objetosc,
-                snapshot.koszt_dostawy_per_unit,
-                productKod,
-              ],
+                historySnapshotCenaZakupuPln(snapshot),
+                productKod
+              ),
               function (restoreErr) {
                 if (restoreErr) {
                   reject(restoreErr);
@@ -10729,29 +10916,8 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
           );
           await new Promise((resolve, reject) => {
             db.run(
-              `UPDATE working_sheets SET
-                nazwa = ?,
-                ilosc = ?,
-                kod_kreskowy = ?,
-                typ = ?,
-                sprzedawca = ?,
-                cena_zakupu_pln = ?,
-                data_waznosci = ?,
-                objetosc = ?,
-                koszt_dostawy_per_unit = ?
-              WHERE kod = ?`,
-              [
-                snapshot.nazwa,
-                qty,
-                snapshot.kod_kreskowy,
-                snapshot.typ,
-                snapshot.sprzedawca,
-                roundMoney(price),
-                snapshot.data_waznosci,
-                snapshot.objetosc,
-                snapshot.koszt_dostawy_per_unit,
-                productKod,
-              ],
+              restoreWorkingSheetFromHistorySql(),
+              restoreWorkingSheetFromHistoryParams(snapshot, qty, price, productKod),
               function (restoreErr) {
                 if (restoreErr) {
                   reject(restoreErr);
@@ -12357,50 +12523,9 @@ app.get('*', (req, res) => {
 if (process.env.NODE_ENV !== 'production') {
   app.post('/api/migrate/add-working-sheets-history', (req, res) => {
     console.log('🔄 Starting migration: Add working_sheets_history table...');
-    
-    const createHistoryTable = `
-      CREATE TABLE IF NOT EXISTS working_sheets_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        kod TEXT NOT NULL,
-        nazwa TEXT,
-        ilosc INTEGER,
-        kod_kreskowy TEXT,
-        typ TEXT,
-        sprzedawca TEXT,
-        cena REAL,
-        data_waznosci TEXT,
-        objetosc REAL,
-        koszt_dostawy_per_unit REAL DEFAULT 0,
-        podatek_akcyzowy REAL DEFAULT 0,
-        action TEXT NOT NULL,
-        receipt_id INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (receipt_id) REFERENCES product_receipts (id)
-      );
-    `;
-    
-    db.run(createHistoryTable, (err) => {
-      if (err) {
-        console.error('❌ Error creating working_sheets_history table:', err.message);
-        return res.status(500).json({ error: err.message });
-      }
-      
-      // Создаем индексы
-      const createIndexes = `
-        CREATE INDEX IF NOT EXISTS idx_working_sheets_history_kod ON working_sheets_history(kod);
-        CREATE INDEX IF NOT EXISTS idx_working_sheets_history_receipt_id ON working_sheets_history(receipt_id);
-        CREATE INDEX IF NOT EXISTS idx_working_sheets_history_action ON working_sheets_history(action);
-      `;
-      
-      db.run(createIndexes, (err) => {
-        if (err) {
-          console.error('❌ Error creating indexes:', err.message);
-          return res.status(500).json({ error: err.message });
-        }
-        
-        console.log('✅ Migration completed successfully!');
-        res.json({ message: 'Migration completed successfully' });
-      });
+    ensureWorkingSheetsHistorySchema(() => {
+      console.log('✅ Migration completed successfully!');
+      res.json({ message: 'Migration completed successfully' });
     });
   });
 }

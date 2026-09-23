@@ -455,12 +455,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     if (!selectedDate) return;
 
     const kursDostawyNumber = toKursToPln(walutaDostawy, kursDostawy);
-    const totalBottles = productRows.reduce((t, r) => t + (parseFloat(r.ilosc) || 0), 0);
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
     const totalLineValueSubmit = productRows.reduce((sum, row) => sum + getRowLineValue(row), 0);
-    const deliveryCostPerUnitPln = totalBottles > 0
-      ? (deliveryCost / totalBottles) * kursDostawyNumber
-      : 0;
 
     const formattedProducts = productRows.map(row => ({
         kod: row.kod,
@@ -472,9 +468,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         vat: row.vat,
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
-        deliveryCostPerUnitPln,
         koszt_dostawy_per_unit: roundMoney(getRowKosztButWgWartosci(row, totalLineValueSubmit, deliveryCost) * kursDostawyNumber),
-        podatekAkcyzowyPerLiter: roundMoney(podatekAkcyzowy),
         podatek_akcyzowy: (row.typ === 'bezalkoholowe' || row.typ === 'ferment' || row.typ === 'aksesoria')
           ? 0
           : roundMoney(roundMoney(podatekAkcyzowy) * (parseFloat(String(row.objetosc || '1').replace(',', '.')) || 1)),
