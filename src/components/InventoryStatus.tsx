@@ -2031,6 +2031,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         const calculatedHeight = Math.min(Math.max(minHeight, headerHeight + padding + tableHeaderHeight + minRowsHeight + 20), window.innerHeight * 0.9);
         
         return (
+          <>
           <Modal
             isOpen={isSalesModalOpen}
             onRequestClose={() => {
@@ -2239,6 +2240,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
             order={orderForDetails}
             zIndex={10001}
           />
+          </>
         );
       })()}
     </div>
