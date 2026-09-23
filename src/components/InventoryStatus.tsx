@@ -843,7 +843,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           }
           // Добавляем данные из products для tooltip
           newPriceHistory[product.kod].push({
-            cena: product.cena,
+            cena: product.cena_zakupu_pln,
             ilosc_aktualna: product.ilosc_aktualna,
             data_zmiany: product.updated_at || product.created_at
           });
@@ -1828,7 +1828,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                           {priceHistory[item.kod] && priceHistory[item.kod].length > 0 ? (
                             priceHistory[item.kod].map((product, index) => (
                               <div key={index} className="mb-1">
-                                <span className="font-medium">{product.cena != null ? `${product.cena.toFixed(2)} €` : 'N/A'}</span>
+                                <span className="font-medium">{product.cena != null ? `${product.cena.toFixed(2)} zł` : 'N/A'}</span>
                                 <span className="text-gray-500 ml-2">({product.ilosc_aktualna} szt.)</span>
                               </div>
                             ))

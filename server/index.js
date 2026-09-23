@@ -315,9 +315,9 @@ function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
   });
 }
 
-// JSON приёмки хранит cena в валюте фактуры; products.cena и working_sheets.cena_zakupu_pln — PLN.
+// JSON приёмки хранит cena в валюте фактуры; products.cena_zakupu_pln и working_sheets.cena_zakupu_pln — PLN.
 function prepareReceiptProducts(products, walutaFaktury, aktualnyKurs, kursFaktury) {
-  const normalized = stampCenaFaktury(normalizeReceiptProducts(products));
+  const normalized = stampCenaZakupuOrg(normalizeReceiptProducts(products));
   const productsForJson = normalized.map((p) => ({ ...p }));
   const productsInternal = withCenaEur(normalized, walutaFaktury, aktualnyKurs, kursFaktury);
   return { productsForJson, productsInternal };
@@ -374,11 +374,16 @@ function mapProductReceiptApiRow(row) {
   };
 }
 
-function stampCenaFaktury(products) {
+function orgPurchasePrice(product) {
+  const raw = product.cena_zakupu_org != null ? product.cena_zakupu_org : product.cena_faktury;
+  return roundMoney(raw != null ? raw : product.cena);
+}
+
+function stampCenaZakupuOrg(products) {
   if (!Array.isArray(products)) return products;
   return products.map((p) => ({
     ...p,
-    cena_faktury: roundMoney(p.cena_faktury != null ? p.cena_faktury : p.cena),
+    cena_zakupu_org: orgPurchasePrice(p),
   }));
 }
 
@@ -389,12 +394,12 @@ function receiptLineFields(product) {
     objetosc: product.objetosc != null && product.objetosc !== '' ? String(product.objetosc) : null,
     data_waznosci: dataWaznosci || null,
     vat: roundMoney(product.vat),
-    cena_faktury: roundMoney(product.cena_faktury != null ? product.cena_faktury : product.cena),
+    cena_zakupu_org: orgPurchasePrice(product),
   };
 }
 
 function mapProductBatchToReceiptLine(row) {
-  const cenaFaktury = row.cena_faktury != null ? row.cena_faktury : row.cena;
+  const cenaFaktury = row.cena_zakupu_org != null ? row.cena_zakupu_org : row.cena_zakupu_pln;
   return {
     id: row.id,
     kod: row.kod,
@@ -412,7 +417,7 @@ function mapProductBatchToReceiptLine(row) {
 }
 
 function insertProductBatchSql() {
-  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, ilosc, ilosc_aktualna, receipt_id, status, created_at, typ, objetosc, data_waznosci, vat, cena_faktury) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc, ilosc_aktualna, receipt_id, status, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 }
 
 function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
@@ -431,7 +436,7 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
     line.objetosc,
     line.data_waznosci,
     line.vat,
-    line.cena_faktury,
+    line.cena_zakupu_org,
   ];
 }
 
@@ -471,7 +476,7 @@ const PRODUCTS_RECEIPT_LINE_COLUMNS = [
   { name: 'objetosc', sql: 'TEXT' },
   { name: 'data_waznosci', sql: 'DATE' },
   { name: 'vat', sql: 'REAL DEFAULT 0' },
-  { name: 'cena_faktury', sql: 'REAL' },
+  { name: 'cena_zakupu_org', sql: 'REAL' },
 ];
 
 function backfillProductsFromReceiptJson(done) {
@@ -517,8 +522,8 @@ function backfillProductsFromReceiptJson(done) {
             objetosc: batch.objetosc || (line.objetosc != null && line.objetosc !== '' ? String(line.objetosc) : null),
             data_waznosci: batch.data_waznosci || line.dataWaznosci || line.data_waznosci || null,
             vat: batch.vat || roundMoney(line.vat),
-            cena_faktury: batch.cena_faktury != null
-              ? batch.cena_faktury
+            cena_zakupu_org: batch.cena_zakupu_org != null
+              ? batch.cena_zakupu_org
               : (Number.isFinite(lineCena) ? roundMoney(lineCena) : null),
           });
         }
@@ -529,8 +534,8 @@ function backfillProductsFromReceiptJson(done) {
           }
           const u = updates[j];
           db.run(
-            'UPDATE products SET typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_faktury = ? WHERE id = ?',
-            [u.typ, u.objetosc, u.data_waznosci, u.vat, u.cena_faktury, u.id],
+            'UPDATE products SET typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ? WHERE id = ?',
+            [u.typ, u.objetosc, u.data_waznosci, u.vat, u.cena_zakupu_org, u.id],
             () => runUpdate(j + 1)
           );
         };
@@ -541,38 +546,68 @@ function backfillProductsFromReceiptJson(done) {
   });
 }
 
-function ensureProductsReceiptLineColumns(done) {
+function renameProductsColumnIfPresent(fromName, toName, done) {
   db.all('PRAGMA table_info(products)', (err, columns) => {
     if (err) {
       console.error('❌ Error reading products schema:', err.message);
       if (done) done();
       return;
     }
-    const names = new Set((columns || []).map((col) => col.name));
-    const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
-    const next = (i) => {
-      if (i >= missing.length) {
-        backfillProductsFromReceiptJson(() => convertProductsCenaToPln(done));
-        return;
-      }
-      const col = missing[i];
-      db.run(`ALTER TABLE products ADD COLUMN ${col.name} ${col.sql}`, (alterErr) => {
-        if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
-          console.error(`❌ Error adding products.${col.name}:`, alterErr.message);
+    const names = (columns || []).map((col) => col.name);
+    if (names.includes(toName) || !names.includes(fromName)) {
+      if (done) done();
+      return;
+    }
+    db.run(
+      `ALTER TABLE products RENAME COLUMN ${fromName} TO ${toName}`,
+      (renameErr) => {
+        if (renameErr) {
+          console.error(`❌ Error renaming products.${fromName}:`, renameErr.message);
         } else {
-          console.log(`✅ Column products.${col.name} ready`);
+          console.log(`✅ Column products.${fromName} renamed to ${toName}`);
         }
-        next(i + 1);
+        if (done) done();
+      }
+    );
+  });
+}
+
+function ensureProductsReceiptLineColumns(done) {
+  renameProductsColumnIfPresent('cena', 'cena_zakupu_pln', () => {
+    renameProductsColumnIfPresent('cena_faktury', 'cena_zakupu_org', () => {
+      db.all('PRAGMA table_info(products)', (err, columns) => {
+        if (err) {
+          console.error('❌ Error reading products schema:', err.message);
+          if (done) done();
+          return;
+        }
+        const names = new Set((columns || []).map((col) => col.name));
+        const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
+        const next = (i) => {
+          if (i >= missing.length) {
+            backfillProductsFromReceiptJson(() => convertProductsCenaToPln(done));
+            return;
+          }
+          const col = missing[i];
+          db.run(`ALTER TABLE products ADD COLUMN ${col.name} ${col.sql}`, (alterErr) => {
+            if (alterErr && !String(alterErr.message || '').includes('duplicate column')) {
+              console.error(`❌ Error adding products.${col.name}:`, alterErr.message);
+            } else {
+              console.log(`✅ Column products.${col.name} ready`);
+            }
+            next(i + 1);
+          });
+        };
+        next(0);
       });
-    };
-    next(0);
+    });
   });
 }
 
 let productsCenaPlnConvertStarted = false;
 
 function nextProductsCenaPln(row) {
-  const cena = roundMoney(row.cena);
+  const cena = roundMoney(row.cena_zakupu_pln);
   if (cena === 0) return null;
 
   if (row.receipt_id == null) {
@@ -584,7 +619,7 @@ function nextProductsCenaPln(row) {
     return null;
   }
 
-  const faktury = roundMoney(row.cena_faktury);
+  const faktury = roundMoney(row.cena_zakupu_org);
   const waluta = normalizeWalutaFaktury(row.waluta_przyjecia);
   const k1 = parseKursValue(row.kurs_1);
   const k2 = parseKursValue(row.kurs_2);
@@ -626,7 +661,7 @@ function convertProductsCenaToPln(done, attempt = 0) {
     const names = new Set((columns || []).map((col) => col.name));
     if (!names.has('kurs_1') || !names.has('kurs_2') || !names.has('waluta_przyjecia')) {
       if (attempt >= 5) {
-        console.log('⏳ Skip products.cena PLN convert: receipt kurs columns not ready');
+        console.log('⏳ Skip products.cena_zakupu_pln convert: receipt kurs columns not ready');
         finish();
         return;
       }
@@ -635,7 +670,7 @@ function convertProductsCenaToPln(done, attempt = 0) {
     }
     productsCenaPlnConvertStarted = true;
     db.all(
-      `SELECT p.id, p.cena, p.cena_faktury, p.receipt_id,
+      `SELECT p.id, p.cena_zakupu_pln, p.cena_zakupu_org, p.receipt_id,
               r.waluta_przyjecia, r.kurs_1, r.kurs_2,
               w.cena_zakupu_pln AS ws_cena
        FROM products p
@@ -651,23 +686,23 @@ function convertProductsCenaToPln(done, attempt = 0) {
         for (const row of rows || []) {
           const next = nextProductsCenaPln(row);
           if (next == null) continue;
-          if (Math.abs(next - roundMoney(row.cena)) <= 0.005) continue;
+          if (Math.abs(next - roundMoney(row.cena_zakupu_pln)) <= 0.005) continue;
           updates.push({ id: row.id, cena: next });
         }
         if (updates.length === 0) {
-          console.log('✅ products.cena already in PLN (no rows to convert)');
+          console.log('✅ products.cena_zakupu_pln already in PLN (no rows to convert)');
           finish();
           return;
         }
         const run = (i) => {
           if (i >= updates.length) {
-            console.log(`✅ Converted products.cena to PLN on ${updates.length} rows`);
+            console.log(`✅ Converted products.cena_zakupu_pln on ${updates.length} rows`);
             finish();
             return;
           }
-          db.run('UPDATE products SET cena = ? WHERE id = ?', [updates[i].cena, updates[i].id], (updErr) => {
+          db.run('UPDATE products SET cena_zakupu_pln = ? WHERE id = ?', [updates[i].cena, updates[i].id], (updErr) => {
             if (updErr) {
-              console.error(`❌ Error converting products.cena id=${updates[i].id}:`, updErr.message);
+              console.error(`❌ Error converting products.cena_zakupu_pln id=${updates[i].id}:`, updErr.message);
             }
             run(i + 1);
           });
@@ -1496,7 +1531,7 @@ db.serialize(() => {
     kod TEXT NOT NULL,
     nazwa TEXT NOT NULL,
     kod_kreskowy TEXT,
-    cena REAL DEFAULT 0,
+    cena_zakupu_pln REAL DEFAULT 0,
     ilosc INTEGER DEFAULT 0,
     ilosc_aktualna INTEGER DEFAULT 0,
     receipt_id INTEGER,
@@ -1504,7 +1539,7 @@ db.serialize(() => {
     objetosc TEXT,
     data_waznosci DATE,
     vat REAL DEFAULT 0,
-    cena_faktury REAL,
+    cena_zakupu_org REAL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (receipt_id) REFERENCES product_receipts (id) ON DELETE CASCADE
   )`, (err) => {
@@ -2562,7 +2597,7 @@ app.get('/api/products', (req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
-  const { kod, nazwa, kod_kreskowy, cena, cena_sprzedazy, ilosc, data_waznosci } = req.body;
+  const { kod, nazwa, kod_kreskowy, cena, cena_zakupu_pln, ilosc, data_waznosci } = req.body;
   console.log('📦 POST /api/products - Creating new product:', { kod, nazwa });
   
   if (!kod || !nazwa) {
@@ -2571,8 +2606,8 @@ app.post('/api/products', (req, res) => {
   }
   
   db.run(
-    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena, cena_sprzedazy, ilosc, ilosc_aktualna, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [kod, nazwa, kod_kreskowy, cena || 0, cena_sprzedazy || 0, ilosc || 0, ilosc || 0, data_waznosci],
+    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc, ilosc_aktualna, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [kod, nazwa, kod_kreskowy, cena_zakupu_pln || cena || 0, ilosc || 0, ilosc || 0, data_waznosci],
     function(err) {
       if (err) {
         console.error('❌ Database error:', err);
@@ -7860,7 +7895,7 @@ app.get('/api/order-consumptions', (req, res) => {
       o.data_utworzenia,
       COALESCE(c.nazwa, o.klient) AS klient,
       p.nazwa as product_name,
-      p.cena as batch_price
+      p.cena_zakupu_pln as batch_price
     FROM order_consumptions oc
     LEFT JOIN orders o ON oc.order_id = o.id
     LEFT JOIN clients c ON c.id = o.client_id
@@ -7891,7 +7926,7 @@ app.get('/api/order-consumptions/search', (req, res) => {
       o.data_utworzenia,
       COALESCE(c.nazwa, o.klient) AS klient,
       p.nazwa as product_name,
-      p.cena as batch_price
+      p.cena_zakupu_pln as batch_price
     FROM order_consumptions oc
     LEFT JOIN orders o ON oc.order_id = o.id
     LEFT JOIN clients c ON c.id = o.client_id
@@ -8615,7 +8650,7 @@ app.post('/api/product-receipts', upload.fields([
     return res.status(400).json({ error: 'Date and products array are required' });
   }
 
-  products = stampCenaFaktury(normalizeReceiptProducts(products));
+  products = stampCenaZakupuOrg(normalizeReceiptProducts(products));
   const receiptError = validatePurchaseReceipt({
     hasDate: true,
     sprzedawca,
@@ -9090,7 +9125,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     return res.status(400).json({ error: 'Date and products array are required' });
   }
 
-  products = stampCenaFaktury(normalizeReceiptProducts(products));
+  products = stampCenaZakupuOrg(normalizeReceiptProducts(products));
   const receiptError = validatePurchaseReceipt({
     hasDate: true,
     sprzedawca,
@@ -9308,13 +9343,13 @@ app.put('/api/product-receipts/:id', upload.fields([
                   kod: p.kod,
                   nazwa: p.nazwa,
                   kod_kreskowy: p.kod_kreskowy,
-                  cena: p.cena,
+                  cena: p.cena_zakupu_pln,
                   ilosc: 0,
                   typ: p.typ || null,
                   dataWaznosci: p.data_waznosci || null,
                   objetosc: p.objetosc || null,
                   vat: p.vat || 0,
-                  cena_faktury: p.cena_faktury,
+                  cena_zakupu_org: p.cena_zakupu_org,
                   records: []
                 };
               }
@@ -9506,11 +9541,11 @@ app.put('/api/product-receipts/:id', upload.fields([
                     updateValues.push(newProduct.kod_kreskowy || null);
                   }
                   if (changes.cena) {
-                    updateFields.push('cena = ?');
+                    updateFields.push('cena_zakupu_pln = ?');
                     updateValues.push(newProduct.cena || 0);
                     const firstItem = newProduct.items[0] || {};
-                    updateFields.push('cena_faktury = ?');
-                    updateValues.push(receiptLineFields(firstItem).cena_faktury);
+                    updateFields.push('cena_zakupu_org = ?');
+                    updateValues.push(receiptLineFields(firstItem).cena_zakupu_org);
                   }
                   if (changes.typ) {
                     updateFields.push('typ = ?');
@@ -10173,7 +10208,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
         // к snapshot before_receipt (иначе оставляем — их уже перезаписала более новая przyjęcie).
         const sumRow = await new Promise((resolve, reject) => {
           db.get(
-            'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena) as max_cena FROM products WHERE kod = ?',
+            'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena_zakupu_pln) as max_cena FROM products WHERE kod = ?',
             [productKod],
             (sumErr, row) => {
               if (sumErr) reject(sumErr);
@@ -10955,7 +10990,7 @@ app.put('/api/working-sheets/update', (req, res) => {
           console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
           
           db.run(
-            'UPDATE products SET cena = ? WHERE kod = ? AND receipt_id IS NULL',
+            'UPDATE products SET cena_zakupu_pln = ? WHERE kod = ? AND receipt_id IS NULL',
             [cena_zakupu_pln, productKod],
             function(updateErr) {
               if (updateErr) {
@@ -12116,7 +12151,7 @@ function consumeFromProducts(productKod, quantity, status = null) {
 
           db.run('UPDATE products SET ilosc_aktualna = ? WHERE id = ?', [newLeft, batch.id], function (upErr) {
             if (upErr) return reject(upErr);
-            consumptions.push({ batchId: batch.id, qty: take, cena: batch.cena || 0 });
+            consumptions.push({ batchId: batch.id, qty: take, cena: batch.cena_zakupu_pln || 0 });
             remaining -= take;
             next();
           });
