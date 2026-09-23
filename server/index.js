@@ -1425,6 +1425,16 @@ function ensureWorkingSheetsFrozenColumns() {
     if (alterErr && !String(alterErr.message).includes('duplicate column')) {
       console.error('❌ Error adding zamrozone_srednie_zuzycie:', alterErr.message);
     }
+    db.run(
+      'UPDATE working_sheets SET zamrozone_srednie_zuzycie = ROUND(zamrozone_srednie_zuzycie, 3) WHERE zamrozone_srednie_zuzycie IS NOT NULL',
+      function (roundErr) {
+        if (roundErr) {
+          console.error('❌ Error rounding zamrozone_srednie_zuzycie:', roundErr.message);
+        } else if (this.changes > 0) {
+          console.log(`✅ Rounded working_sheets.zamrozone_srednie_zuzycie on ${this.changes} rows`);
+        }
+      }
+    );
   });
   db.run('ALTER TABLE working_sheets ADD COLUMN zamrozone_data_wyczerpania TEXT', (alterErr) => {
     if (alterErr && !String(alterErr.message).includes('duplicate column')) {
@@ -1797,7 +1807,7 @@ function saveFrozenConsumptionMetrics(kod, metrics) {
     }
     db.run(
       'UPDATE working_sheets SET zamrozone_srednie_zuzycie = ?, zamrozone_data_wyczerpania = ? WHERE kod = ?',
-      [metrics.avg, metrics.depletionDate, kod],
+      [Math.round(metrics.avg * 1000) / 1000, metrics.depletionDate, kod],
       (err) => (err ? reject(err) : resolve())
     );
   });

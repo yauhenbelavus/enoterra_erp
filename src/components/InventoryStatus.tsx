@@ -209,14 +209,12 @@ const computeAverageConsumption = (
 
   const days = Math.max(1, Math.ceil((endDate.getTime() - firstSaleDate.getTime()) / (1000 * 60 * 60 * 24)));
   const totalSales = salesProducts.reduce((sum, op) => sum + op.ilosc, 0);
-  return totalSales / days;
+  return Math.round((totalSales / days) * 1000) / 1000;
 };
 
 const formatAverageConsumption = (avg: number): string => {
   if (avg <= 0) return '-';
-  if (avg >= 1) return avg.toFixed(2) + '/dzień';
-  if (avg >= 0.1) return avg.toFixed(3) + '/dzień';
-  return avg.toFixed(4) + '/dzień';
+  return avg.toFixed(3).replace('.', ',') + '/dzień';
 };
 
 const autoSizeWorksheetColumns = (
@@ -378,18 +376,18 @@ const getDisplayAverage = (
   productReceipts: InventoryStatusProps['productReceipts'],
   averageSalesCache: Map<string, number>
 ): number => {
+  let avg = 0;
   if (hasSalesInCurrentPeriod(item, orderProducts)) {
-    return averageSalesCache.get(item.kod) || 0;
+    avg = averageSalesCache.get(item.kod) || 0;
+  } else {
+    const frozen = getFrozenMetrics(item, orderProducts, productReceipts);
+    if (frozen) {
+      avg = frozen.avg;
+    } else if (item.ilosc === 0) {
+      avg = averageSalesCache.get(item.kod) || 0;
+    }
   }
-
-  const frozen = getFrozenMetrics(item, orderProducts, productReceipts);
-  if (frozen) return frozen.avg;
-
-  if (item.ilosc === 0) {
-    return averageSalesCache.get(item.kod) || 0;
-  }
-
-  return 0;
+  return avg > 0 ? Math.round(avg * 1000) / 1000 : 0;
 };
 
 const getDisplayDepletionDate = (
