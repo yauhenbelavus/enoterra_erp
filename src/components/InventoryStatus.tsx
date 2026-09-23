@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { Tooltip } from 'react-tooltip';
 import Modal from 'react-modal';
 import { EditInventoryModal } from './EditInventoryModal';
+import { OrderDetailsModal } from './OrderDetailsModal';
 import { SortIndicator } from './SortIndicator';
 import { compareInventoryItems, useTableSort } from '../utils/tableSort';
 import { computeStorageAgeByKod, formatDate as formatStorageDate } from '../utils/storageAge';
@@ -694,6 +695,8 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
   const [error, setError] = useState<string | null>(null);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
   const [selectedProductKod, setSelectedProductKod] = useState<string | null>(null);
+  const [orderForDetails, setOrderForDetails] = useState<Order | null>(null);
+  const [isOrderDetailsOpen, setIsOrderDetailsOpen] = useState(false);
   const [salesFilterClient, setSalesFilterClient] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
@@ -2159,8 +2162,16 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                     </thead>
                     <tbody className="bg-white">
                       {sortedOrders.map((order) => (
-                        <tr key={order.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 text-xs text-gray-900 font-medium">
+                        <tr
+                          key={order.id}
+                          className="hover:bg-gray-50 cursor-pointer"
+                          title="Zobacz szczegóły"
+                          onClick={() => {
+                            setOrderForDetails(order);
+                            setIsOrderDetailsOpen(true);
+                          }}
+                        >
+                          <td className="px-4 py-2 text-xs text-blue-600 font-medium hover:underline">
                             {order.numer_zamowienia || '-'}
                           </td>
                           <td className="px-4 py-2 text-xs text-gray-900">
@@ -2219,6 +2230,15 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           })()}
         </div>
           </Modal>
+          <OrderDetailsModal
+            isOpen={isOrderDetailsOpen}
+            onClose={() => {
+              setIsOrderDetailsOpen(false);
+              setOrderForDetails(null);
+            }}
+            order={orderForDetails}
+            zIndex={10001}
+          />
         );
       })()}
     </div>

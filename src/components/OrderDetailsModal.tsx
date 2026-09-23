@@ -38,9 +38,10 @@ interface OrderDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order | null;
+  zIndex?: number;
 }
 
-export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, onClose, order }) => {
+export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, onClose, order, zIndex = 9999 }) => {
   const [orderWithProducts, setOrderWithProducts] = useState<Order | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -189,14 +190,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ isOpen, on
           outline: 'none',
           padding: '24px',
           fontFamily: 'Sora',
-          zIndex: 9999
+          zIndex
         },
         overlay: {
           backgroundColor: 'transparent',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 9999
+          zIndex
         }
       }}
     >
