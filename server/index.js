@@ -315,7 +315,7 @@ function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
   });
 }
 
-// JSON приёмки хранит cena в валюте фактуры; для products — EUR; working_sheets.cena_zakupu_pln — PLN.
+// JSON приёмки хранит cena в валюте фактуры; products.cena и working_sheets.cena_zakupu_pln — PLN.
 function prepareReceiptProducts(products, walutaFaktury, aktualnyKurs, kursFaktury) {
   const normalized = stampCenaFaktury(normalizeReceiptProducts(products));
   const productsForJson = normalized.map((p) => ({ ...p }));
@@ -552,7 +552,7 @@ function ensureProductsReceiptLineColumns(done) {
     const missing = PRODUCTS_RECEIPT_LINE_COLUMNS.filter((col) => !names.has(col.name));
     const next = (i) => {
       if (i >= missing.length) {
-        backfillProductsFromReceiptJson(done);
+        backfillProductsFromReceiptJson(() => convertProductsCenaToPln(done));
         return;
       }
       const col = missing[i];
@@ -566,6 +566,115 @@ function ensureProductsReceiptLineColumns(done) {
       });
     };
     next(0);
+  });
+}
+
+let productsCenaPlnConvertStarted = false;
+
+function nextProductsCenaPln(row) {
+  const cena = roundMoney(row.cena);
+  if (cena === 0) return null;
+
+  if (row.receipt_id == null) {
+    const converted = roundMoney(cena * 4.3);
+    const ws = roundMoney(row.ws_cena);
+    if (Math.abs(cena - ws) <= 0.15) return null;
+    if (Math.abs(converted - ws) <= 0.15) return converted;
+    if (ws > 0 && cena * 2 < ws) return converted;
+    return null;
+  }
+
+  const faktury = roundMoney(row.cena_faktury);
+  const waluta = normalizeWalutaFaktury(row.waluta_przyjecia);
+  const k1 = parseKursValue(row.kurs_1);
+  const k2 = parseKursValue(row.kurs_2);
+
+  if (waluta === 'PLN') {
+    if (Math.abs(cena - faktury) <= 0.08) return null;
+    if (k2 <= 1.05) return null;
+    return roundMoney(cena * k2);
+  }
+  if (waluta === 'EUR') {
+    if (k1 <= 1.05) return null;
+    if (Math.abs(cena - roundMoney(faktury * k1)) <= 0.08) return null;
+    return roundMoney(cena * k1);
+  }
+  if (waluta === 'DKK') {
+    if (k1 <= 1.05) return null;
+    const eurFromDkk = k2 > 1.05 ? roundMoney(faktury / k2) : null;
+    const expectedPln = eurFromDkk != null ? roundMoney(eurFromDkk * k1) : null;
+    if (expectedPln != null && Math.abs(cena - expectedPln) <= 0.08) return null;
+    return roundMoney(cena * k1);
+  }
+  return null;
+}
+
+function convertProductsCenaToPln(done, attempt = 0) {
+  const finish = () => {
+    if (done) done();
+  };
+  if (productsCenaPlnConvertStarted && attempt === 0) {
+    finish();
+    return;
+  }
+  db.all('PRAGMA table_info(product_receipts)', (schemaErr, columns) => {
+    if (schemaErr) {
+      console.error('❌ Error reading product_receipts schema for cena convert:', schemaErr.message);
+      finish();
+      return;
+    }
+    const names = new Set((columns || []).map((col) => col.name));
+    if (!names.has('kurs_1') || !names.has('kurs_2') || !names.has('waluta_przyjecia')) {
+      if (attempt >= 5) {
+        console.log('⏳ Skip products.cena PLN convert: receipt kurs columns not ready');
+        finish();
+        return;
+      }
+      setTimeout(() => convertProductsCenaToPln(done, attempt + 1), 1000);
+      return;
+    }
+    productsCenaPlnConvertStarted = true;
+    db.all(
+      `SELECT p.id, p.cena, p.cena_faktury, p.receipt_id,
+              r.waluta_przyjecia, r.kurs_1, r.kurs_2,
+              w.cena_zakupu_pln AS ws_cena
+       FROM products p
+       LEFT JOIN product_receipts r ON r.id = p.receipt_id
+       LEFT JOIN working_sheets w ON w.kod = p.kod`,
+      (err, rows) => {
+        if (err) {
+          console.error('❌ Error selecting products for cena PLN convert:', err.message);
+          finish();
+          return;
+        }
+        const updates = [];
+        for (const row of rows || []) {
+          const next = nextProductsCenaPln(row);
+          if (next == null) continue;
+          if (Math.abs(next - roundMoney(row.cena)) <= 0.005) continue;
+          updates.push({ id: row.id, cena: next });
+        }
+        if (updates.length === 0) {
+          console.log('✅ products.cena already in PLN (no rows to convert)');
+          finish();
+          return;
+        }
+        const run = (i) => {
+          if (i >= updates.length) {
+            console.log(`✅ Converted products.cena to PLN on ${updates.length} rows`);
+            finish();
+            return;
+          }
+          db.run('UPDATE products SET cena = ? WHERE id = ?', [updates[i].cena, updates[i].id], (updErr) => {
+            if (updErr) {
+              console.error(`❌ Error converting products.cena id=${updates[i].id}:`, updErr.message);
+            }
+            run(i + 1);
+          });
+        };
+        run(0);
+      }
+    );
   });
 }
 
@@ -8981,7 +9090,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     return res.status(400).json({ error: 'Date and products array are required' });
   }
 
-  products = normalizeReceiptProducts(products);
+  products = stampCenaFaktury(normalizeReceiptProducts(products));
   const receiptError = validatePurchaseReceipt({
     hasDate: true,
     sprzedawca,
@@ -8996,7 +9105,8 @@ app.put('/api/product-receipts/:id', upload.fields([
   const kursEurPln = getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury);
   const aktualnyKursForDb = normalizeWalutaFaktury(walutaFaktury) === 'PLN' ? 1 : parseKursValue(aktualnyKurs);
   const kurs = kursEurPln;
-  const { productsForJson, productsInternal } = prepareReceiptProducts(products, walutaFaktury, aktualnyKursForDb, kursFaktury);
+  const productsForJson = products.map((p) => ({ ...p }));
+  const productsInternal = withCenaPln(products, walutaFaktury, kursFaktury);
   products = productsInternal;
 
   // wartosc_przyjecia_netto = Netto z formularza. Z pozycji tylko fallback.
