@@ -15,8 +15,7 @@ interface ProductReceipt {
   waluta_dostawy?: string;
   kurs_1?: number;
   kurs_2?: number;
-  podatekAkcyzowy?: number;
-  podatek_akcyzowy?: number;
+  stawka_podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
     nazwa: string;
@@ -27,8 +26,8 @@ interface ProductReceipt {
     typ?: string;
     objetosc?: number;
   }>;
-  productInvoice?: string;
-  transportInvoice?: string;
+  product_invoice?: string;
+  transport_invoice?: string;
 }
 
 type StanyMagazynoweSubTab = 'towary' | 'analiza_magazynu';

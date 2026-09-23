@@ -20,8 +20,7 @@ interface ProductReceipt {
   waluta_dostawy?: string;
   kurs_1?: number;
   kurs_2?: number;
-  podatekAkcyzowy?: number;
-  podatek_akcyzowy?: number;
+  stawka_podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
     nazwa: string;
@@ -33,8 +32,8 @@ interface ProductReceipt {
     typ?: string;
     objetosc?: string | number;
   }>;
-  productInvoice?: string;
-  transportInvoice?: string;
+  product_invoice?: string;
+  transport_invoice?: string;
 }
 
 interface ReceiptDetailsModalProps {
@@ -169,12 +168,12 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
               <div className="text-xs text-gray-900 ml-2">{formatPlMoney(Number(receipt.wartosc_dostawy) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_dostawy))}</div>
             </div>
           </div>
-          {(receipt.productInvoice || receipt.transportInvoice) && (
+          {(receipt.product_invoice || receipt.transport_invoice) && (
             <div className="mb-4 flex gap-6">
-              {receipt.productInvoice && (
+              {receipt.product_invoice && (
                 <button
                   onClick={() => {
-                    const url = `${API_URL}/uploads/${receipt.productInvoice}`;
+                    const url = `${API_URL}/uploads/${receipt.product_invoice}`;
                     console.log('📎 Opening product invoice:', url);
                     window.open(url, '_blank', 'noopener,noreferrer');
                   }}
@@ -184,10 +183,10 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
                   Faktura za towar (PDF)
                 </button>
               )}
-              {receipt.transportInvoice && (
+              {receipt.transport_invoice && (
                 <button
                   onClick={() => {
-                    const url = `${API_URL}/uploads/${receipt.transportInvoice}`;
+                    const url = `${API_URL}/uploads/${receipt.transport_invoice}`;
                     console.log('📎 Opening transport invoice:', url);
                     window.open(url, '_blank', 'noopener,noreferrer');
                   }}

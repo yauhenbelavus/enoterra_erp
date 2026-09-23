@@ -49,8 +49,7 @@ interface ProductReceipt {
   waluta_dostawy?: string;
   kurs_1?: number;
   kurs_2?: number;
-  podatekAkcyzowy?: number;
-  podatek_akcyzowy?: number;
+  stawka_podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
     nazwa: string;
@@ -61,8 +60,8 @@ interface ProductReceipt {
     typ?: string;
     objetosc?: number;
   }>;
-  productInvoice?: string;
-  transportInvoice?: string;
+  product_invoice?: string;
+  transport_invoice?: string;
 }
 
 interface AddPurchasePageProps {
@@ -206,11 +205,10 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       waluta_dostawy: receipt.waluta_dostawy,
       kurs_1: receipt.kurs_1 ?? 1,
       kurs_2: receipt.kurs_2 ?? 1,
-      podatekAkcyzowy: receipt.podatek_akcyzowy ?? receipt.podatekAkcyzowy ?? 0,
-      podatek_akcyzowy: receipt.podatek_akcyzowy ?? 0,
+      stawka_podatek_akcyzowy: receipt.stawka_podatek_akcyzowy ?? 0,
       products: normalizeReceiptProductLines(receipt.products),
-      productInvoice: receipt.productInvoice,
-      transportInvoice: receipt.transportInvoice,
+      product_invoice: receipt.product_invoice,
+      transport_invoice: receipt.transport_invoice,
     }));
   } catch {
     return [];
@@ -489,8 +487,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
       wartosc_dostawy: roundMoney(deliveryCost),
       kurs_1: kursDostawyNumber,
-      podatekAkcyzowy: roundMoney(podatekAkcyzowy),
-      rabat,
+      stawka_podatek_akcyzowy: roundMoney(podatekAkcyzowy),
+      rabat: roundMoney(rabat),
       waluta_przyjecia: walutaFaktury,
       waluta_dostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
       walutaDostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
@@ -505,8 +503,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       if (productInvoice || transportInvoice) {
         const formData = new FormData();
         formData.append('data', JSON.stringify(receiptPayload));
-        if (productInvoice) formData.append('productInvoice', productInvoice);
-        if (transportInvoice) formData.append('transportInvoice', transportInvoice);
+        if (productInvoice) formData.append('product_invoice', productInvoice);
+        if (transportInvoice) formData.append('transport_invoice', transportInvoice);
         response = await fetch(`${API_URL}/api/product-receipts`, { method: 'POST', body: formData });
       } else {
         response = await fetch(`${API_URL}/api/product-receipts`, {

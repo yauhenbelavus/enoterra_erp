@@ -106,7 +106,7 @@ interface EditReceiptModalProps {
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
-    podatekAkcyzowy?: number;
+    stawka_podatek_akcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: WalutaFaktury;
     waluta_dostawy?: string;
@@ -120,8 +120,8 @@ interface EditReceiptModalProps {
       typ?: string;
       objetosc?: number;
     }>;
-    productInvoice?: File | null;
-    transportInvoice?: File | null;
+    product_invoice?: File | null;
+    transport_invoice?: File | null;
   }) => void | Promise<EditReceiptSubmitResult | void>;
   receipt: {
     id: number;
@@ -133,8 +133,7 @@ interface EditReceiptModalProps {
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
-    podatekAkcyzowy?: number;
-    podatek_akcyzowy?: number;
+    stawka_podatek_akcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
@@ -148,8 +147,8 @@ interface EditReceiptModalProps {
       typ?: string;
       objetosc?: number;
     }>;
-    productInvoice?: string;
-    transportInvoice?: string;
+    product_invoice?: string;
+    transport_invoice?: string;
   } | null;
 }
 
@@ -294,10 +293,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setSumaBrutto(savedBrutto > 0 ? formatPlMoney(savedBrutto) : '');
 
         // ➡️ 2. Podatek akcyzowy
-        if (receipt.podatek_akcyzowy !== undefined && receipt.podatek_akcyzowy !== null) {
-          setPodatekAkcyzowy(Number(receipt.podatek_akcyzowy).toFixed(2).replace('.', ','));
-        } else if (receipt.podatekAkcyzowy !== undefined && receipt.podatekAkcyzowy !== null) {
-          setPodatekAkcyzowy(String(receipt.podatekAkcyzowy).replace('.', ','));
+        if (receipt.stawka_podatek_akcyzowy !== undefined && receipt.stawka_podatek_akcyzowy !== null) {
+          setPodatekAkcyzowy(Number(receipt.stawka_podatek_akcyzowy).toFixed(2).replace('.', ','));
         } else {
           const firstProductAkc = productsArray[0]?.podatekAkcyzowyPerLiter ?? productsArray[0]?.podatekAkcyzowy ?? productsArray[0]?.podatek_akcyzowy ?? 0;
           setPodatekAkcyzowy(firstProductAkc.toFixed(2).replace('.', ','));
@@ -326,8 +323,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setProductRows(formattedProducts.length > 0 ? formattedProducts : [{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '' }]);
         
         // Сохраняем ссылки на существующие файлы
-        setExistingProductInvoice(receipt.productInvoice || null);
-        setExistingTransportInvoice(receipt.transportInvoice || null);
+        setExistingProductInvoice(receipt.product_invoice || null);
+        setExistingTransportInvoice(receipt.transport_invoice || null);
         setProductInvoice(null);
         setTransportInvoice(null);
               } else {
@@ -583,14 +580,14 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
         wartosc_dostawy: roundMoney(deliveryCost),
         kurs_1: aktualnyKursStandard,
-        podatekAkcyzowy: roundMoney(podatekAkcyzowy),
-        rabat: rabatValue,
+        stawka_podatek_akcyzowy: roundMoney(podatekAkcyzowy),
+        rabat: roundMoney(rabatValue),
         waluta_przyjecia: walutaFaktury,
         waluta_dostawy: receipt.waluta_dostawy,
         kurs_2: kursFakturyStandard,
         products: formattedProducts,
-        productInvoice: productInvoice || null,
-        transportInvoice: transportInvoice || null
+        product_invoice: productInvoice || null,
+        transport_invoice: transportInvoice || null
       });
 
       if (result && result.ok === false && result.kodBlocked) {

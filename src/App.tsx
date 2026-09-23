@@ -56,8 +56,7 @@ interface ProductReceipt {
   waluta_dostawy?: string;
   kurs_1?: number;
   kurs_2?: number;
-  podatekAkcyzowy?: number;
-  podatek_akcyzowy?: number;
+  stawka_podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
     nazwa: string;
@@ -68,8 +67,8 @@ interface ProductReceipt {
     typ?: string;
     objetosc?: number;
   }>;
-  productInvoice?: string;
-  transportInvoice?: string;
+  product_invoice?: string;
+  transport_invoice?: string;
 }
 
 interface SheetData {
@@ -473,11 +472,10 @@ function App() {
         waluta_dostawy: receipt.waluta_dostawy,
         kurs_1: receipt.kurs_1 ?? 1,
         kurs_2: receipt.kurs_2 ?? 1,
-        podatek_akcyzowy: receipt.podatek_akcyzowy,
-        podatekAkcyzowy: receipt.podatekAkcyzowy,
+        stawka_podatek_akcyzowy: receipt.stawka_podatek_akcyzowy,
         products: receipt.products || [],
-        productInvoice: receipt.productInvoice,
-        transportInvoice: receipt.transportInvoice
+        product_invoice: receipt.product_invoice,
+        transport_invoice: receipt.transport_invoice
       }));
     } catch (error) {
       console.error('❌ Error loading product receipts:', error);

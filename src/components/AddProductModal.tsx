@@ -43,7 +43,7 @@ interface AddProductModalProps {
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
-    podatekAkcyzowy?: string;
+    stawka_podatek_akcyzowy?: string;
     rabat?: string;
     waluta_przyjecia?: WalutaFaktury;
     products: Array<{
@@ -58,8 +58,8 @@ interface AddProductModalProps {
       deliveryCostPerUnitPln?: number;
       podatekAkcyzowyPerLiter?: number;
     }>;
-    productInvoice?: File | null;
-    transportInvoice?: File | null;
+    product_invoice?: File | null;
+    transport_invoice?: File | null;
   }) => void;
 }
 
@@ -402,13 +402,13 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
       wartosc_dostawy: roundMoney(deliveryCost),
       kurs_1: toStandardKursEurPln(walutaFaktury, aktualnyKurs),
-      podatekAkcyzowy: roundMoney(podatekAkcyzowy),
-      rabat: rabat,
+      stawka_podatek_akcyzowy: roundMoney(podatekAkcyzowy),
+      rabat: roundMoney(rabat),
       waluta_przyjecia: walutaFaktury,
       kurs_2: toStandardKursFaktury(walutaFaktury, kursFaktury),
       products: formattedProducts,
-      productInvoice: productInvoice || null,
-      transportInvoice: transportInvoice || null
+      product_invoice: productInvoice || null,
+      transport_invoice: transportInvoice || null
     });
     handleClose();
   };

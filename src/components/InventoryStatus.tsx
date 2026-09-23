@@ -580,8 +580,8 @@ interface InventoryStatusProps {
       cena: number;
       dataWaznosci?: string;
     }>;
-    productInvoice?: string;
-    transportInvoice?: string;
+    product_invoice?: string;
+    transport_invoice?: string;
   }>;
 }
 

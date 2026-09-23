@@ -22,8 +22,7 @@ interface ProductReceipt {
   waluta_dostawy?: string;
   kurs_1?: number;
   kurs_2?: number;
-  podatekAkcyzowy?: number;
-  podatek_akcyzowy?: number;
+  stawka_podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
     nazwa: string;
@@ -34,8 +33,8 @@ interface ProductReceipt {
     typ?: string;
     objetosc?: number;
   }>;
-  productInvoice?: string;
-  transportInvoice?: string;
+  product_invoice?: string;
+  transport_invoice?: string;
 }
 
 interface ProductReceiptsListProps {
@@ -51,7 +50,7 @@ interface ProductReceiptsListProps {
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
-    podatekAkcyzowy?: number;
+    stawka_podatek_akcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
@@ -65,8 +64,8 @@ interface ProductReceiptsListProps {
       typ?: string;
       objetosc?: number;
     }>;
-    productInvoice?: File;
-    transportInvoice?: File;
+    product_invoice?: File;
+    transport_invoice?: File;
   }) => Promise<EditReceiptSubmitResult | void> | EditReceiptSubmitResult | void;
   selectedCategory?: string;
 }
@@ -494,8 +493,8 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
         onSubmit={async (data) => {
           const result = await onUpdate({
             ...data,
-            productInvoice: data.productInvoice ?? undefined,
-            transportInvoice: data.transportInvoice ?? undefined,
+            product_invoice: data.product_invoice ?? undefined,
+            transport_invoice: data.transport_invoice ?? undefined,
           });
           if (!result || result.ok !== false) {
             setIsEditModalOpen(false);
@@ -518,11 +517,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               waluta_dostawy: receiptToEdit.waluta_dostawy,
               kurs_1: receiptToEdit.kurs_1,
               kurs_2: receiptToEdit.kurs_2,
-              podatekAkcyzowy: receiptToEdit.podatekAkcyzowy,
-              podatek_akcyzowy: receiptToEdit.podatek_akcyzowy,
+              stawka_podatek_akcyzowy: receiptToEdit.stawka_podatek_akcyzowy,
               products: receiptToEdit.products,
-              productInvoice: receiptToEdit.productInvoice,
-              transportInvoice: receiptToEdit.transportInvoice
+              product_invoice: receiptToEdit.product_invoice,
+              transport_invoice: receiptToEdit.transport_invoice
             };
 
             return preparedReceipt;

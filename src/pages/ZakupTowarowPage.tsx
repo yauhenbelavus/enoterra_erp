@@ -27,8 +27,7 @@ interface ProductReceipt {
   waluta_dostawy?: string;
   kurs_1?: number;
   kurs_2?: number;
-  podatekAkcyzowy?: number;
-  podatek_akcyzowy?: number;
+  stawka_podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
     nazwa: string;
@@ -39,8 +38,8 @@ interface ProductReceipt {
     typ?: string;
     objetosc?: number;
   }>;
-  productInvoice?: string;
-  transportInvoice?: string;
+  product_invoice?: string;
+  transport_invoice?: string;
 }
 
 interface SheetData {
@@ -81,11 +80,10 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       waluta_dostawy: receipt.waluta_dostawy,
       kurs_1: receipt.kurs_1 ?? 1,
       kurs_2: receipt.kurs_2 ?? 1,
-      podatek_akcyzowy: receipt.podatek_akcyzowy,
-      podatekAkcyzowy: receipt.podatekAkcyzowy,
+      stawka_podatek_akcyzowy: receipt.stawka_podatek_akcyzowy,
       products: receipt.products || [],
-      productInvoice: receipt.productInvoice,
-      transportInvoice: receipt.transportInvoice,
+      product_invoice: receipt.product_invoice,
+      transport_invoice: receipt.transport_invoice,
     }));
   } catch (error) {
     console.error('❌ Error loading product receipts:', error);
@@ -146,7 +144,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
-    podatekAkcyzowy?: number | string;
+    stawka_podatek_akcyzowy?: number | string;
     rabat?: string;
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
@@ -160,12 +158,12 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
       typ?: string;
       objetosc?: string;
     }>;
-    productInvoice?: File | null;
-    transportInvoice?: File | null;
+    product_invoice?: File | null;
+    transport_invoice?: File | null;
   }) => {
     try {
       let response;
-      if (data.productInvoice || data.transportInvoice) {
+      if (data.product_invoice || data.transport_invoice) {
         const formData = new FormData();
         const jsonData = {
           date: data.date,
@@ -176,15 +174,15 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           wartosc_dostawy: data.wartosc_dostawy,
           kurs_1: data.kurs_1,
           kurs_2: data.kurs_2,
-          podatekAkcyzowy: data.podatekAkcyzowy,
+          stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
           rabat: data.rabat,
           waluta_przyjecia: data.waluta_przyjecia,
           waluta_dostawy: data.waluta_dostawy,
           products: data.products,
         };
         formData.append('data', JSON.stringify(jsonData));
-        if (data.productInvoice) formData.append('productInvoice', data.productInvoice);
-        if (data.transportInvoice) formData.append('transportInvoice', data.transportInvoice);
+        if (data.product_invoice) formData.append('product_invoice', data.product_invoice);
+        if (data.transport_invoice) formData.append('transport_invoice', data.transport_invoice);
         response = await fetch(`${API_URL}/api/product-receipts`, { method: 'POST', body: formData });
       } else {
         response = await fetch(`${API_URL}/api/product-receipts`, {
@@ -199,7 +197,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             wartosc_dostawy: data.wartosc_dostawy,
             kurs_1: data.kurs_1,
             kurs_2: data.kurs_2,
-            podatekAkcyzowy: data.podatekAkcyzowy,
+            stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
             rabat: data.rabat,
             waluta_przyjecia: data.waluta_przyjecia,
             waluta_dostawy: data.waluta_dostawy,
@@ -239,7 +237,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
-    podatekAkcyzowy?: number | string;
+    stawka_podatek_akcyzowy?: number | string;
     rabat?: number | string;
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
@@ -253,12 +251,12 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
       typ?: string;
       objetosc?: number;
     }>;
-    productInvoice?: File | null;
-    transportInvoice?: File | null;
+    product_invoice?: File | null;
+    transport_invoice?: File | null;
   }): Promise<EditReceiptSubmitResult> => {
     try {
       let response;
-      if (data.productInvoice || data.transportInvoice) {
+      if (data.product_invoice || data.transport_invoice) {
         const formData = new FormData();
         const jsonData = {
           date: data.date,
@@ -269,15 +267,15 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           wartosc_dostawy: data.wartosc_dostawy,
           kurs_1: data.kurs_1,
           kurs_2: data.kurs_2,
-          podatekAkcyzowy: data.podatekAkcyzowy,
+          stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
           rabat: data.rabat,
           waluta_przyjecia: data.waluta_przyjecia,
           waluta_dostawy: data.waluta_dostawy,
           products: data.products,
         };
         formData.append('data', JSON.stringify(jsonData));
-        if (data.productInvoice) formData.append('productInvoice', data.productInvoice);
-        if (data.transportInvoice) formData.append('transportInvoice', data.transportInvoice);
+        if (data.product_invoice) formData.append('product_invoice', data.product_invoice);
+        if (data.transport_invoice) formData.append('transport_invoice', data.transport_invoice);
         response = await fetch(`${API_URL}/api/product-receipts/${data.id}`, { method: 'PUT', body: formData });
       } else {
         response = await fetch(`${API_URL}/api/product-receipts/${data.id}`, {
@@ -292,7 +290,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             wartosc_dostawy: data.wartosc_dostawy,
             kurs_1: data.kurs_1,
             kurs_2: data.kurs_2,
-            podatekAkcyzowy: data.podatekAkcyzowy,
+            stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
             rabat: data.rabat,
             waluta_przyjecia: data.waluta_przyjecia,
             waluta_dostawy: data.waluta_dostawy,
