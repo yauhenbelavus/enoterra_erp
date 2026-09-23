@@ -4,6 +4,7 @@ import DatePicker, { registerLocale } from 'react-datepicker';
 import { pl } from 'date-fns/locale';
 import { X, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { roundMoney } from '../utils/receiptCurrency';
 import "react-datepicker/dist/react-datepicker.css";
 import "./DatePicker.css";
 
@@ -202,8 +203,8 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
           cena_zakupu_pln: parseFloat(String(formData.cena_zakupu_pln || '0').replace(',', '.')) || undefined,
           cena_sprzedazy_pln: parseFloat(String(formData.cena_sprzedazy_pln || '0').replace(',', '.')) || undefined,
           koszt_dostawy_per_unit: parseFloat(String(formData.koszt_dostawy_per_unit || '0').replace(',', '.')) || undefined,
-          podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc 
-            ? parseFloat(String(formData.podatek_akcyzowy_per_liter || '0').replace(',', '.')) * parseFloat(String(formData.objetosc || '0').replace(',', '.')) 
+          podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc
+            ? roundMoney(parseFloat(String(formData.podatek_akcyzowy_per_liter || '0').replace(',', '.')) * parseFloat(String(formData.objetosc || '0').replace(',', '.')))
             : undefined
         }),
       });
@@ -221,8 +222,8 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
         cena_zakupu_pln: parseFloat(formData.cena_zakupu_pln) || undefined,
         cena_sprzedazy_pln: parseFloat(formData.cena_sprzedazy_pln) || undefined,
         koszt_dostawy_per_unit: parseFloat(formData.koszt_dostawy_per_unit) || undefined,
-        podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc 
-          ? parseFloat(formData.podatek_akcyzowy_per_liter) * parseFloat(formData.objetosc) 
+        podatek_akcyzowy: formData.podatek_akcyzowy_per_liter && formData.objetosc
+          ? roundMoney(parseFloat(formData.podatek_akcyzowy_per_liter) * parseFloat(formData.objetosc))
           : undefined
       };
 

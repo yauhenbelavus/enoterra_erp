@@ -1098,7 +1098,27 @@ function roundExistingCenaZakupu(done) {
                           } else if (this.changes > 0) {
                             console.log(`✅ Rounded products.podatek_akcyzowy on ${this.changes} rows`);
                           }
-                          finish();
+                          db.run(
+                            'UPDATE working_sheets SET podatek_akcyzowy = ROUND(podatek_akcyzowy, 2) WHERE podatek_akcyzowy IS NOT NULL',
+                            function (wsAkcErr) {
+                              if (wsAkcErr) {
+                                console.error('❌ Error rounding working_sheets.podatek_akcyzowy:', wsAkcErr.message);
+                              } else if (this.changes > 0) {
+                                console.log(`✅ Rounded working_sheets.podatek_akcyzowy on ${this.changes} rows`);
+                              }
+                              db.run(
+                                'UPDATE working_sheets_history SET podatek_akcyzowy = ROUND(podatek_akcyzowy, 2) WHERE podatek_akcyzowy IS NOT NULL',
+                                function (histAkcErr) {
+                                  if (histAkcErr && !String(histAkcErr.message || '').includes('no such table') && !String(histAkcErr.message || '').includes('no such column')) {
+                                    console.error('❌ Error rounding working_sheets_history.podatek_akcyzowy:', histAkcErr.message);
+                                  } else if (!histAkcErr && this.changes > 0) {
+                                    console.log(`✅ Rounded working_sheets_history.podatek_akcyzowy on ${this.changes} rows`);
+                                  }
+                                  finish();
+                                }
+                              );
+                            }
+                          );
                         }
                       );
                     }
@@ -9133,7 +9153,7 @@ app.post('/api/product-receipts', upload.fields([
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
           'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, products, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, (parseFloat(String(podatekAkcyzowy||'').replace(',', '.'))||0), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, JSON.stringify(productsForJson), productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -9241,7 +9261,7 @@ app.post('/api/product-receipts', upload.fields([
                       const isBezalkoholoweOrFermentOrAksesoriaUpd = mainProduct.typ === 'bezalkoholowe' || mainProduct.typ === 'ferment' || mainProduct.typ === 'aksesoria';
                       console.log(`🔍 UPDATE type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoriaUpd=${isBezalkoholoweOrFermentOrAksesoriaUpd}`);
                       const podatekValueUpd = isBezalkoholoweOrFermentOrAksesoriaUpd ? 0 :
-                        (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
+                        (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
                       const deliveryWs = deliveryCostWsPair(mainProduct, kosztDostawyPerUnit, productsList);
                       const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
                       const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
@@ -9343,7 +9363,7 @@ app.post('/api/product-receipts', upload.fields([
                   const isBezalkoholoweOrFermentOrAksesoria = mainProduct.typ === 'bezalkoholowe' || mainProduct.typ === 'ferment' || mainProduct.typ === 'aksesoria';
                   console.log(`🔍 Product type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoria=${isBezalkoholoweOrFermentOrAksesoria}`);
                   const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : 
-                    (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
+                    (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
                   // Для aksesoria транспорт (średnie) не распределяется
                   const deliveryWs = deliveryCostWsPair(mainProduct, kosztDostawyPerUnit, productsList);
                   const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
@@ -10059,7 +10079,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                 const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                 const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
+                const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
                 const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnitValue, newProduct.items);
                 const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
                 const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
@@ -10178,7 +10198,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
+                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
                   const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnitValue, newProduct.items);
                   const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
                   const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
@@ -10290,7 +10310,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
+                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
                   
                   const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnit, newProduct.items);
                   const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
@@ -10406,7 +10426,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
                   const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : Math.round((podatekAkcyzowyValue * objetoscValue) * 100) / 100);
+                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
                   
                   updateFields.push('podatek_akcyzowy = ?');
                   updateValues.push(podatekValue);
@@ -11404,7 +11424,7 @@ app.put('/api/working-sheets/update', (req, res) => {
     // Получаем значения для расчета
     const finalCena = roundMoney(cena_zakupu_pln !== undefined ? cena_zakupu_pln : existingRecord.cena_zakupu_pln);
     let finalKosztDostawyPerUnit = koszt_dostawy_per_unit !== undefined ? koszt_dostawy_per_unit : existingRecord.koszt_dostawy_per_unit;
-    let finalPodatekAkcyzowy = podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy;
+    let finalPodatekAkcyzowy = roundMoney(podatek_akcyzowy !== undefined ? podatek_akcyzowy : existingRecord.podatek_akcyzowy);
     
     // Для bezalkoholowe, ferment и aksesoria акциз всегда 0
     const isBezalkoholoweOrFermentOrAksesoria = finalTyp === 'bezalkoholowe' || finalTyp === 'ferment' || finalTyp === 'aksesoria';
