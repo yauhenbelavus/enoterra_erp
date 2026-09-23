@@ -153,6 +153,7 @@ const getRowLineVat = (row: ProductRow): number =>
   getRowLineValue(row) * (row.vat || 0) / 100;
 
 const getRowKosztButWgWartosci = (row: ProductRow, totalValue: number, deliveryCost: number): number => {
+  if (row.typ === 'aksesoria') return 0;
   const qty = parseFloat(row.ilosc) || 0;
   const lineValue = getRowLineValue(row);
   if (totalValue <= 0 || qty <= 0) return 0;
@@ -282,7 +283,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const calculateDeliveryCostPerUnit = () => {
     const totalBottles = productRows.reduce(
-      (total, row) => total + (parseFloat(row.ilosc.toString().replace(',', '.')) || 0),
+      (total, row) => row.typ === 'aksesoria' ? total : total + (parseFloat(row.ilosc.toString().replace(',', '.')) || 0),
       0
     );
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
@@ -456,7 +457,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
     const kursDostawyNumber = toKursToPln(walutaDostawy, kursDostawy);
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
-    const totalLineValueSubmit = productRows.reduce((sum, row) => sum + getRowLineValue(row), 0);
+    const totalLineValueSubmit = productRows.reduce((sum, row) => {
+      if (row.typ === 'aksesoria') return sum;
+      return sum + getRowLineValue(row);
+    }, 0);
 
     const formattedProducts = productRows.map(row => ({
         kod: row.kod,
@@ -555,7 +559,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     setOpenObjetoscDropdownIndex(null);
   };
 
-  const totalLineValue = productRows.reduce((sum, row) => sum + getRowLineValue(row), 0);
+  const totalLineValue = productRows.reduce((sum, row) => {
+    if (row.typ === 'aksesoria') return sum;
+    return sum + getRowLineValue(row);
+  }, 0);
   const deliveryCostNumber = parsePlNumber(kosztDostawy);
 
   return (

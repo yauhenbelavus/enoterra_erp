@@ -29,6 +29,7 @@ interface ProductReceipt {
   kurs_2?: number;
   stawka_podatek_akcyzowy?: number;
   products: Array<{
+    id?: number;
     kod: string;
     nazwa: string;
     kod_kreskowy?: string;
@@ -37,6 +38,7 @@ interface ProductReceipt {
     dataWaznosci?: string;
     typ?: string;
     objetosc?: number;
+    vat?: number;
   }>;
   product_invoice?: string;
   transport_invoice?: string;
@@ -237,11 +239,13 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
+    kursMode?: 'toPln';
     stawka_podatek_akcyzowy?: number | string;
     rabat?: number | string;
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
     products: Array<{
+      id?: number;
       kod: string;
       nazwa: string;
       kod_kreskowy?: string;
@@ -250,6 +254,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
       dataWaznosci?: string;
       typ?: string;
       objetosc?: number;
+      vat?: number;
     }>;
     product_invoice?: File | null;
     transport_invoice?: File | null;
@@ -267,6 +272,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
           wartosc_dostawy: data.wartosc_dostawy,
           kurs_1: data.kurs_1,
           kurs_2: data.kurs_2,
+          kursMode: data.kursMode,
           stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
           rabat: data.rabat,
           waluta_przyjecia: data.waluta_przyjecia,
@@ -290,6 +296,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             wartosc_dostawy: data.wartosc_dostawy,
             kurs_1: data.kurs_1,
             kurs_2: data.kurs_2,
+            kursMode: data.kursMode,
             stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
             rabat: data.rabat,
             waluta_przyjecia: data.waluta_przyjecia,

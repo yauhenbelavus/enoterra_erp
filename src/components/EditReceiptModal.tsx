@@ -7,28 +7,22 @@ import { API_URL } from '../config';
 import toast from 'react-hot-toast';
 import {
   WALUTY_FAKTURY,
-  WalutaFaktury,
-  formatKursEurPlnForDisplay,
-  formatKursFakturyForDisplay,
-  formatKursPlnEurForDisplay,
+  WalutaFakturySelection,
   formatPlMoney,
   getCenaColumnLabel,
-  getPrimaryKursLabel,
-  getSecondaryKursLabel,
+  getKursToPlnLabel,
   getWalutaSymbol,
-  isKursEurPlnActive,
-  isKursFakturyActive,
-  isKursValueFilled,
-  isPrimaryKursActive,
-  isSecondaryKursActive,
+  isKursDostawyInputActive,
+  isKursFakturyInputActive,
+  isWalutaSelected,
+  needsKursToPln,
   normalizeWalutaFaktury,
   parsePlNumber,
   roundMoney,
-  resolveKursPlnEurStandard,
-  toStandardKursEurPln,
-  toStandardKursFaktury,
-  usesPrimaryKursFakturyState,
-  validateRequiredKurs,
+  sharesKursToPlnPair,
+  toKursToPln,
+  validatePurchaseKursPair,
+  getPurchaseKursInvalidFields,
 } from '../utils/receiptCurrency';
 import {
   getHeaderInvalidFields,
@@ -64,6 +58,35 @@ const OBJETOSCI_WINA = [
   { value: '1.5', label: '1,5l' },
   { value: '3', label: '3l' }
 ];
+
+const VAT_RATES = [
+  { value: 0, label: '0%' },
+  { value: 5, label: '5%' },
+  { value: 8, label: '8%' },
+  { value: 23, label: '23%' },
+];
+
+const HEADER_H = 'h-[30px] box-border';
+const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
+const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
+
+const SelectChevron = () => (
+  <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+  </svg>
+);
+
+const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => {
+  const s = String(value || '').trim().toUpperCase();
+  if (s === 'EUR' || s === 'PLN' || s === 'DKK') return s;
+  return '';
+};
+
+const formatStoredKursToPln = (value?: number | null): string => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0 || n === 1) return '';
+  return formatPlMoney(n);
+};
 
 
 
@@ -108,9 +131,11 @@ interface EditReceiptModalProps {
     kurs_2?: number;
     stawka_podatek_akcyzowy?: number;
     rabat?: number;
-    waluta_przyjecia?: WalutaFaktury;
-    waluta_dostawy?: string;
+    waluta_przyjecia?: WalutaFakturySelection;
+    waluta_dostawy?: WalutaFakturySelection;
+    kursMode?: 'toPln';
     products: Array<{
+      id?: number;
       kod: string;
       nazwa: string;
       kod_kreskowy?: string;
@@ -119,6 +144,7 @@ interface EditReceiptModalProps {
       dataWaznosci?: string;
       typ?: string;
       objetosc?: number;
+      vat?: number;
     }>;
     product_invoice?: File | null;
     transport_invoice?: File | null;
@@ -138,6 +164,7 @@ interface EditReceiptModalProps {
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
     products: Array<{
+      id?: number;
       kod: string;
       nazwa: string;
       kod_kreskowy?: string;
@@ -146,6 +173,7 @@ interface EditReceiptModalProps {
       dataWaznosci?: string;
       typ?: string;
       objetosc?: number;
+      vat?: number;
     }>;
     product_invoice?: string;
     transport_invoice?: string;
@@ -153,6 +181,7 @@ interface EditReceiptModalProps {
 }
 
 interface ProductRow {
+  id?: number;
   kod: string;
   nazwa: string;
   kod_kreskowy: string;
@@ -165,6 +194,19 @@ interface ProductRow {
   vat: number;
 }
 
+const emptyRow = (): ProductRow => ({
+  kod: '',
+  nazwa: '',
+  kod_kreskowy: '',
+  ilosc: '',
+  cena: '',
+  dataWaznosci: '',
+  showDataWaznosci: false,
+  typ: '',
+  objetosc: '',
+  vat: 0,
+});
+
 export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   isOpen,
   onClose,
@@ -176,7 +218,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const [sprzedawca, setSprzedawca] = useState('');
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const [productRows, setProductRows] = useState<ProductRow[]>([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
+  const [productRows, setProductRows] = useState<ProductRow[]>([emptyRow()]);
   const dragStartPos = useRef({ x: 0, y: 0 });
   const [kosztDostawy, setKosztDostawy] = useState('');
   const [productInvoice, setProductInvoice] = useState<File | null>(null);
@@ -187,10 +229,12 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const transportFileInputRef = useRef<HTMLInputElement>(null);
   const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
   const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
-  const [aktualnyKurs, setAktualnyKurs] = useState('0,00');
+  const [openVatDropdownIndex, setOpenVatDropdownIndex] = useState<number | null>(null);
+  const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
   const [rabat, setRabat] = useState('0,00');
-  const [walutaFaktury, setWalutaFaktury] = useState<WalutaFaktury>('EUR');
+  const [walutaFaktury, setWalutaFaktury] = useState<WalutaFakturySelection>('');
+  const [walutaDostawy, setWalutaDostawy] = useState<WalutaFakturySelection>('');
   const [kursFaktury, setKursFaktury] = useState('');
   const [kwotaVat, setKwotaVat] = useState('');
   const [sumaBrutto, setSumaBrutto] = useState('');
@@ -202,8 +246,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   // Вычисляем стоимость доставки на бутылку
   const calculateDeliveryCostPerUnit = () => {
     const totalBottles = productRows.reduce((total, row) => {
-      const quantity = parseFloat(row.ilosc.toString().replace(',', '.')) || 0;
-      return total + quantity;
+      if (row.typ === 'aksesoria') return total;
+      return total + (parseFloat(row.ilosc.toString().replace(',', '.')) || 0);
     }, 0);
     
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
@@ -214,26 +258,23 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     return '0,00';
   };
 
-  const primaryKursValue = usesPrimaryKursFakturyState(walutaFaktury) ? kursFaktury : aktualnyKurs;
-  const setPrimaryKursValue = (value: string) => {
-    if (usesPrimaryKursFakturyState(walutaFaktury)) setKursFaktury(value);
-    else setAktualnyKurs(value);
-  };
-
-  const kursError = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+  const kurs1Active = isKursDostawyInputActive(walutaDostawy);
+  const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
+  const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury, kosztDostawy);
   const headerInvalid = getHeaderInvalidFields({
     hasDate: Boolean(selectedDate),
     sprzedawca,
-    skipDelivery: true,
+    kosztDostawy,
+    walutaDostawy,
     products: productRows,
     podatekAkcyzowy,
   });
-  const invalidPrimaryKurs = isPrimaryKursActive(walutaFaktury) && !isKursValueFilled(primaryKursValue);
-  const invalidSecondaryKurs = isSecondaryKursActive(walutaFaktury) && !isKursValueFilled(aktualnyKurs);
+  const kursInvalid = getPurchaseKursInvalidFields(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury, kosztDostawy);
   const purchaseValidationError = validatePurchaseReceipt({
     hasDate: Boolean(selectedDate),
     sprzedawca,
-    skipDelivery: true,
+    kosztDostawy,
+    walutaDostawy,
     kursError,
     products: productRows,
     podatekAkcyzowy,
@@ -269,23 +310,16 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setSprzedawca(receipt.sprzedawca || '');
         setKosztDostawy(formatPlMoney(Number(receipt.wartosc_dostawy) || 0));
 
-        // ➡️ Waluta faktury + kurs faktury
-        const waluta = normalizeWalutaFaktury(receipt.waluta_przyjecia);
-        setWalutaFaktury(waluta);
-        const standardKursFaktury = Number(receipt.kurs_2 ?? 1);
-        const standardKursEurPln = Number(receipt.kurs_1 ?? 1);
-
-        if (waluta === 'PLN') {
-          const kursPln = resolveKursPlnEurStandard(standardKursFaktury, standardKursEurPln);
-          setKursFaktury(formatKursPlnEurForDisplay(kursPln));
-          setAktualnyKurs('');
-        } else if (waluta === 'DKK') {
-          setKursFaktury(formatKursFakturyForDisplay('DKK', standardKursFaktury));
-          setAktualnyKurs(formatKursEurPlnForDisplay(standardKursEurPln));
-        } else {
-          setKursFaktury('');
-          setAktualnyKurs(formatKursEurPlnForDisplay(standardKursEurPln));
-        }
+        const walutaFakturyInit = parseWalutaSelection(receipt.waluta_przyjecia) || normalizeWalutaFaktury(receipt.waluta_przyjecia);
+        const walutaDostawyInit = parseWalutaSelection(receipt.waluta_dostawy);
+        setWalutaFaktury(walutaFakturyInit);
+        setWalutaDostawy(walutaDostawyInit);
+        setKursDostawy(needsKursToPln(walutaDostawyInit) ? formatStoredKursToPln(receipt.kurs_1) : '');
+        setKursFaktury(
+          needsKursToPln(walutaFakturyInit) && walutaFakturyInit !== walutaDostawyInit
+            ? formatStoredKursToPln(receipt.kurs_2)
+            : ''
+        );
 
         const savedVat = Number(receipt.vat ?? 0);
         const savedBrutto = Number(receipt.wartosc_przyjecia_brutto ?? 0);
@@ -305,6 +339,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         
         // Преобразуем продукты в формат для редактирования
         const formattedProducts: ProductRow[] = productsArray.map(product => ({
+          id: product.id,
           kod: product.kod || '',
           nazwa: product.nazwa || '',
           kod_kreskowy: product.kod_kreskowy || (product as { ean?: string }).ean || '',
@@ -317,7 +352,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           vat: Number(product.vat) || 0
         }));
         
-        setProductRows(formattedProducts.length > 0 ? formattedProducts : [{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
+        setProductRows(formattedProducts.length > 0 ? formattedProducts : [emptyRow()]);
         
         // Сохраняем ссылки на существующие файлы
         setExistingProductInvoice(receipt.product_invoice || null);
@@ -325,7 +360,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setProductInvoice(null);
         setTransportInvoice(null);
               } else {
-          setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
+          setProductRows([emptyRow()]);
           setSelectedDate(null);
           setSprzedawca('');
           setKosztDostawy('');
@@ -335,7 +370,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           setExistingTransportInvoice(null);
         }
       } else {
-        setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
+        setProductRows([emptyRow()]);
         setSelectedDate(null);
         setSprzedawca('');
         setKosztDostawy('');
@@ -352,6 +387,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       const target = event.target as HTMLElement;
       if (!target.closest('.dropdown-container') && !target.closest('button[onclick*="toggleDropdown"]')) {
         setOpenDropdownIndex(null);
+        setOpenVatDropdownIndex(null);
       }
       if (!target.closest('.objetosc-dropdown-container') && !target.closest('button[onclick*="toggleObjetoscDropdown"]')) {
         setOpenObjetoscDropdownIndex(null);
@@ -377,6 +413,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       if (event.key === 'Escape') {
         setOpenDropdownIndex(null);
         setOpenObjetoscDropdownIndex(null);
+        setOpenVatDropdownIndex(null);
         // Закрываем календари при нажатии Escape
         const newRows = [...productRows];
         let hasChanges = false;
@@ -402,7 +439,14 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   }, [productRows]);
 
   const addNewRow = () => {
-    setProductRows([...productRows, { kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
+    setProductRows([...productRows, emptyRow()]);
+  };
+
+  const handleVatChange = (index: number, value: number) => {
+    const newRows = [...productRows];
+    newRows[index].vat = value;
+    setProductRows(newRows);
+    setOpenVatDropdownIndex(null);
   };
 
   const deleteRow = (index: number) => {
@@ -545,6 +589,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     if (!selectedDate) return;
 
     const formattedProducts = productRows.map(row => ({
+      id: row.id,
       kod: row.kod,
       nazwa: row.nazwa,
       kod_kreskowy: row.kod_kreskowy || '',
@@ -563,9 +608,11 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
     const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
     const wartoscZRabatem = totalValue * (1 - rabatValue / 100);
-
-    const aktualnyKursStandard = toStandardKursEurPln(walutaFaktury, aktualnyKurs);
-    const kursFakturyStandard = toStandardKursFaktury(walutaFaktury, kursFaktury);
+    const kursDostawyNumber = toKursToPln(walutaDostawy, kursDostawy);
+    const kursFakturyNumber = toKursToPln(
+      walutaFaktury,
+      sharesKursToPlnPair(walutaDostawy, walutaFaktury) ? kursDostawy : kursFaktury
+    );
 
     setIsSaving(true);
     try {
@@ -577,12 +624,13 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         vat: roundMoney(kwotaVat),
         wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
         wartosc_dostawy: roundMoney(deliveryCost),
-        kurs_1: aktualnyKursStandard,
+        kurs_1: kursDostawyNumber,
         stawka_podatek_akcyzowy: roundMoney(podatekAkcyzowy),
         rabat: roundMoney(rabatValue),
-        waluta_przyjecia: walutaFaktury,
-        waluta_dostawy: receipt.waluta_dostawy,
-        kurs_2: kursFakturyStandard,
+        waluta_przyjecia: isWalutaSelected(walutaFaktury) ? walutaFaktury : undefined,
+        waluta_dostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
+        kurs_2: kursFakturyNumber,
+        kursMode: 'toPln',
         products: formattedProducts,
         product_invoice: productInvoice || null,
         transport_invoice: transportInvoice || null
@@ -604,7 +652,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     setIsSaving(false);
     setSelectedDate(null);
     setPosition({ x: 0, y: 0 });
-    setProductRows([{ kod: '', nazwa: '', kod_kreskowy: '', ilosc: '', cena: '', dataWaznosci: '', showDataWaznosci: false, typ: '', objetosc: '', vat: 0 }]);
+    setProductRows([emptyRow()]);
     setKosztDostawy('');
     setSprzedawca('');
     setProductInvoice(null);
@@ -614,6 +662,11 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     setKwotaVat('');
     setSumaBrutto('');
     setShowFieldErrors(false);
+    setKursDostawy('');
+    setKursFaktury('');
+    setWalutaDostawy('');
+    setWalutaFaktury('');
+    setOpenVatDropdownIndex(null);
     onClose();
   };
 
@@ -659,7 +712,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       onRequestClose={handleClose}
                     style={{
                 content: {
-                  width: '1000px',
+                  width: '1180px',
                   height: '680px',
                   maxWidth: '90%',
                   maxHeight: '90vh',
@@ -705,8 +758,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         </div>
 
         <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
-          <div className="space-y-4 shrink-0">
-            <div className="flex">
+          <div className="shrink-0 space-y-3">
+            <div className="flex flex-wrap items-end gap-4">
               <div className="w-[200px]">
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
                   Data zakupu
@@ -721,23 +774,54 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   popperClassName="z-50"
                 />
               </div>
-              <div className="w-[200px] flex items-start">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                    Wartość dostawy
-                  </label>
-                  <div className="relative">
-                    <PlMoneyInput
-                      value={kosztDostawy}
-                      onChange={setKosztDostawy}
-                      className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                      placeholder="0,00"
-                    />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">{getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_dostawy)) || 'EUR'}</span>
-                  </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
+                  Wartość dostawy
+                </label>
+                <div className="relative">
+                  <PlMoneyInput
+                    value={kosztDostawy}
+                    onChange={setKosztDostawy}
+                    className="w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
+                    placeholder="0,00"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">{getWalutaSymbol(walutaDostawy)}</span>
                 </div>
               </div>
-              <div className="flex items-center justify-between w-full max-w-md">
+              <div className="w-[96px]">
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Waluta dostawy</label>
+                <div className="relative">
+                  <select
+                    value={walutaDostawy}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const next = raw === '' ? '' : normalizeWalutaFaktury(raw);
+                      setWalutaDostawy(next);
+                      if (!needsKursToPln(next)) {
+                        setKursDostawy('');
+                        return;
+                      }
+                      if (next === walutaFaktury && !kursDostawy && kursFaktury) {
+                        setKursDostawy(kursFaktury);
+                      }
+                    }}
+                    className={withInvalid(HEADER_SELECT, headerInvalid.walutaDostawy)}
+                  >
+                    <option value="">—</option>
+                    {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                  <SelectChevron />
+                </div>
+              </div>
+              <div className="w-[96px]">
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
+                {kurs1Active ? (
+                  <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursDostawy)} />
+                ) : (
+                  <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                )}
+              </div>
+              <div className="flex items-center gap-2 ml-auto">
                 <div className="flex items-center w-48">
                   <input
                     type="file"
@@ -820,32 +904,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="shrink-0 space-y-2 mt-2">
-          <div className="flex gap-4 mb-1">
-            <div className="w-[300px] shrink-0" aria-hidden="true" />
-            <div className="w-[140px] shrink-0" aria-hidden="true" />
-            <div className="shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                {getPrimaryKursLabel(walutaFaktury)}
-              </label>
-              {isPrimaryKursActive(walutaFaktury) ? (
-                <div className="relative">
-                  <PlMoneyInput
-                    value={primaryKursValue}
-                    onChange={setPrimaryKursValue}
-                    placeholder="0,00"
-                    className={withInvalid("w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", invalidPrimaryKurs)}
-                  />
-                </div>
-              ) : (
-                <div className="w-[90px] h-[30px] rounded-md bg-gray-100 border border-gray-200" aria-hidden="true" />
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-nowrap gap-4">
+            <div className="flex flex-wrap items-end gap-4">
             <div className="shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
                 Sprzedawca
@@ -870,25 +930,48 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
                 Koszt/but. (średnie)
               </label>
-              <div className="w-[140px] px-3 py-1.5 border border-gray-300 rounded-md bg-gray-50 font-sora text-xs text-gray-600">
-                {calculateDeliveryCostPerUnit().replace('.', ',')} €
+              <div className="relative">
+                <div className="w-[140px] px-3 py-1.5 border border-gray-300 rounded-md bg-gray-50 font-sora text-xs text-gray-600 pr-8">
+                  {calculateDeliveryCostPerUnit().replace('.', ',')}
+                </div>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">{getWalutaSymbol(walutaDostawy)}</span>
               </div>
             </div>
-            <div className="shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                {getSecondaryKursLabel(walutaFaktury)}
-              </label>
-              {isSecondaryKursActive(walutaFaktury) ? (
-                <div className="relative">
-                  <PlMoneyInput
-                    value={aktualnyKurs}
-                    onChange={setAktualnyKurs}
-                    placeholder="0,00"
-                    className={withInvalid("w-[90px] px-3 py-1.5 pr-6 border border-gray-300 rounded-md focus:outline-none font-sora text-xs", invalidSecondaryKurs)}
-                  />
-                </div>
+            <div className="w-[96px] shrink-0">
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">Waluta faktury</label>
+              <div className="relative">
+                <select
+                  value={walutaFaktury}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); return; }
+                    const next = normalizeWalutaFaktury(raw);
+                    setWalutaFaktury(next);
+                    if (!needsKursToPln(next)) {
+                      setKursFaktury('');
+                      return;
+                    }
+                    if (next === walutaDostawy) {
+                      if (!kursDostawy && kursFaktury) setKursDostawy(kursFaktury);
+                      setKursFaktury('');
+                    }
+                  }}
+                  className={withInvalid(HEADER_SELECT, kursInvalid.walutaFaktury)}
+                >
+                  <option value="">—</option>
+                  {WALUTY_FAKTURY.map((w) => (
+                    <option key={w} value={w}>{w}</option>
+                  ))}
+                </select>
+                <SelectChevron />
+              </div>
+            </div>
+            <div className="w-[96px] shrink-0">
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
+              {kurs2Active ? (
+                <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursFaktury)} />
               ) : (
-                <div className="w-[90px] h-[30px] rounded-md bg-gray-100 border border-gray-200" aria-hidden="true" />
+                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
             <div className="shrink-0">
@@ -919,26 +1002,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">%</span>
               </div>
             </div>
-            <div className="shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
-                Waluta
-              </label>
-              <select
-                value={walutaFaktury}
-                onChange={(e) => {
-                  const next = normalizeWalutaFaktury(e.target.value);
-                  setWalutaFaktury(next);
-                  if (!isKursFakturyActive(next)) setKursFaktury('');
-                  if (!isKursEurPlnActive(next)) setAktualnyKurs('');
-                }}
-                className="w-[80px] px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white"
-              >
-                {WALUTY_FAKTURY.map((w) => (
-                  <option key={w} value={w}>{w}</option>
-                ))}
-              </select>
             </div>
-          </div>
           </div>
 
           <div className="mt-3 min-h-0 flex-1 flex flex-col overflow-hidden">
@@ -960,6 +1024,9 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
               </div>
               <div className="col-span-1.8 -mr-2">
                 <span className="block text-xs font-medium text-gray-700 font-sora ml-1">Wartość</span>
+              </div>
+              <div className="col-span-1 ml-1">
+                <span className="block text-xs font-medium text-gray-700 font-sora">VAT</span>
               </div>
               <div className="col-span-1.8 ml-1">
                 <span className="block text-xs font-medium text-gray-700 font-sora ml-1">Typ</span>
@@ -1065,6 +1132,29 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                       placeholder="0,00"
                     />
                   </div>
+                </div>
+                <div className="col-span-1 relative dropdown-container ml-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenVatDropdownIndex(openVatDropdownIndex === index ? null : index);
+                      setOpenDropdownIndex(null);
+                      setOpenObjetoscDropdownIndex(null);
+                    }}
+                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between bg-white"
+                  >
+                    <span className="truncate">{row.vat}%</span>
+                    <svg className="w-3 h-3 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  {openVatDropdownIndex === index && (
+                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
+                      {VAT_RATES.map((vat) => (
+                        <button key={vat.value} type="button" onClick={() => handleVatChange(index, vat.value)} className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50">
+                          {vat.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="absolute right-0 top-[2px] flex flex-row items-center gap-1 z-50 pointer-events-auto" style={{transform: 'translateX(0%)'}}>
                   <button

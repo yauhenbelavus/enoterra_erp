@@ -277,7 +277,7 @@ function withCenaPln(products, walutaFaktury, kursFakturyToPln) {
   return products.map((p) => {
     const orig = roundMoney(p.cena);
     const cenaPln = waluta === 'PLN' ? orig : roundMoney(orig * rate);
-    return { ...p, cena: cenaPln, cenaOryginalna: cenaPln };
+    return { ...p, cena: cenaPln, cenaOryginalna: orig };
   });
 }
 
@@ -298,6 +298,41 @@ function getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury) {
   const waluta = normalizeWalutaFaktury(walutaFaktury);
   if (waluta === 'PLN') return parseKursValue(kursFaktury);
   return parseKursValue(aktualnyKurs);
+}
+
+function resolveReceiptRatesToPln(kursMode, walutaDostawy, walutaFaktury, kosztDostawy, aktualnyKurs, kursFaktury) {
+  if (kursMode === 'toPln') {
+    const dostawy = String(walutaDostawy || '').trim().toUpperCase();
+    const deliveryAmount = parseFloat(String(kosztDostawy == null ? '0' : kosztDostawy).replace(',', '.')) || 0;
+    if (deliveryAmount > 0 && dostawy !== 'EUR' && dostawy !== 'PLN' && dostawy !== 'DKK') {
+      return { error: 'Wybierz walutę dostawy' };
+    }
+    if (needsKursToPln(dostawy) && !isKursValueFilled(aktualnyKurs)) {
+      return { error: `Wprowadź kurs 1 PLN/${dostawy}` };
+    }
+    if (needsKursToPln(walutaFaktury) && !isKursValueFilled(kursFaktury)) {
+      return { error: `Wprowadź kurs 2 PLN/${walutaFaktury}` };
+    }
+    const kursFakturyToPln = parseKursToPln(walutaFaktury, kursFaktury);
+    const kursDostawyToPln = parseKursToPln(dostawy, aktualnyKurs);
+    return {
+      kursFakturyToPln,
+      kursDostawyToPln,
+      aktualnyKursForDb: kursDostawyToPln,
+      kursFakturyForDb: kursFakturyToPln,
+    };
+  }
+
+  const kursValidationError = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
+  if (kursValidationError) return { error: kursValidationError };
+  const parsedKursFaktury = parseKursValue(kursFaktury);
+  const kursEurPln = getKursEurPln(walutaFaktury, aktualnyKurs, parsedKursFaktury);
+  return {
+    kursFakturyToPln: parsedKursFaktury,
+    kursDostawyToPln: kursEurPln,
+    aktualnyKursForDb: normalizeWalutaFaktury(walutaFaktury) === 'PLN' ? 1 : parseKursValue(aktualnyKurs),
+    kursFakturyForDb: parsedKursFaktury,
+  };
 }
 
 // Готовит рабочую копию позиций приёмки для внутренней обработки (таблица
@@ -419,7 +454,10 @@ function productLineCena(product) {
 }
 
 function receiptLineValueTotal(products) {
-  return (products || []).reduce((sum, product) => sum + ((product.ilosc || 0) * productLineCena(product)), 0);
+  return (products || []).reduce((sum, product) => {
+    if (product && product.typ === 'aksesoria') return sum;
+    return sum + ((product.ilosc || 0) * productLineCena(product));
+  }, 0);
 }
 
 function kosztDostawyPerUnitFromKosztBut(product, totalValue, kosztDostawy, kurs) {
@@ -433,7 +471,9 @@ function stampKosztDostawyPerUnit(products, kosztDostawy, kurs) {
   if (!Array.isArray(products)) return products;
   const totalValue = receiptLineValueTotal(products);
   for (const product of products) {
-    product.koszt_dostawy_per_unit = kosztDostawyPerUnitFromKosztBut(product, totalValue, kosztDostawy, kurs);
+    product.koszt_dostawy_per_unit = product.typ === 'aksesoria'
+      ? 0
+      : kosztDostawyPerUnitFromKosztBut(product, totalValue, kosztDostawy, kurs);
   }
   return products;
 }
@@ -535,6 +575,60 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
   ];
 }
 
+function updateProductBatchByIdSql(withQty) {
+  return withQty
+    ? `UPDATE products SET kod = ?, nazwa = ?, kod_kreskowy = ?, cena_zakupu_pln = ?, ilosc_pierwotna = ?, ilosc_aktualna = ?, czy_probki = ?, typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ?, koszt_dostawy_per_unit_srednie = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?`
+    : `UPDATE products SET kod = ?, nazwa = ?, kod_kreskowy = ?, cena_zakupu_pln = ?, czy_probki = ?, typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ?, koszt_dostawy_per_unit_srednie = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?`;
+}
+
+function updateProductBatchByIdParams(product, productId, withQty, iloscAktualna) {
+  const line = receiptLineFields(product);
+  const values = [
+    product.kod,
+    product.nazwa,
+    product.kod_kreskowy || null,
+    roundMoney(product.cena || 0),
+  ];
+  if (withQty) {
+    values.push(product.ilosc, iloscAktualna);
+  }
+  values.push(
+    (product.cena || 0) === 0 ? 1 : 0,
+    line.typ,
+    line.objetosc,
+    line.data_waznosci,
+    line.vat,
+    line.cena_zakupu_org,
+    line.koszt_dostawy_per_unit_srednie,
+    line.koszt_dostawy_per_unit,
+    line.podatek_akcyzowy,
+    productId
+  );
+  return values;
+}
+
+function pairReceiptProductBatches(oldRecords, newItems) {
+  const unused = (oldRecords || []).slice();
+  const unmatchedNew = [];
+  const pairs = [];
+  for (const item of newItems || []) {
+    const itemId = Number(item && item.id);
+    const idx = itemId ? unused.findIndex((row) => Number(row.id) === itemId) : -1;
+    if (idx >= 0) {
+      pairs.push({ record: unused.splice(idx, 1)[0], item });
+    } else {
+      unmatchedNew.push(item);
+    }
+  }
+  unmatchedNew.forEach((item, i) => {
+    pairs.push({ record: i < unused.length ? unused[i] : null, item });
+  });
+  for (let i = unmatchedNew.length; i < unused.length; i++) {
+    pairs.push({ record: unused[i], item: null });
+  }
+  return pairs;
+}
+
 function attachReceiptProductsFromTable(receipts, callback) {
   if (!receipts || receipts.length === 0) {
     callback(null, []);
@@ -586,6 +680,64 @@ function uniqueReceiptKodsFromRows(rows) {
     out.push({ kod, nazwa: row.nazwa });
   }
   return out;
+}
+
+function loadLatestProductBatchByKod(kod) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      `SELECT p.*, r.sprzedawca AS receipt_sprzedawca
+       FROM products p
+       LEFT JOIN product_receipts r ON r.id = p.receipt_id
+       WHERE p.kod = ?
+       ORDER BY COALESCE(r.data_przyjecia, p.created_at) DESC, p.id DESC
+       LIMIT 1`,
+      [kod],
+      (err, row) => (err ? reject(err) : resolve(row || null))
+    );
+  });
+}
+
+function syncWorkingSheetFromRemainingProducts(kod) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena_zakupu_pln) as max_cena FROM products WHERE kod = ?',
+      [kod],
+      (sumErr, sumRow) => {
+        if (sumErr) {
+          reject(sumErr);
+          return;
+        }
+        loadLatestProductBatchByKod(kod).then((latest) => {
+          if (!latest) {
+            resolve(false);
+            return;
+          }
+          db.run(
+            `UPDATE working_sheets SET
+              nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
+              data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?, koszt_dostawy_per_unit_srednie = ?,
+              podatek_akcyzowy = ?
+             WHERE kod = ?`,
+            [
+              latest.nazwa,
+              sumRow && sumRow.total_ilosc ? sumRow.total_ilosc : 0,
+              latest.kod_kreskowy || null,
+              latest.typ || null,
+              latest.receipt_sprzedawca || null,
+              roundMoney(sumRow && sumRow.max_cena != null ? sumRow.max_cena : latest.cena_zakupu_pln),
+              latest.data_waznosci || null,
+              latest.objetosc != null ? latest.objetosc : null,
+              roundMoney(latest.koszt_dostawy_per_unit),
+              latest.typ === 'aksesoria' ? 0 : roundMoney(latest.koszt_dostawy_per_unit_srednie),
+              roundMoney(latest.podatek_akcyzowy),
+              kod,
+            ],
+            (upErr) => (upErr ? reject(upErr) : resolve(true))
+          );
+        }).catch(reject);
+      }
+    );
+  });
 }
 
 function dropProductReceiptsProductsJsonColumn(done) {
@@ -1501,7 +1653,17 @@ function insertWorkingSheetsHistoryBeforeReceiptSql() {
     (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, action, receipt_id)
     SELECT kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy,
            'before_receipt', ?
-    FROM working_sheets WHERE kod = ?`;
+    FROM working_sheets WHERE kod = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM working_sheets_history h
+        WHERE h.kod = working_sheets.kod
+          AND h.action = 'before_receipt'
+          AND h.receipt_id = ?
+      )`;
+}
+
+function insertWorkingSheetsHistoryBeforeReceiptParams(receiptId, productCode) {
+  return [receiptId, productCode, receiptId];
 }
 
 function restoreWorkingSheetFromHistorySql() {
@@ -9270,32 +9432,21 @@ app.post('/api/product-receipts', upload.fields([
   podatekAkcyzowy = roundMoney(podatekAkcyzowy);
   rabat = roundMoney(rabat);
 
-  let kursEurPln;
-  let aktualnyKursForDb;
-  if (kursMode === 'toPln') {
-    const dostawy = String(walutaDostawy || '').trim().toUpperCase();
-    if (kosztDostawy > 0 && dostawy !== 'EUR' && dostawy !== 'PLN' && dostawy !== 'DKK') {
-      return res.status(400).json({ error: 'Wybierz walutę dostawy' });
-    }
-    if (needsKursToPln(dostawy) && !isKursValueFilled(aktualnyKurs)) {
-      return res.status(400).json({ error: `Wprowadź kurs 1 PLN/${dostawy}` });
-    }
-    if (needsKursToPln(walutaFaktury) && !isKursValueFilled(kursFaktury)) {
-      return res.status(400).json({ error: `Wprowadź kurs 2 PLN/${walutaFaktury}` });
-    }
-    kursFaktury = parseKursToPln(walutaFaktury, kursFaktury);
-    aktualnyKursForDb = parseKursToPln(dostawy, aktualnyKurs);
-    kursEurPln = aktualnyKursForDb;
-  } else {
-    const kursValidationError = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
-    if (kursValidationError) {
-      console.log(`❌ Validation failed: ${kursValidationError}`);
-      return res.status(400).json({ error: kursValidationError });
-    }
-    kursFaktury = parseKursValue(kursFaktury);
-    kursEurPln = getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury);
-    aktualnyKursForDb = normalizeWalutaFaktury(walutaFaktury) === 'PLN' ? 1 : parseKursValue(aktualnyKurs);
+  const receiptRates = resolveReceiptRatesToPln(
+    kursMode,
+    walutaDostawy,
+    walutaFaktury,
+    kosztDostawy,
+    aktualnyKurs,
+    kursFaktury
+  );
+  if (receiptRates.error) {
+    console.log(`❌ Validation failed: ${receiptRates.error}`);
+    return res.status(400).json({ error: receiptRates.error });
   }
+  kursFaktury = receiptRates.kursFakturyForDb;
+  const kursEurPln = receiptRates.kursDostawyToPln;
+  const aktualnyKursForDb = receiptRates.aktualnyKursForDb;
 
   if (!date) {
     date = getTodayDateString();
@@ -9468,7 +9619,7 @@ app.post('/api/product-receipts', upload.fields([
                   console.log(`📸 Saving snapshot BEFORE changes for ${productCode}`);
                   db.run(
                     insertWorkingSheetsHistoryBeforeReceiptSql(),
-                    [receiptId, productCode],
+                    insertWorkingSheetsHistoryBeforeReceiptParams(receiptId, productCode),
                     function(err) {
                       if (err) {
                         console.error(`❌ Error saving snapshot for ${productCode}:`, err);
@@ -9722,7 +9873,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoiceFile: req.files?.transport_invoice
   });
   
-  let date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, walutaDostawy;
+  let date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, kursMode, walutaDostawy;
   
   // Проверяем, есть ли файлы (FormData) или это JSON
   if (req.files && (req.files.product_invoice || req.files.transport_invoice)) {
@@ -9741,6 +9892,7 @@ app.put('/api/product-receipts/:id', upload.fields([
       rabat = jsonData.rabat;
       walutaFaktury = jsonData.waluta_przyjecia;
       kursFaktury = jsonData.kurs_2;
+      kursMode = jsonData.kursMode;
       walutaDostawy = jsonData.waluta_dostawy ?? jsonData.walutaDostawy;
       productInvoice = req.files.product_invoice ? req.files.product_invoice[0].filename : null;
       transportInvoice = req.files.transport_invoice ? req.files.transport_invoice[0].filename : null;
@@ -9763,6 +9915,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     rabat = req.body.rabat;
     walutaFaktury = req.body.waluta_przyjecia;
     kursFaktury = req.body.kurs_2;
+    kursMode = req.body.kursMode;
     walutaDostawy = req.body.waluta_dostawy ?? req.body.walutaDostawy;
     productInvoice = req.body.product_invoice;
     transportInvoice = req.body.transport_invoice;
@@ -9780,12 +9933,23 @@ app.put('/api/product-receipts/:id', upload.fields([
   podatekAkcyzowy = roundMoney(podatekAkcyzowy);
   rabat = roundMoney(rabat);
   walutaFaktury = normalizeWalutaFaktury(walutaFaktury);
-  const kursValidationErrorPut = validateRequiredKurs(walutaFaktury, aktualnyKurs, kursFaktury);
-  if (kursValidationErrorPut) {
-    console.log(`❌ Validation failed (PUT): ${kursValidationErrorPut}`);
-    return res.status(400).json({ error: kursValidationErrorPut });
+  kursMode = kursMode || 'toPln';
+  const receiptRatesPut = resolveReceiptRatesToPln(
+    kursMode,
+    walutaDostawy,
+    walutaFaktury,
+    kosztDostawy,
+    aktualnyKurs,
+    kursFaktury
+  );
+  if (receiptRatesPut.error) {
+    console.log(`❌ Validation failed (PUT): ${receiptRatesPut.error}`);
+    return res.status(400).json({ error: receiptRatesPut.error });
   }
-  kursFaktury = parseKursValue(kursFaktury);
+  kursFaktury = receiptRatesPut.kursFakturyForDb;
+  const kursEurPln = receiptRatesPut.kursDostawyToPln;
+  const aktualnyKursForDb = receiptRatesPut.aktualnyKursForDb;
+  const kurs = kursEurPln;
   
   console.log(`📦 PUT /api/product-receipts/${id} - Updating product receipt:`, { 
     date, 
@@ -9811,11 +9975,10 @@ app.put('/api/product-receipts/:id', upload.fields([
     return res.status(400).json({ error: receiptError });
   }
 
-  const kursEurPln = getKursEurPln(walutaFaktury, aktualnyKurs, kursFaktury);
-  const aktualnyKursForDb = normalizeWalutaFaktury(walutaFaktury) === 'PLN' ? 1 : parseKursValue(aktualnyKurs);
-  const kurs = kursEurPln;
   const productsForJson = products.map((p) => ({ ...p }));
-  const productsInternal = withCenaPln(products, walutaFaktury, kursFaktury);
+  const productsInternal = kursMode === 'toPln'
+    ? withCenaPln(products, walutaFaktury, receiptRatesPut.kursFakturyToPln)
+    : withCenaEur(products, walutaFaktury, aktualnyKursForDb, kursFaktury);
   products = productsInternal;
 
   // wartosc_przyjecia_netto = Netto z formularza. Z pozycji tylko fallback.
@@ -9863,18 +10026,17 @@ app.put('/api/product-receipts/:id', upload.fields([
       const newPodatekAkcyzowy = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
       const podatekAkcyzowyChanged = Math.abs(oldPodatekAkcyzowy - newPodatekAkcyzowy) > 0.01;
       
-      const oldKursEurPln = getKursEurPln(oldReceipt.waluta_przyjecia, oldReceipt.kurs_1, oldReceipt.kurs_2);
-      const newKursEurPln = kursEurPln;
-      const kursChanged = Math.abs(oldKursEurPln - newKursEurPln) > 0.01;
-      
-      const oldKosztDostawy = parseFloat(oldReceipt.wartosc_dostawy || '0') || 0;
-      const newKosztDostawy = parseFloat(kosztDostawy || '0') || 0;
-      const kosztDostawyChanged = Math.abs(oldKosztDostawy - newKosztDostawy) > 0.01;
       const walutaDostawyForDb = normalizeWalutaDostawy(walutaDostawy) || oldReceipt.waluta_dostawy || null;
+      const walutaDostawyChanged = String(oldReceipt.waluta_dostawy || '') !== String(walutaDostawyForDb || '');
+      const walutaPrzyjeciaChanged = normalizeWalutaFaktury(oldReceipt.waluta_przyjecia) !== walutaFaktury;
+      const kursChanged =
+        Math.abs(parseKursValue(oldReceipt.kurs_1) - parseKursValue(aktualnyKursForDb)) > 0.01 ||
+        Math.abs(parseKursValue(oldReceipt.kurs_2) - parseKursValue(kursFaktury)) > 0.01 ||
+        walutaPrzyjeciaChanged;
       
       console.log(`🔄 Found ${oldProducts.length} old products, updating to ${products.length} new products`);
       console.log(`📊 Podatek akcyzowy: old=${oldPodatekAkcyzowy}, new=${newPodatekAkcyzowy}, changed=${podatekAkcyzowyChanged}`);
-      console.log(`💰 Kurs EUR/PLN: old=${oldKursEurPln}, new=${newKursEurPln}, changed=${kursChanged}`);
+      console.log(`💰 Kurs: old1=${oldReceipt.kurs_1} old2=${oldReceipt.kurs_2} → new1=${aktualnyKursForDb} new2=${kursFaktury}, changed=${kursChanged}`);
       console.log(`🚚 Koszt dostawy: old=${oldKosztDostawy}, new=${newKosztDostawy}, changed=${kosztDostawyChanged}`);
       console.log('📋 Products array received from frontend:', JSON.stringify(products, null, 2));
 
@@ -9958,8 +10120,13 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       console.log('✅ Product receipt updated with ID:', id);
       console.log('📎 Files saved (PUT):', { productInvoice: finalProductInvoice, transportInvoice: finalTransportInvoice });
-      unlinkReplacedReceiptUpload(oldReceipt.product_invoice, productInvoice);
-      unlinkReplacedReceiptUpload(oldReceipt.transport_invoice, transportInvoice);
+      const replacedUploads = [];
+      if (productInvoice && oldReceipt.product_invoice && productInvoice !== oldReceipt.product_invoice) {
+        replacedUploads.push(oldReceipt.product_invoice);
+      }
+      if (transportInvoice && oldReceipt.transport_invoice && transportInvoice !== oldReceipt.transport_invoice) {
+        replacedUploads.push(oldReceipt.transport_invoice);
+      }
 
       // Обновляем товары в working_sheets и products
       let processedCount = 0;
@@ -10092,78 +10259,61 @@ app.put('/api/product-receipts/:id', upload.fields([
                   });
                 });
               } else if (oldProduct && newProduct) {
-                // Товар существует - сравниваем и обновляем только измененные поля
                 console.log(`🔄 Product exists: ${productCode}, comparing changes...`);
-                
-                // Определяем, что изменилось
-                const headerMoneyChanged = kursChanged || kosztDostawyChanged || podatekAkcyzowyChanged;
-                const newVat = roundMoney(newProduct.items[0]?.vat ?? newProduct.vat ?? oldProduct.vat);
-                const changes = {
-                  ilosc: oldProduct.ilosc !== newProduct.ilosc,
-                  nazwa: oldProduct.nazwa !== newProduct.nazwa,
-                  kod_kreskowy: (oldProduct.kod_kreskowy || '') !== (newProduct.kod_kreskowy || ''),
-                  cena: Math.abs((oldProduct.cena || 0) - (newProduct.cena || 0)) > 0.01,
-                  typ: (oldProduct.typ || '') !== (newProduct.typ || ''),
-                  dataWaznosci: (oldProduct.dataWaznosci || '') !== (newProduct.dataWaznosci || ''),
-                  objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || ''),
-                  vat: Math.abs(roundMoney(oldProduct.vat) - newVat) > 0.01,
-                };
-                
-                const hasChanges = Object.values(changes).some(v => v);
-                
-                if (!hasChanges && !headerMoneyChanged) {
+                const headerMoneyChanged = kursChanged || kosztDostawyChanged || podatekAkcyzowyChanged || walutaDostawyChanged;
+                const pairs = pairReceiptProductBatches(oldProduct.records, newProduct.items);
+                const qtyChanged = oldProduct.ilosc !== newProduct.ilosc;
+                const lineChanged = pairs.some(({ record, item }) => {
+                  if (!record || !item) return true;
+                  const recDataWaznosci = record.data_waznosci || '';
+                  const itemDataWaznosci = item.dataWaznosci || item.data_waznosci || '';
+                  return (
+                    (record.nazwa || '') !== (item.nazwa || '') ||
+                    (record.kod_kreskowy || '') !== (item.kod_kreskowy || '') ||
+                    Math.abs(roundMoney(record.cena_zakupu_pln) - roundMoney(item.cena)) > 0.01 ||
+                    (record.typ || '') !== (item.typ || '') ||
+                    String(recDataWaznosci) !== String(itemDataWaznosci) ||
+                    String(record.objetosc || '') !== String(item.objetosc || '') ||
+                    Math.abs(roundMoney(record.vat) - roundMoney(item.vat)) > 0.01 ||
+                    (record.ilosc_pierwotna || record.ilosc || 0) !== (item.ilosc || 0)
+                  );
+                });
+
+                if (!qtyChanged && !lineChanged && !headerMoneyChanged) {
                   console.log(`✅ No changes for ${productCode}, skipping update`);
                   continue;
                 }
-                
-                console.log(`📝 Changes detected for ${productCode}:`, changes);
-              
-                // Если количество изменилось, нужно пересоздать записи в products
-                if (changes.ilosc) {
-                  console.log(`🔄 Quantity changed for ${productCode}: ${oldProduct.ilosc} → ${newProduct.ilosc}`);
 
-                  // ВАЖНО: нельзя просто пересоздать партию с ilosc_aktualna = новое ilosc —
-                  // это стёрло бы информацию о том, сколько из старой партии уже продано через
-                  // FIFO-списание (products.ilosc_aktualna). Вместо этого переносим дельту:
-                  // новый остаток = старый остаток + (новое количество - старое количество).
-                  const oldTotalIloscAktualna = oldProduct.records.reduce((sum, r) => sum + (r.ilosc_aktualna || 0), 0);
-                  const delta = (newProduct.ilosc || 0) - (oldProduct.ilosc || 0);
-                  let newTotalIloscAktualna = oldTotalIloscAktualna + delta;
+                const oldTotalIloscAktualna = oldProduct.records.reduce((sum, r) => sum + (r.ilosc_aktualna || 0), 0);
+                const delta = (newProduct.ilosc || 0) - (oldProduct.ilosc || 0);
+                let newTotalIloscAktualna = oldTotalIloscAktualna + delta;
+                if (newTotalIloscAktualna < 0) {
+                  console.warn(`⚠️ ${productCode}: new ilosc (${newProduct.ilosc}) is smaller than already sold quantity. Clamping remaining stock to 0.`);
+                  newTotalIloscAktualna = 0;
+                }
+                if (newTotalIloscAktualna > newProduct.ilosc) {
+                  newTotalIloscAktualna = newProduct.ilosc;
+                }
 
-                  if (newTotalIloscAktualna < 0) {
-                    console.warn(`⚠️ ${productCode}: new ilosc (${newProduct.ilosc}) is smaller than already sold quantity (sold=${oldProduct.ilosc - oldTotalIloscAktualna}). Clamping remaining stock to 0.`);
-                    newTotalIloscAktualna = 0;
-                  }
-                  if (newTotalIloscAktualna > newProduct.ilosc) {
-                    // защита от рассинхронизации при округлении/крайних случаях
-                    newTotalIloscAktualna = newProduct.ilosc;
-                  }
-
-                  console.log(`📦 ${productCode}: preserving sold history — oldStock=${oldTotalIloscAktualna}, delta=${delta}, newStock=${newTotalIloscAktualna}`);
-
-                  // Удаляем старые записи
-              await new Promise((resolve, reject) => {
-                    db.run('DELETE FROM products WHERE receipt_id = ? AND kod = ?', [id, productCode], function(err) {
-                  if (err) {
-                        console.error(`❌ Error deleting old product records ${productCode}:`, err);
-                    reject(err);
-                      } else {
-                        console.log(`✅ Deleted old product records: ${productCode}, rows affected: ${this.changes}`);
-                        resolve();
-                      }
+                let remainingAktualnaToDistribute = newTotalIloscAktualna;
+                for (let itemIndex = 0; itemIndex < pairs.length; itemIndex++) {
+                  const { record, item } = pairs[itemIndex];
+                  if (!item) {
+                    await new Promise((resolve, reject) => {
+                      db.run('DELETE FROM products WHERE id = ?', [record.id], function (err) {
+                        if (err) reject(err);
+                        else {
+                          productsDeleted += this.changes;
+                          resolve();
+                        }
+                      });
                     });
-                  });
-                  
-                  // Создаем новые записи, распределяя сохранённый остаток (ilosc_aktualna)
-                  // по новым позициям пропорционально их количеству (в норме позиция одна,
-                  // и весь остаток целиком уходит в неё)
-                  let remainingAktualnaToDistribute = newTotalIloscAktualna;
-                  const newItemsCount = newProduct.items.length;
-                  for (let itemIndex = 0; itemIndex < newItemsCount; itemIndex++) {
-                    const item = newProduct.items[itemIndex];
-                    if (item.vat == null || item.vat === '') item.vat = oldProduct.vat;
-                    const isLastItem = itemIndex === newItemsCount - 1;
-                    let itemIloscAktualna;
+                    continue;
+                  }
+                  if (item.vat == null || item.vat === '') item.vat = record ? record.vat : oldProduct.vat;
+                  let itemIloscAktualna;
+                  if (qtyChanged) {
+                    const isLastItem = itemIndex === pairs.length - 1 || pairs.slice(itemIndex + 1).every((pair) => !pair.item);
                     if (isLastItem) {
                       itemIloscAktualna = remainingAktualnaToDistribute;
                     } else {
@@ -10172,90 +10322,44 @@ app.put('/api/product-receipts/:id', upload.fields([
                     }
                     itemIloscAktualna = Math.max(0, Math.min(itemIloscAktualna, item.ilosc || 0));
                     remainingAktualnaToDistribute -= itemIloscAktualna;
+                  } else if (record) {
+                    itemIloscAktualna = record.ilosc_aktualna;
+                  } else {
+                    itemIloscAktualna = item.ilosc;
+                  }
 
+                  if (record) {
                     await new Promise((resolve, reject) => {
-                    db.run(
+                      db.run(
+                        updateProductBatchByIdSql(true),
+                        updateProductBatchByIdParams(item, record.id, true, itemIloscAktualna),
+                        function (err) {
+                          if (err) {
+                            console.error(`❌ Error updating product ${productCode} id=${record.id}:`, err);
+                            reject(err);
+                          } else {
+                            productsUpdated += this.changes;
+                            resolve();
+                          }
+                        }
+                      );
+                    });
+                  } else {
+                    await new Promise((resolve, reject) => {
+                      db.run(
                         insertProductBatchSql(),
                         insertProductBatchParams(item, id, itemIloscAktualna, date),
-                      function(err) {
-                        if (err) {
-                            console.error(`❌ Error inserting updated product ${productCode}:`, err);
-                          reject(err);
-                        } else {
-                            console.log(`✅ Created updated product record: ${productCode} with ID: ${this.lastID}, ilosc=${item.ilosc}, ilosc_aktualna=${itemIloscAktualna}`);
-                        productsUpdated++;
-                        resolve();
+                        function (err) {
+                          if (err) {
+                            console.error(`❌ Error inserting product ${productCode}:`, err);
+                            reject(err);
+                          } else {
+                            productsInserted++;
+                            resolve();
+                          }
                         }
-                      }
-                    );
+                      );
                     });
-                  }
-                  } else {
-                  // Количество не изменилось - обновляем только измененные поля в существующих записях
-                  console.log(`📝 Updating fields for ${productCode} (quantity unchanged)`);
-                  
-                  const updateFields = [];
-                  const updateValues = [];
-                  
-                  if (changes.nazwa) {
-                    updateFields.push('nazwa = ?');
-                    updateValues.push(newProduct.nazwa);
-                  }
-                  if (changes.kod_kreskowy) {
-                    updateFields.push('kod_kreskowy = ?');
-                    updateValues.push(newProduct.kod_kreskowy || null);
-                  }
-                  if (changes.cena) {
-                    updateFields.push('cena_zakupu_pln = ?');
-                    updateValues.push(roundMoney(newProduct.cena || 0));
-                    const firstItem = newProduct.items[0] || {};
-                    updateFields.push('cena_zakupu_org = ?');
-                    updateValues.push(receiptLineFields(firstItem).cena_zakupu_org);
-                    updateFields.push('czy_probki = ?');
-                    updateValues.push((newProduct.cena || 0) === 0 ? 1 : 0);
-                  }
-                  if (changes.typ) {
-                    updateFields.push('typ = ?');
-                    updateValues.push(newProduct.typ || null);
-                  }
-                  if (changes.dataWaznosci) {
-                    updateFields.push('data_waznosci = ?');
-                    updateValues.push(newProduct.dataWaznosci || newProduct.data_waznosci || null);
-                  }
-                  if (changes.objetosc) {
-                    updateFields.push('objetosc = ?');
-                    updateValues.push(newProduct.objetosc != null && newProduct.objetosc !== '' ? String(newProduct.objetosc) : null);
-                  }
-                  if (changes.vat) {
-                    updateFields.push('vat = ?');
-                    updateValues.push(newVat);
-                  }
-                  const deliveryWs = deliveryCostWsPair(newProduct.items[0], kosztDostawyPerUnit, newProduct.items);
-                  updateFields.push('koszt_dostawy_per_unit = ?');
-                  updateValues.push(deliveryWs.perUnit);
-                  updateFields.push('koszt_dostawy_per_unit_srednie = ?');
-                  updateValues.push(deliveryWs.srednie);
-                  updateFields.push('podatek_akcyzowy = ?');
-                  updateValues.push(roundMoney(newProduct.items[0].podatek_akcyzowy));
-                  
-                  if (updateFields.length > 0) {
-                    updateValues.push(id, productCode);
-                    await new Promise((resolve, reject) => {
-                    db.run(
-                        `UPDATE products SET ${updateFields.join(', ')} WHERE receipt_id = ? AND kod = ?`,
-                        updateValues,
-                      function(err) {
-                        if (err) {
-                            console.error(`❌ Error updating product fields ${productCode}:`, err);
-                          reject(err);
-                        } else {
-                            console.log(`✅ Updated product fields: ${productCode}, rows affected: ${this.changes}`);
-                            productsUpdated += this.changes;
-                          resolve();
-                        }
-                      }
-                    );
-                });
                   }
                 }
               }
@@ -10369,28 +10473,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                 if (remainingCount === 0) {
                   const result = await keepWorkingSheetZeroOrDelete(productCode, id);
                   if (result === 'kept') workingSheetsUpdated++;
-                  } else {
-                  // Товар есть в других приемках - пересчитываем количество
-                  const totalQuantityResult = await new Promise((resolve, reject) => {
-                    db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
-                      if (err) reject(err);
-                      else resolve(result?.total_ilosc || 0);
-                    });
-                  });
-                  
-                  await new Promise((resolve, reject) => {
-                    db.run('UPDATE working_sheets SET ilosc = ? WHERE kod = ?', [totalQuantityResult, productCode], function(err) {
-                      if (err) {
-                        console.error(`❌ Error updating ilosc in working_sheets for ${productCode}:`, err);
-                        reject(err);
-                      } else {
-                        console.log(`✅ Updated ilosc in working_sheets for ${productCode}: ${totalQuantityResult}`);
-                        workingSheetsUpdated++;
-                  resolve();
-                      }
-                });
-              });
-            }
+                } else {
+                  const synced = await syncWorkingSheetFromRemainingProducts(productCode);
+                  if (synced) workingSheetsUpdated++;
+                }
               } else if (oldProduct && newProduct) {
                 // Товар существует - обновляем только измененные поля
                 console.log(`🔄 Updating working_sheets for ${productCode}...`);
@@ -10463,16 +10549,18 @@ app.put('/api/product-receipts/:id', upload.fields([
                   typ: (oldProduct.typ || '') !== (newProduct.typ || ''),
                   dataWaznosci: (oldProduct.dataWaznosci || '') !== (newProduct.dataWaznosci || ''),
                   objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || ''),
-                  podatekAkcyzowy: podatekAkcyzowyChanged, // Изменился podatek akcyzowy (на литр) в приемке
-                  kurs: kursChanged, // Изменился курс в приемке
-                  kosztDostawy: kosztDostawyChanged // Изменилась общая стоимость доставки в приемке
+                  podatekAkcyzowy: podatekAkcyzowyChanged,
+                  kurs: kursChanged,
+                  kosztDostawy: kosztDostawyChanged,
+                  walutaDostawy: walutaDostawyChanged,
+                  sprzedawca: (workingSheetRecord.sprzedawca || '') !== (sprzedawca || '')
                 };
                 
                 const hasWsChanges = Object.values(wsChanges).some(v => v);
                 
                 // Если изменился только курс, kosztDostawy или podatekAkcyzowy, но не товары, все равно нужно обновить соответствующие поля
-                const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged;
-                const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc; // Если изменился только podatek_akcyzowy (не через objetosc)
+                const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged || walutaDostawyChanged;
+                const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc && !wsChanges.typ;
                 const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate || shouldSyncCreatedAt;
                   
                 if (!hasWsChanges && !needsReceiptParamsUpdate) {
@@ -10494,7 +10582,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                   await new Promise((resolve, reject) => {
                     db.run(
                       insertWorkingSheetsHistoryBeforeReceiptSql(),
-                      [id, productCode],
+                      insertWorkingSheetsHistoryBeforeReceiptParams(id, productCode),
                       function(err) {
                         if (err) {
                           reject(err);
@@ -10582,7 +10670,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 await new Promise((resolve, reject) => {
                         db.run(
                     insertWorkingSheetsHistoryBeforeReceiptSql(),
-                    [id, productCode],
+                    insertWorkingSheetsHistoryBeforeReceiptParams(id, productCode),
                           function(err) {
                             if (err) {
                               reject(err);
@@ -10628,13 +10716,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                   updateValues.push(newProduct.dataWaznosci || null);
                 }
                 // Пересчитываем podatek_akcyzowy только если изменился объем ИЛИ podatekAkcyzowy (на литр) из приемки
-                if (wsChanges.objetosc || wsChanges.podatekAkcyzowy) {
+                if (wsChanges.objetosc || wsChanges.podatekAkcyzowy || wsChanges.typ) {
                   if (wsChanges.objetosc) {
                     updateFields.push('objetosc = ?');
                     updateValues.push(newProduct.objetosc || null);
                   }
                   
-                  // Пересчитываем podatek_akcyzowy = podatekAkcyzowy (на литр) * objetosc
                   const sourceProduct = newProduct.items[0];
                   const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
                   const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
@@ -10666,7 +10753,7 @@ app.put('/api/product-receipts/:id', upload.fields([
                 const kosztDostawyPerUnitChanged = Math.abs((workingSheetRecord.koszt_dostawy_per_unit || 0) - kosztDostawyPerUnitForProduct) > 0.01;
                 
                 // Обновляем, если значение изменилось ИЛИ если изменился курс или kosztDostawy в приемке
-                if (kosztDostawyPerUnitChanged || kursChanged || kosztDostawyChanged) {
+                if (kosztDostawyPerUnitChanged || kursChanged || kosztDostawyChanged || walutaDostawyChanged) {
                   updateFields.push('koszt_dostawy_per_unit = ?');
                   updateValues.push(kosztDostawyPerUnitForProduct);
                   updateFields.push('koszt_dostawy_per_unit_srednie = ?');
@@ -10715,6 +10802,8 @@ app.put('/api/product-receipts/:id', upload.fields([
           }
         });
       });
+
+      replacedUploads.forEach((filename) => unlinkReceiptUpload(filename));
 
       console.log(`🎉 Update processing complete: ${workingSheetsUpdated} working_sheets updated, ${productsUpdated} products updated, ${productsInserted} products created, ${productsDeleted} products deleted`);
 
@@ -10881,78 +10970,10 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
           else wsUpdated++;
         }
       } else {
-        // Есть другие партии этого kod — пересчитываем ilosc/cena из остатков.
-        // Nazwa и прочие поля: если текущее состояние в working_sheets совпадает
-        // с тем, что записала удаляемая przyjęcie, откатываем метаданные
-        // к snapshot before_receipt (иначе оставляем — их уже перезаписала более новая przyjęcie).
-        const sumRow = await new Promise((resolve, reject) => {
-          db.get(
-            'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena_zakupu_pln) as max_cena FROM products WHERE kod = ?',
-            [productKod],
-            (sumErr, row) => {
-              if (sumErr) reject(sumErr);
-              else resolve(row);
-            }
-          );
-        });
-
-        if (!sumRow) continue;
-
-        const qty = sumRow.total_ilosc || 0;
-        const price = sumRow.max_cena || 0;
-        const deletedNazwa = (product.nazwa || '').trim();
-        const currentNazwa = (wsRow.nazwa || '').trim();
-        const shouldRestoreMeta =
-          deletedNazwa.length > 0 && currentNazwa === deletedNazwa;
-
-        let snapshot = null;
-        if (shouldRestoreMeta) {
-          snapshot = await new Promise((resolve, reject) => {
-            db.get(
-              `SELECT * FROM working_sheets_history
-               WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
-               ORDER BY created_at DESC LIMIT 1`,
-              [productKod, id],
-              (snapshotErr, row) => {
-                if (snapshotErr) reject(snapshotErr);
-                else resolve(row);
-              }
-            );
-          });
-        }
-
-        if (snapshot) {
-          console.log(
-            `🔄 Restoring metadata for ${productKod} from snapshot (receipt ${id}), qty from remaining batches`
-          );
-          await new Promise((resolve, reject) => {
-            db.run(
-              restoreWorkingSheetFromHistorySql(),
-              restoreWorkingSheetFromHistoryParams(snapshot, qty, price, productKod),
-              function (restoreErr) {
-                if (restoreErr) {
-                  reject(restoreErr);
-                } else {
-                  console.log(
-                    `✅ Restored ${productKod}: nazwa="${snapshot.nazwa}", ilosc=${qty}, cena=${price}`
-                  );
-                  wsUpdated++;
-                  resolve();
-                }
-              }
-            );
-          });
-        } else {
-          await new Promise((resolve, reject) => {
-            db.run(
-              'UPDATE working_sheets SET ilosc = ?, cena_zakupu_pln = ? WHERE kod = ?',
-              [qty, roundMoney(price), productKod],
-              function (upErr) {
-                if (upErr) reject(upErr);
-                else { wsUpdated++; resolve(); }
-              }
-            );
-          });
+        const synced = await syncWorkingSheetFromRemainingProducts(productKod);
+        if (synced) {
+          console.log(`✅ Synced working_sheets ${productKod} from remaining batches after deleting receipt ${id}`);
+          wsUpdated++;
         }
       }
     }

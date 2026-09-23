@@ -24,6 +24,7 @@ interface ProductReceipt {
   kurs_2?: number;
   stawka_podatek_akcyzowy?: number;
   products: Array<{
+    id?: number;
     kod: string;
     nazwa: string;
     kod_kreskowy?: string;
@@ -32,6 +33,7 @@ interface ProductReceipt {
     dataWaznosci?: string;
     typ?: string;
     objetosc?: number;
+    vat?: number;
   }>;
   product_invoice?: string;
   transport_invoice?: string;
@@ -50,11 +52,13 @@ interface ProductReceiptsListProps {
     wartosc_dostawy: number;
     kurs_1?: number;
     kurs_2?: number;
+    kursMode?: 'toPln';
     stawka_podatek_akcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
     products: Array<{
+      id?: number;
       kod: string;
       nazwa: string;
       kod_kreskowy?: string;
@@ -63,6 +67,7 @@ interface ProductReceiptsListProps {
       dataWaznosci?: string;
       typ?: string;
       objetosc?: number;
+      vat?: number;
     }>;
     product_invoice?: File;
     transport_invoice?: File;
