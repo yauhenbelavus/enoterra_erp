@@ -104,12 +104,12 @@ interface EditReceiptModalProps {
     vat?: number;
     wartosc_przyjecia_brutto?: number;
     wartosc_dostawy: number;
-    aktualnyKurs?: number;
+    kurs_1?: number;
+    kurs_2?: number;
     podatekAkcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: WalutaFaktury;
     waluta_dostawy?: string;
-    kursFaktury?: number;
     products: Array<{
       kod: string;
       nazwa: string;
@@ -131,15 +131,13 @@ interface EditReceiptModalProps {
     vat?: number;
     wartosc_przyjecia_brutto?: number;
     wartosc_dostawy: number;
-    aktualnyKurs?: number;
+    kurs_1?: number;
+    kurs_2?: number;
     podatekAkcyzowy?: number;
-    aktualny_kurs?: number;
     podatek_akcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: string;
     waluta_dostawy?: string;
-    kurs_faktury?: number;
-    kursFaktury?: number;
     products: Array<{
       kod: string;
       nazwa: string;
@@ -274,8 +272,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         // ➡️ Waluta faktury + kurs faktury
         const waluta = normalizeWalutaFaktury(receipt.waluta_przyjecia);
         setWalutaFaktury(waluta);
-        const standardKursFaktury = Number(receipt.kurs_faktury ?? receipt.kursFaktury ?? 1);
-        const standardKursEurPln = Number(receipt.aktualny_kurs ?? receipt.aktualnyKurs ?? 1);
+        const standardKursFaktury = Number(receipt.kurs_2 ?? 1);
+        const standardKursEurPln = Number(receipt.kurs_1 ?? 1);
 
         if (waluta === 'PLN') {
           const kursPln = resolveKursPlnEurStandard(standardKursFaktury, standardKursEurPln);
@@ -584,12 +582,12 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         vat: roundMoney(kwotaVat),
         wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
         wartosc_dostawy: roundMoney(deliveryCost),
-        aktualnyKurs: aktualnyKursStandard,
+        kurs_1: aktualnyKursStandard,
         podatekAkcyzowy: roundMoney(podatekAkcyzowy),
         rabat: rabatValue,
         waluta_przyjecia: walutaFaktury,
         waluta_dostawy: receipt.waluta_dostawy,
-        kursFaktury: kursFakturyStandard,
+        kurs_2: kursFakturyStandard,
         products: formattedProducts,
         productInvoice: productInvoice || null,
         transportInvoice: transportInvoice || null

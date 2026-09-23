@@ -20,11 +20,9 @@ interface ProductReceipt {
   rabat?: number;
   waluta_przyjecia?: string;
   waluta_dostawy?: string;
-  kurs_faktury?: number;
-  kursFaktury?: number;
-  aktualnyKurs?: number;
+  kurs_1?: number;
+  kurs_2?: number;
   podatekAkcyzowy?: number;
-  aktualny_kurs?: number;
   podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
@@ -51,12 +49,12 @@ interface ProductReceiptsListProps {
     vat?: number;
     wartosc_przyjecia_brutto?: number;
     wartosc_dostawy: number;
-    aktualnyKurs?: number;
+    kurs_1?: number;
+    kurs_2?: number;
     podatekAkcyzowy?: number;
     rabat?: number;
     waluta_przyjecia?: string;
-  waluta_dostawy?: string;
-    kursFaktury?: number;
+    waluta_dostawy?: string;
     products: Array<{
       kod: string;
       nazwa: string;
@@ -518,11 +516,9 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               rabat: receiptToEdit.rabat,
               waluta_przyjecia: receiptToEdit.waluta_przyjecia,
               waluta_dostawy: receiptToEdit.waluta_dostawy,
-              kurs_faktury: receiptToEdit.kurs_faktury,
-              kursFaktury: receiptToEdit.kursFaktury,
-              aktualnyKurs: receiptToEdit.aktualnyKurs,
+              kurs_1: receiptToEdit.kurs_1,
+              kurs_2: receiptToEdit.kurs_2,
               podatekAkcyzowy: receiptToEdit.podatekAkcyzowy,
-              aktualny_kurs: receiptToEdit.aktualny_kurs,
               podatek_akcyzowy: receiptToEdit.podatek_akcyzowy,
               products: receiptToEdit.products,
               productInvoice: receiptToEdit.productInvoice,

@@ -47,11 +47,9 @@ interface ProductReceipt {
   rabat?: number;
   waluta_przyjecia?: string;
   waluta_dostawy?: string;
-  kurs_faktury?: number;
-  kursFaktury?: number;
-  aktualnyKurs?: number;
+  kurs_1?: number;
+  kurs_2?: number;
   podatekAkcyzowy?: number;
-  aktualny_kurs?: number;
   podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
@@ -206,11 +204,9 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       rabat: receipt.rabat ?? 0,
       waluta_przyjecia: receipt.waluta_przyjecia ?? 'EUR',
       waluta_dostawy: receipt.waluta_dostawy,
-      kurs_faktury: receipt.kurs_faktury ?? 1,
-      kursFaktury: receipt.kurs_faktury ?? receipt.kursFaktury ?? 1,
-      aktualnyKurs: receipt.aktualny_kurs ?? receipt.aktualnyKurs ?? 0,
+      kurs_1: receipt.kurs_1 ?? 1,
+      kurs_2: receipt.kurs_2 ?? 1,
       podatekAkcyzowy: receipt.podatek_akcyzowy ?? receipt.podatekAkcyzowy ?? 0,
-      aktualny_kurs: receipt.aktualny_kurs ?? 0,
       podatek_akcyzowy: receipt.podatek_akcyzowy ?? 0,
       products: normalizeReceiptProductLines(receipt.products),
       productInvoice: receipt.productInvoice,
@@ -492,13 +488,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       vat: roundMoney(kwotaVat),
       wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
       wartosc_dostawy: roundMoney(deliveryCost),
-      aktualnyKurs: String(kursDostawyNumber),
+      kurs_1: kursDostawyNumber,
       podatekAkcyzowy: roundMoney(podatekAkcyzowy),
       rabat,
       waluta_przyjecia: walutaFaktury,
       waluta_dostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
       walutaDostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
-      kursFaktury: kursFakturyNumber,
+      kurs_2: kursFakturyNumber,
       kursMode: 'toPln' as const,
       products: formattedProducts,
     };

@@ -41,11 +41,11 @@ interface AddProductModalProps {
     vat?: number;
     wartosc_przyjecia_brutto?: number; 
     wartosc_dostawy: number;
-    aktualnyKurs?: string;
+    kurs_1?: number;
+    kurs_2?: number;
     podatekAkcyzowy?: string;
     rabat?: string;
     waluta_przyjecia?: WalutaFaktury;
-    kursFaktury?: number;
     products: Array<{
       kod: string;
       nazwa: string;
@@ -401,11 +401,11 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       vat: roundMoney(kwotaVat),
       wartosc_przyjecia_brutto: roundMoney(sumaBrutto),
       wartosc_dostawy: roundMoney(deliveryCost),
-      aktualnyKurs: String(toStandardKursEurPln(walutaFaktury, aktualnyKurs)),
+      kurs_1: toStandardKursEurPln(walutaFaktury, aktualnyKurs),
       podatekAkcyzowy: roundMoney(podatekAkcyzowy),
       rabat: rabat,
       waluta_przyjecia: walutaFaktury,
-      kursFaktury: toStandardKursFaktury(walutaFaktury, kursFaktury),
+      kurs_2: toStandardKursFaktury(walutaFaktury, kursFaktury),
       products: formattedProducts,
       productInvoice: productInvoice || null,
       transportInvoice: transportInvoice || null

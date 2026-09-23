@@ -18,9 +18,9 @@ interface ProductReceipt {
   wartosc_dostawy: number;
   waluta_przyjecia?: string;
   waluta_dostawy?: string;
-  aktualnyKurs?: number;
+  kurs_1?: number;
+  kurs_2?: number;
   podatekAkcyzowy?: number;
-  aktualny_kurs?: number;
   podatek_akcyzowy?: number;
   products: Array<{
     kod: string;
