@@ -991,7 +991,7 @@ function ensureProductsReceiptLineColumns(done) {
             const next = (i) => {
               if (i >= missing.length) {
                 ensureWorkingSheetsKosztDostawyPerUnitSrednie(() => {
-                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => roundExistingCenaZakupu(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(() => dropProductReceiptsProductsJsonColumn(done))))));
+                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => realignFeralMuriLegacyRates(() => roundExistingCenaZakupu(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(() => dropProductReceiptsProductsJsonColumn(done)))))));
                 });
                 return;
               }
@@ -1044,10 +1044,12 @@ function nextProductsCenaPln(row) {
     return roundMoney(cena * k1);
   }
   if (waluta === 'DKK') {
+    // New toPln: kurs_2 is PLN/DKK (< 1). Old scheme: kurs_2 is DKK per EUR (> 1).
+    if (k2 <= 1.05) return null;
     if (k1 <= 1.05) return null;
-    const eurFromDkk = k2 > 1.05 ? roundMoney(faktury / k2) : null;
-    const expectedPln = eurFromDkk != null ? roundMoney(eurFromDkk * k1) : null;
-    if (expectedPln != null && Math.abs(cena - expectedPln) <= 0.08) return null;
+    const eurFromDkk = roundMoney(faktury / k2);
+    const expectedPln = roundMoney(eurFromDkk * k1);
+    if (Math.abs(cena - expectedPln) <= 0.08) return null;
     return roundMoney(cena * k1);
   }
   return null;
@@ -1117,6 +1119,165 @@ function convertProductsCenaToPln(done, attempt = 0) {
           });
         };
         run(0);
+      }
+    );
+  });
+}
+
+function realignFeralMuriLegacyRates(done) {
+  const finish = () => {
+    if (done) done();
+  };
+  const eurPln = 4.3;
+  const leftoverSql = `
+    SELECT DISTINCT p.kod
+    FROM products p
+    JOIN product_receipts pr ON pr.id = p.receipt_id
+    WHERE pr.sprzedawca IN ('Feral', 'Muri')
+      AND UPPER(COALESCE(pr.waluta_przyjecia, '')) = 'EUR'
+      AND COALESCE(pr.kurs_1, 1) <= 1.05
+      AND COALESCE(pr.kurs_2, 1) <= 1.05
+      AND COALESCE(p.cena_zakupu_org, 0) > 0
+      AND ABS(p.cena_zakupu_pln - p.cena_zakupu_org) <= 0.02
+  `;
+
+  const remapDkkKurs = () => {
+    db.run(
+      `UPDATE product_receipts
+       SET kurs_2 = ROUND(kurs_1 / kurs_2, 6),
+           waluta_dostawy = CASE
+             WHEN waluta_dostawy IS NULL OR TRIM(waluta_dostawy) = '' THEN 'EUR'
+             ELSE waluta_dostawy
+           END
+       WHERE sprzedawca IN ('Feral', 'Muri')
+         AND UPPER(COALESCE(waluta_przyjecia, '')) = 'DKK'
+         AND COALESCE(kurs_1, 1) > 1.05
+         AND COALESCE(kurs_2, 1) > 1.05`,
+      function (dkkErr) {
+        if (dkkErr) {
+          console.error('❌ Error remapping Feral/Muri DKK kurs_2 to PLN/DKK:', dkkErr.message);
+        } else if (this.changes > 0) {
+          console.log(`✅ Remapped DKK kurs_2 to PLN/DKK on ${this.changes} Feral/Muri receipts`);
+        }
+        finish();
+      }
+    );
+  };
+
+  const syncWorkingSheets = (kody) => {
+    const syncNext = (i) => {
+      if (i >= kody.length) {
+        remapDkkKurs();
+        return;
+      }
+      const kod = kody[i];
+      loadLatestProductBatchByKod(kod).then((latest) => {
+        if (!latest) {
+          syncNext(i + 1);
+          return;
+        }
+        db.run(
+          `UPDATE working_sheets
+           SET cena_zakupu_pln = ?,
+               koszt_dostawy_per_unit = ?,
+               koszt_dostawy_per_unit_srednie = ?
+           WHERE kod = ?`,
+          [
+            roundMoney(latest.cena_zakupu_pln),
+            roundMoney(latest.koszt_dostawy_per_unit),
+            latest.typ === 'aksesoria' ? 0 : roundMoney(latest.koszt_dostawy_per_unit_srednie),
+            kod,
+          ],
+          (wsErr) => {
+            if (wsErr) {
+              console.error(`❌ Error syncing working_sheets cena for ${kod}:`, wsErr.message);
+            }
+            syncNext(i + 1);
+          }
+        );
+      }).catch((loadErr) => {
+        console.error(`❌ Error loading latest batch for ${kod}:`, loadErr.message);
+        syncNext(i + 1);
+      });
+    };
+    syncNext(0);
+  };
+
+  db.all(leftoverSql, (kodErr, kodRows) => {
+    if (kodErr) {
+      console.error('❌ Error listing leftover Feral/Muri EUR batches:', kodErr.message);
+      remapDkkKurs();
+      return;
+    }
+    const leftoverKody = [...new Set((kodRows || []).map((row) => row.kod).filter(Boolean))];
+    db.run(
+      `UPDATE product_receipts
+       SET kurs_1 = ?,
+           kurs_2 = ?,
+           waluta_dostawy = CASE
+             WHEN waluta_dostawy IS NULL OR TRIM(waluta_dostawy) = '' THEN 'EUR'
+             ELSE waluta_dostawy
+           END
+       WHERE sprzedawca IN ('Feral', 'Muri')
+         AND UPPER(COALESCE(waluta_przyjecia, '')) = 'EUR'
+         AND COALESCE(kurs_1, 1) <= 1.05
+         AND COALESCE(kurs_2, 1) <= 1.05
+         AND EXISTS (
+           SELECT 1 FROM products p
+           WHERE p.receipt_id = product_receipts.id
+             AND COALESCE(p.cena_zakupu_org, 0) > 0
+             AND ABS(p.cena_zakupu_pln - p.cena_zakupu_org) <= 0.02
+         )`,
+      [eurPln, eurPln],
+      function (hdrErr) {
+        if (hdrErr) {
+          console.error('❌ Error realigning Feral/Muri EUR kurs:', hdrErr.message);
+        } else if (this.changes > 0) {
+          console.log(`✅ Set missing EUR→PLN kurs 4.3 on ${this.changes} Feral/Muri receipts`);
+        }
+        db.run(
+          `UPDATE products
+           SET cena_zakupu_pln = ROUND(cena_zakupu_org * ?, 2),
+               koszt_dostawy_per_unit = ROUND((
+                 SELECT pr.wartosc_dostawy * ?
+                 FROM product_receipts pr
+                 WHERE pr.id = products.receipt_id
+               ) / NULLIF((
+                 SELECT SUM(p2.ilosc_pierwotna)
+                 FROM products p2
+                 WHERE p2.receipt_id = products.receipt_id
+                   AND COALESCE(p2.typ, '') != 'aksesoria'
+               ), 0), 2),
+               koszt_dostawy_per_unit_srednie = ROUND((
+                 SELECT pr.wartosc_dostawy * ?
+                 FROM product_receipts pr
+                 WHERE pr.id = products.receipt_id
+               ) / NULLIF((
+                 SELECT SUM(p2.ilosc_pierwotna)
+                 FROM products p2
+                 WHERE p2.receipt_id = products.receipt_id
+                   AND COALESCE(p2.typ, '') != 'aksesoria'
+               ), 0), 2)
+           WHERE receipt_id IN (
+             SELECT id FROM product_receipts
+             WHERE sprzedawca IN ('Feral', 'Muri')
+               AND UPPER(COALESCE(waluta_przyjecia, '')) = 'EUR'
+           )
+             AND COALESCE(cena_zakupu_org, 0) > 0
+             AND ABS(cena_zakupu_pln - cena_zakupu_org) <= 0.02`,
+          [eurPln, eurPln, eurPln],
+          function (prodErr) {
+            if (prodErr) {
+              console.error('❌ Error converting leftover Feral/Muri EUR cena_zakupu_pln:', prodErr.message);
+              remapDkkKurs();
+              return;
+            }
+            if (this.changes > 0) {
+              console.log(`✅ Converted leftover EUR cena_zakupu_pln on ${this.changes} Feral/Muri batches`);
+            }
+            syncWorkingSheets(leftoverKody);
+          }
+        );
       }
     );
   });
