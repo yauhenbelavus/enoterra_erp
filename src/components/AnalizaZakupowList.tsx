@@ -21,7 +21,6 @@ interface ZakupReceiptRow {
 
 interface FilterRow {
   sprzedawca: string;
-  typ: string;
   data_przyjecia: string;
 }
 
@@ -29,19 +28,6 @@ interface AnalizaZakupowListProps {
   refreshTrigger?: number | string;
   apiUrl?: string;
 }
-
-const TYP_LABELS: Record<string, { label: string; color: string }> = {
-  czerwone: { label: 'Czerwone', color: 'bg-red-100 text-red-800 border-red-200' },
-  biale: { label: 'Białe', color: 'bg-gray-100 text-gray-800 border-gray-200' },
-  musujace: { label: 'Musujące', color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
-  bezalkoholowe: { label: 'Bezalkoholowe', color: 'bg-green-100 text-green-800 border-green-200' },
-  ferment: { label: 'Ferment', color: 'bg-orange-100 text-orange-800 border-orange-200' },
-  rozowe: { label: 'Różowe', color: 'bg-pink-100 text-pink-800 border-pink-200' },
-  slodkie: { label: 'Słodkie', color: 'bg-purple-100 text-purple-800 border-purple-200' },
-  aksesoria: { label: 'Aksesoria', color: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
-  amber: { label: 'Amber', color: 'bg-amber-100 text-amber-800 border-amber-200' },
-  brak: { label: 'Brak typu', color: 'bg-gray-100 text-gray-800 border-gray-200' },
-};
 
 const ALL_MONTHS = [
   { value: '01', label: 'Styczeń' },
@@ -57,9 +43,6 @@ const ALL_MONTHS = [
   { value: '11', label: 'Listopad' },
   { value: '12', label: 'Grudzień' },
 ];
-
-const getTypMeta = (typ: string) =>
-  TYP_LABELS[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
 
 const formatBottles = (value: number) =>
   new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 }).format(value);
@@ -85,13 +68,11 @@ const formatPrzyjecieDate = (value?: string | null): string => {
 
 const buildFilterQuery = (filters: {
   sprzedawca: string;
-  typ: string;
   year: string;
   month: string;
 }) => {
   const params = new URLSearchParams();
   if (filters.sprzedawca) params.set('sprzedawca', filters.sprzedawca);
-  if (filters.typ) params.set('typ', filters.typ);
   if (filters.year) params.set('year', filters.year);
   if (filters.month) params.set('month', filters.month);
   const query = params.toString();
@@ -111,7 +92,6 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
   const [detailsLoadingKod, setDetailsLoadingKod] = useState<string | null>(null);
   const [detailsErrorByKod, setDetailsErrorByKod] = useState<Record<string, string>>({});
   const [selectedSprzedawca, setSelectedSprzedawca] = useState('');
-  const [selectedTyp, setSelectedTyp] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
 
@@ -125,22 +105,19 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
   const activeFilters = useMemo(
     () => ({
       sprzedawca: selectedSprzedawca,
-      typ: selectedTyp,
       year: selectedYear,
       month: selectedMonth,
     }),
-    [selectedSprzedawca, selectedTyp, selectedYear, selectedMonth]
+    [selectedSprzedawca, selectedYear, selectedMonth]
   );
 
   const filterRowsBy = (opts: {
     sprzedawca?: string;
-    typ?: string;
     year?: string;
     month?: string;
   }) => {
     return filterRows.filter((row) => {
       if (opts.sprzedawca && row.sprzedawca !== opts.sprzedawca) return false;
-      if (opts.typ && row.typ !== opts.typ) return false;
       const date = extractPrzyjecieDate(row.data_przyjecia);
       if (!date) {
         return !opts.year && !opts.month;
@@ -154,7 +131,6 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
   };
 
   const rowsForSprzedawca = filterRowsBy({
-    typ: selectedTyp || undefined,
     year: selectedYear || undefined,
     month: selectedMonth || undefined,
   });
@@ -168,26 +144,8 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
     return list;
   }, [rowsForSprzedawca, selectedSprzedawca]);
 
-  const rowsForTyp = filterRowsBy({
-    sprzedawca: selectedSprzedawca || undefined,
-    year: selectedYear || undefined,
-    month: selectedMonth || undefined,
-  });
-  const typOptions = useMemo(() => {
-    const set = new Set(rowsForTyp.map((row) => row.typ).filter(Boolean));
-    const list = Array.from(set)
-      .map((value) => ({ value, label: getTypMeta(value).label }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-    if (selectedTyp && !set.has(selectedTyp)) {
-      list.push({ value: selectedTyp, label: getTypMeta(selectedTyp).label });
-      list.sort((a, b) => a.label.localeCompare(b.label));
-    }
-    return list;
-  }, [rowsForTyp, selectedTyp]);
-
   const rowsForYear = filterRowsBy({
     sprzedawca: selectedSprzedawca || undefined,
-    typ: selectedTyp || undefined,
     month: selectedMonth || undefined,
   });
   const years = useMemo(() => {
@@ -207,7 +165,6 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
 
   const rowsForMonth = filterRowsBy({
     sprzedawca: selectedSprzedawca || undefined,
-    typ: selectedTyp || undefined,
     year: selectedYear || undefined,
   });
   const months = useMemo(() => {
@@ -294,7 +251,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
     setDetailsByKod({});
     setDetailsErrorByKod({});
     loadProducts(activeFilters);
-  }, [selectedSprzedawca, selectedTyp, selectedYear, selectedMonth]);
+  }, [selectedSprzedawca, selectedYear, selectedMonth]);
 
   useEffect(() => {
     if (refreshTrigger == null) return;
@@ -328,11 +285,10 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
 
   const totalButelki = products.reduce((sum, product) => sum + (product.ilosc || 0), 0);
   const totalNetto = products.reduce((sum, product) => sum + (product.netto || 0), 0);
-  const hasActiveFilters = selectedSprzedawca || selectedTyp || selectedYear || selectedMonth;
+  const hasActiveFilters = selectedSprzedawca || selectedYear || selectedMonth;
 
   const clearFilters = () => {
     setSelectedSprzedawca('');
-    setSelectedTyp('');
     setSelectedYear('');
     setSelectedMonth('');
   };
@@ -371,22 +327,6 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
               {sellers.map((sprzedawca) => (
                 <option key={sprzedawca} value={sprzedawca} style={{ fontFamily: 'Sora, sans-serif' }}>
                   {sprzedawca}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="relative">
-            <select
-              value={selectedTyp}
-              onChange={(e) => setSelectedTyp(e.target.value)}
-              className={filterSelectClass}
-              style={filterSelectStyle}
-            >
-              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ</option>
-              {typOptions.map((opt) => (
-                <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
-                  {opt.label}
                 </option>
               ))}
             </select>
@@ -453,7 +393,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
           <thead className="sticky top-0 z-10">
             <tr>
             <th
-              className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              className="w-px whitespace-nowrap px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
               onClick={() => handleSort('kod')}
             >
               <div className="flex items-center gap-1">
@@ -531,7 +471,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => toggleProductDetails(product.kod)}
                   >
-                    <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-900 font-sora">
+                    <td className="w-px whitespace-nowrap px-4 py-3 text-sm text-gray-900 font-sora">
                       {product.kod}
                     </td>
                     <td className="px-8 py-3 text-sm text-gray-900 font-sora">
@@ -577,7 +517,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
                     !detailsError &&
                     receiptRows.map((row) => (
                       <tr key={`${product.kod}-${row.receipt_id}`} className="bg-gray-50">
-                        <td className="px-8 py-2 pl-12 whitespace-nowrap text-sm text-gray-500 font-sora">
+                        <td className="w-px whitespace-nowrap px-4 py-2 text-sm text-gray-500 font-sora">
                           {formatPrzyjecieDate(row.data_przyjecia)}
                         </td>
                         <td className="px-8 py-2 text-sm text-gray-500 font-sora" />

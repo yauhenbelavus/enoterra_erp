@@ -9248,7 +9248,6 @@ const ANALIZA_ZAKUPOW_LINE_NETTO = `
 function parseAnalizaZakupowFilters(query) {
   return {
     sprzedawca: String(query.sprzedawca || '').trim(),
-    typ: String(query.typ || '').trim(),
     year: String(query.year || '').trim(),
     month: String(query.month || '').trim(),
   };
@@ -9264,10 +9263,6 @@ function buildAnalizaZakupowWhere(filters, kod) {
   if (filters.sprzedawca) {
     conditions.push('pr.sprzedawca = ?');
     params.push(filters.sprzedawca);
-  }
-  if (filters.typ) {
-    conditions.push(`COALESCE(NULLIF(TRIM(p.typ), ''), 'brak') = ?`);
-    params.push(filters.typ);
   }
   if (filters.year) {
     conditions.push(`strftime('%Y', pr.data_przyjecia) = ?`);
@@ -9285,7 +9280,6 @@ app.get('/api/analiza-zakupow/filters', (req, res) => {
   db.all(
     `SELECT DISTINCT
       pr.sprzedawca AS sprzedawca,
-      COALESCE(NULLIF(TRIM(p.typ), ''), 'brak') AS typ,
       pr.data_przyjecia AS data_przyjecia
     ${ANALIZA_ZAKUPOW_BASE_JOIN}
     WHERE ${ANALIZA_ZAKUPOW_BASE_WHERE}
