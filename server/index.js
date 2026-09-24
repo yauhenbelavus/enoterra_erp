@@ -9717,6 +9717,37 @@ app.get('/api/product-receipts/:id', (req, res) => {
   });
 });
 
+function readReceiptRequestPayload(req) {
+  try {
+    const files = req.files || {};
+    const rawData = req.body && req.body.data;
+    const source = typeof rawData === 'string' && rawData.trim() !== ''
+      ? JSON.parse(rawData)
+      : (req.body || {});
+    return {
+      date: source.date,
+      sprzedawca: source.sprzedawca,
+      wartosc_przyjecia_netto: source.wartosc_przyjecia_netto,
+      vat: source.vat,
+      wartosc_przyjecia_brutto: source.wartosc_przyjecia_brutto,
+      kosztDostawy: source.wartosc_dostawy,
+      products: source.products,
+      aktualnyKurs: source.kurs_1,
+      podatekAkcyzowy: source.stawka_podatek_akcyzowy,
+      rabat: source.rabat,
+      walutaFaktury: source.waluta_przyjecia,
+      kursFaktury: source.kurs_2,
+      kursMode: source.kursMode,
+      walutaDostawy: source.waluta_dostawy ?? source.walutaDostawy,
+      productInvoice: files.product_invoice ? files.product_invoice[0].filename : source.product_invoice,
+      transportInvoice: files.transport_invoice ? files.transport_invoice[0].filename : source.transport_invoice,
+    };
+  } catch (error) {
+    console.error('❌ Error parsing JSON data from FormData:', error);
+    return { error: 'Invalid JSON data in FormData' };
+  }
+}
+
 app.post('/api/product-receipts', upload.fields([
   { name: 'product_invoice', maxCount: 1 },
   { name: 'transport_invoice', maxCount: 1 }
@@ -9737,53 +9768,15 @@ app.post('/api/product-receipts', upload.fields([
     filesCount: req.files ? Object.keys(req.files).length : 0
   });
   
-  let date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, kursMode, walutaDostawy;
-  
-  // Проверяем, есть ли файлы (FormData) или это JSON
-  if (req.files && (req.files.product_invoice || req.files.transport_invoice)) {
-    console.log('📎 Processing FormData request');
-    try {
-      const jsonData = JSON.parse(req.body.data);
-      date = jsonData.date;
-      sprzedawca = jsonData.sprzedawca;
-      wartosc_przyjecia_netto = jsonData.wartosc_przyjecia_netto;
-      vat = jsonData.vat;
-      wartosc_przyjecia_brutto = jsonData.wartosc_przyjecia_brutto;
-      kosztDostawy = jsonData.wartosc_dostawy;
-      products = jsonData.products;
-      aktualnyKurs = jsonData.kurs_1;
-      podatekAkcyzowy = jsonData.stawka_podatek_akcyzowy;
-      rabat = jsonData.rabat;
-      walutaFaktury = jsonData.waluta_przyjecia;
-      kursFaktury = jsonData.kurs_2;
-      kursMode = jsonData.kursMode;
-      walutaDostawy = jsonData.waluta_dostawy ?? jsonData.walutaDostawy;
-      productInvoice = req.files.product_invoice ? req.files.product_invoice[0].filename : null;
-      transportInvoice = req.files.transport_invoice ? req.files.transport_invoice[0].filename : null;
-      console.log('📎 Files processed:', { productInvoice, transportInvoice });
-    } catch (error) {
-      console.error('❌ Error parsing JSON data from FormData:', error);
-      return res.status(400).json({ error: 'Invalid JSON data in FormData' });
-    }
-  } else {
-    console.log('📄 Processing JSON request');
-    date = req.body.date;
-    sprzedawca = req.body.sprzedawca;
-    wartosc_przyjecia_netto = req.body.wartosc_przyjecia_netto;
-    vat = req.body.vat;
-    wartosc_przyjecia_brutto = req.body.wartosc_przyjecia_brutto;
-    kosztDostawy = req.body.wartosc_dostawy;
-    products = req.body.products;
-    aktualnyKurs = req.body.kurs_1;
-    podatekAkcyzowy = req.body.stawka_podatek_akcyzowy;
-    rabat = req.body.rabat;
-    walutaFaktury = req.body.waluta_przyjecia;
-    kursFaktury = req.body.kurs_2;
-    kursMode = req.body.kursMode;
-    walutaDostawy = req.body.waluta_dostawy ?? req.body.walutaDostawy;
-    productInvoice = req.body.product_invoice;
-    transportInvoice = req.body.transport_invoice;
+  const receiptPayload = readReceiptRequestPayload(req);
+  if (receiptPayload.error) {
+    return res.status(400).json({ error: receiptPayload.error });
   }
+  let {
+    date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products,
+    productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury,
+    kursMode, walutaDostawy,
+  } = receiptPayload;
 
   if (req.files?.product_invoice) {
     productInvoice = assignReceiptUploadName(req.files.product_invoice[0].filename, 'towar', sprzedawca);
@@ -9798,6 +9791,7 @@ app.post('/api/product-receipts', upload.fields([
   kosztDostawy = roundMoney(kosztDostawy);
   podatekAkcyzowy = roundMoney(podatekAkcyzowy);
   rabat = roundMoney(rabat);
+  kursMode = kursMode || 'toPln';
 
   const receiptRates = resolveReceiptRatesToPln(
     kursMode,
@@ -10069,53 +10063,15 @@ app.put('/api/product-receipts/:id', upload.fields([
     transportInvoiceFile: req.files?.transport_invoice
   });
   
-  let date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products, productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury, kursMode, walutaDostawy;
-  
-  // Проверяем, есть ли файлы (FormData) или это JSON
-  if (req.files && (req.files.product_invoice || req.files.transport_invoice)) {
-    console.log('📎 Processing FormData request (PUT)');
-    try {
-      const jsonData = JSON.parse(req.body.data);
-      date = jsonData.date;
-      sprzedawca = jsonData.sprzedawca;
-      wartosc_przyjecia_netto = jsonData.wartosc_przyjecia_netto;
-      vat = jsonData.vat;
-      wartosc_przyjecia_brutto = jsonData.wartosc_przyjecia_brutto;
-      kosztDostawy = jsonData.wartosc_dostawy;
-      products = jsonData.products;
-      aktualnyKurs = jsonData.kurs_1;
-      podatekAkcyzowy = jsonData.stawka_podatek_akcyzowy;
-      rabat = jsonData.rabat;
-      walutaFaktury = jsonData.waluta_przyjecia;
-      kursFaktury = jsonData.kurs_2;
-      kursMode = jsonData.kursMode;
-      walutaDostawy = jsonData.waluta_dostawy ?? jsonData.walutaDostawy;
-      productInvoice = req.files.product_invoice ? req.files.product_invoice[0].filename : null;
-      transportInvoice = req.files.transport_invoice ? req.files.transport_invoice[0].filename : null;
-      console.log('📎 Files processed (PUT):', { productInvoice, transportInvoice });
-    } catch (error) {
-      console.error('❌ Error parsing JSON data from FormData:', error);
-      return res.status(400).json({ error: 'Invalid JSON data in FormData' });
-    }
-  } else {
-    console.log('📄 Processing JSON request (PUT)');
-    date = req.body.date;
-    sprzedawca = req.body.sprzedawca;
-    wartosc_przyjecia_netto = req.body.wartosc_przyjecia_netto;
-    vat = req.body.vat;
-    wartosc_przyjecia_brutto = req.body.wartosc_przyjecia_brutto;
-    kosztDostawy = req.body.wartosc_dostawy;
-    products = req.body.products;
-    aktualnyKurs = req.body.kurs_1;
-    podatekAkcyzowy = req.body.stawka_podatek_akcyzowy;
-    rabat = req.body.rabat;
-    walutaFaktury = req.body.waluta_przyjecia;
-    kursFaktury = req.body.kurs_2;
-    kursMode = req.body.kursMode;
-    walutaDostawy = req.body.waluta_dostawy ?? req.body.walutaDostawy;
-    productInvoice = req.body.product_invoice;
-    transportInvoice = req.body.transport_invoice;
+  const receiptPayload = readReceiptRequestPayload(req);
+  if (receiptPayload.error) {
+    return res.status(400).json({ error: receiptPayload.error });
   }
+  let {
+    date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products,
+    productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury,
+    kursMode, walutaDostawy,
+  } = receiptPayload;
 
   if (req.files?.product_invoice) {
     productInvoice = assignReceiptUploadName(req.files.product_invoice[0].filename, 'towar', sprzedawca);
@@ -10229,6 +10185,9 @@ app.put('/api/product-receipts/:id', upload.fields([
         Math.abs(parseKursValue(oldReceipt.kurs_1) - parseKursValue(aktualnyKursForDb)) > 0.01 ||
         Math.abs(parseKursValue(oldReceipt.kurs_2) - parseKursValue(kursFaktury)) > 0.01 ||
         walutaPrzyjeciaChanged;
+      const oldKosztDostawy = roundMoney(oldReceipt.wartosc_dostawy);
+      const newKosztDostawy = roundMoney(kosztDostawy);
+      const kosztDostawyChanged = Math.abs(oldKosztDostawy - newKosztDostawy) > 0.01;
       
       console.log(`🔄 Found ${oldProducts.length} old products, updating to ${products.length} new products`);
       console.log(`📊 Podatek akcyzowy: old=${oldPodatekAkcyzowy}, new=${newPodatekAkcyzowy}, changed=${podatekAkcyzowyChanged}`);
@@ -10794,47 +10753,10 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
       const leftReceipts = cntRow.cnt || 0;
 
       if (leftReceipts === 0) {
-        console.log(`🔍 Looking for snapshot before receipt ${id} for product ${productKod}`);
-        const snapshot = await new Promise((resolve, reject) => {
-          db.get(
-            `SELECT * FROM working_sheets_history
-             WHERE kod = ? AND action = 'before_receipt' AND receipt_id = ?
-             ORDER BY created_at DESC LIMIT 1`,
-            [productKod, id],
-            (snapshotErr, row) => {
-              if (snapshotErr) reject(snapshotErr);
-              else resolve(row);
-            }
-          );
-        });
-
-        if (snapshot) {
-          console.log(`🔄 Restoring ${productKod} from snapshot (receipt_id: ${id})`);
-          await new Promise((resolve, reject) => {
-            db.run(
-              restoreWorkingSheetFromHistorySql(),
-              restoreWorkingSheetFromHistoryParams(
-                snapshot,
-                snapshot.ilosc,
-                historySnapshotCenaZakupuPln(snapshot),
-                productKod
-              ),
-              function (restoreErr) {
-                if (restoreErr) {
-                  reject(restoreErr);
-                } else {
-                  console.log(`✅ Restored ${productKod} to state before receipt ${id}`);
-                  wsUpdated++;
-                  resolve();
-                }
-              }
-            );
-          });
-        } else {
-          const result = await keepWorkingSheetZeroOrDelete(productKod, id);
-          if (result === 'deleted') wsDeleted++;
-          else wsUpdated++;
-        }
+        // Нет партий — не откатываем ilosc из снимка (он может помнить уже удалённые приёмки).
+        const result = await keepWorkingSheetZeroOrDelete(productKod, id);
+        if (result === 'deleted') wsDeleted++;
+        else wsUpdated++;
       } else {
         const synced = await syncWorkingSheetFromRemainingProducts(productKod);
         if (synced) {
