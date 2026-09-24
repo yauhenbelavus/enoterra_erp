@@ -2,8 +2,8 @@ import React, { useMemo } from 'react';
 import Modal from 'react-modal';
 import { X, Grape, Car } from 'lucide-react';
 import { ProductDetailsModal } from './ProductDetailsModal';
-import { API_URL } from '../config';
 import { formatPlMoney, getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
+import { receiptInvoiceUrl } from '../utils/receiptInvoice';
 import { SortableTh } from './SortIndicator';
 import { getReceiptProductSortValue, useTableSort } from '../utils/tableSort';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
@@ -173,7 +173,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
               {receipt.product_invoice && (
                 <button
                   onClick={() => {
-                    const url = `${API_URL}/uploads/${receipt.product_invoice}`;
+                    const url = receiptInvoiceUrl(receipt.product_invoice);
                     console.log('📎 Opening product invoice:', url);
                     window.open(url, '_blank', 'noopener,noreferrer');
                   }}
@@ -186,7 +186,7 @@ export const ReceiptDetailsModal: React.FC<ReceiptDetailsModalProps> = ({ isOpen
               {receipt.transport_invoice && (
                 <button
                   onClick={() => {
-                    const url = `${API_URL}/uploads/${receipt.transport_invoice}`;
+                    const url = receiptInvoiceUrl(receipt.transport_invoice);
                     console.log('📎 Opening transport invoice:', url);
                     window.open(url, '_blank', 'noopener,noreferrer');
                   }}

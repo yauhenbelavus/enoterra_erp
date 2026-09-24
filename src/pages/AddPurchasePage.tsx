@@ -31,6 +31,7 @@ import { PlMoneyInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
+import { cancelScheduledInvoiceOpen, scheduleInvoiceOpen } from '../utils/receiptInvoice';
 
 registerLocale('pl', pl);
 
@@ -249,6 +250,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const invoicePreviewWindowRef = useRef<Window | null>(null);
 
   const pickInvoiceFile = (input: HTMLInputElement | null) => {
     if (!input) return;
@@ -256,28 +258,16 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     input.click();
   };
 
-  const openInvoiceFile = (file: File) => {
-    const url = URL.createObjectURL(file);
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
   const handleInvoiceButtonClick = (file: File | null, input: HTMLInputElement | null) => {
     if (!file) {
       pickInvoiceFile(input);
       return;
     }
-    if (invoiceClickTimerRef.current) clearTimeout(invoiceClickTimerRef.current);
-    invoiceClickTimerRef.current = setTimeout(() => {
-      openInvoiceFile(file);
-      invoiceClickTimerRef.current = null;
-    }, 250);
+    scheduleInvoiceOpen(URL.createObjectURL(file), invoiceClickTimerRef, invoicePreviewWindowRef);
   };
 
   const handleInvoiceButtonDoubleClick = (input: HTMLInputElement | null) => {
-    if (invoiceClickTimerRef.current) {
-      clearTimeout(invoiceClickTimerRef.current);
-      invoiceClickTimerRef.current = null;
-    }
+    cancelScheduledInvoiceOpen(invoiceClickTimerRef, invoicePreviewWindowRef);
     pickInvoiceFile(input);
   };
 

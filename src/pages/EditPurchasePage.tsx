@@ -33,6 +33,11 @@ import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
 import {
+  cancelScheduledInvoiceOpen,
+  receiptInvoiceUrl,
+  scheduleInvoiceOpen,
+} from '../utils/receiptInvoice';
+import {
   KodChangeConflict,
   ReceiptQtyConflict,
 } from '../components/EditReceiptModal';
@@ -326,6 +331,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const invoicePreviewWindowRef = useRef<Window | null>(null);
 
   const pickInvoiceFile = (input: HTMLInputElement | null) => {
     if (!input) return;
@@ -333,33 +339,17 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     input.click();
   };
 
-  const openInvoiceFile = (file: File) => {
-    const url = URL.createObjectURL(file);
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  const openExistingInvoice = (filename: string) => {
-    window.open(`${API_URL}${filename}`, '_blank', 'noopener,noreferrer');
-  };
-
   const handleInvoiceButtonClick = (file: File | null, existing: string | null, input: HTMLInputElement | null) => {
     if (!file && !existing) {
       pickInvoiceFile(input);
       return;
     }
-    if (invoiceClickTimerRef.current) clearTimeout(invoiceClickTimerRef.current);
-    invoiceClickTimerRef.current = setTimeout(() => {
-      if (file) openInvoiceFile(file);
-      else if (existing) openExistingInvoice(existing);
-      invoiceClickTimerRef.current = null;
-    }, 250);
+    const url = file ? URL.createObjectURL(file) : receiptInvoiceUrl(existing || '');
+    scheduleInvoiceOpen(url, invoiceClickTimerRef, invoicePreviewWindowRef);
   };
 
   const handleInvoiceButtonDoubleClick = (input: HTMLInputElement | null) => {
-    if (invoiceClickTimerRef.current) {
-      clearTimeout(invoiceClickTimerRef.current);
-      invoiceClickTimerRef.current = null;
-    }
+    cancelScheduledInvoiceOpen(invoiceClickTimerRef, invoicePreviewWindowRef);
     pickInvoiceFile(input);
   };
 
