@@ -62,6 +62,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   const dragStartPos = useRef({ x: 0, y: 0 });
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [selectedSprzedawca, setSelectedSprzedawca] = useState<string>('');
 
   const handleViewDetails = (receipt: ProductReceipt) => {
     setSelectedReceipt(receipt);
@@ -150,6 +151,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
     return date.getFullYear().toString();
   }))).sort((a, b) => parseInt(b) - parseInt(a));
 
+  const sellers = Array.from(
+    new Set(receipts.map((receipt) => String(receipt.sprzedawca || '').trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b, 'pl'));
+
   const months = [
     { value: '01', label: 'Styczeń' },
     { value: '02', label: 'Luty' },
@@ -173,6 +178,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
         (product) => product.typ === selectedCategory
       );
       if (!hasCategory) return false;
+    }
+
+    if (selectedSprzedawca) {
+      if (String(receipt.sprzedawca || '').trim() !== selectedSprzedawca) return false;
     }
 
     // Фильтрация по году
@@ -205,7 +214,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
     }
   );
 
-  const hasActiveFilters = selectedYear || selectedMonth;
+  const hasActiveFilters = selectedYear || selectedMonth || selectedSprzedawca;
 
   const filterSelectClass =
     'block px-2 py-1 border border-gray-300 rounded text-xs font-sora font-normal text-gray-900 focus:outline-none focus:ring-0 focus:border-gray-300 truncate';
@@ -222,6 +231,20 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
       <div className="flex justify-end">
         <div className="flex flex-col gap-1">
           <div className="grid grid-cols-2 gap-1">
+            <div className="relative">
+              <select
+                value={selectedSprzedawca}
+                onChange={(e) => setSelectedSprzedawca(e.target.value)}
+                className={filterSelectClass}
+                style={filterSelectStyle}
+              >
+                <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Sprzedawca</option>
+                {sellers.map((sprzedawca) => (
+                  <option key={sprzedawca} value={sprzedawca} style={{ fontFamily: 'Sora, sans-serif' }}>{sprzedawca}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="relative">
               <select
                 value={selectedYear}
@@ -257,6 +280,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
               onClick={() => {
                 setSelectedYear('');
                 setSelectedMonth('');
+                setSelectedSprzedawca('');
               }}
               className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-xs font-sora transition-colors"
             >
@@ -334,7 +358,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   {formatPlMoney(Number(receipt.wartosc_przyjecia_brutto) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
-                  {formatPlMoney(Number(receipt.wartosc_dostawy) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_dostawy))}
+                  {formatPlMoney(Number(receipt.wartosc_dostawy) || 0)}
+                  {(Number(receipt.wartosc_dostawy) || 0) !== 0
+                    ? ` ${getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_dostawy))}`
+                    : ''}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   <div className="flex items-center space-x-2">
