@@ -478,19 +478,6 @@ function stampKosztDostawyPerUnit(products, kosztDostawy, kurs) {
   return products;
 }
 
-function deliveryCostWsPair(product, srednie, items) {
-  const list = items && items.length ? items : (product ? [product] : []);
-  const qty = list.reduce((sum, item) => sum + (item.ilosc || 0), 0);
-  const perUnit = qty > 0
-    ? roundMoney(list.reduce((sum, item) => sum + (roundMoney(item.koszt_dostawy_per_unit) * (item.ilosc || 0)), 0) / qty)
-    : roundMoney(product && product.koszt_dostawy_per_unit);
-  const typ = (product && product.typ) || (list[0] && list[0].typ);
-  return {
-    perUnit,
-    srednie: typ === 'aksesoria' ? 0 : roundMoney(srednie),
-  };
-}
-
 function isAkcyzaExemptTyp(typ) {
   return typ === 'bezalkoholowe' || typ === 'ferment' || typ === 'aksesoria';
 }
@@ -697,47 +684,94 @@ function loadLatestProductBatchByKod(kod) {
   });
 }
 
-function syncWorkingSheetFromRemainingProducts(kod) {
+function getWorkingSheetByKod(kod) {
+  return new Promise((resolve, reject) => {
+    db.get('SELECT * FROM working_sheets WHERE kod = ?', [kod], (err, row) => (
+      err ? reject(err) : resolve(row || null)
+    ));
+  });
+}
+
+function sumProductsIloscAktualnaByKod(kod) {
   return new Promise((resolve, reject) => {
     db.get(
-      'SELECT SUM(ilosc_aktualna) as total_ilosc, MAX(cena_zakupu_pln) as max_cena FROM products WHERE kod = ?',
+      'SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?',
       [kod],
-      (sumErr, sumRow) => {
-        if (sumErr) {
-          reject(sumErr);
-          return;
-        }
-        loadLatestProductBatchByKod(kod).then((latest) => {
-          if (!latest) {
-            resolve(false);
-            return;
-          }
-          db.run(
-            `UPDATE working_sheets SET
-              nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
-              data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?, koszt_dostawy_per_unit_srednie = ?,
-              podatek_akcyzowy = ?
-             WHERE kod = ?`,
-            [
-              latest.nazwa,
-              sumRow && sumRow.total_ilosc ? sumRow.total_ilosc : 0,
-              latest.kod_kreskowy || null,
-              latest.typ || null,
-              latest.receipt_sprzedawca || null,
-              roundMoney(sumRow && sumRow.max_cena != null ? sumRow.max_cena : latest.cena_zakupu_pln),
-              latest.data_waznosci || null,
-              latest.objetosc != null ? latest.objetosc : null,
-              roundMoney(latest.koszt_dostawy_per_unit),
-              latest.typ === 'aksesoria' ? 0 : roundMoney(latest.koszt_dostawy_per_unit_srednie),
-              roundMoney(latest.podatek_akcyzowy),
-              kod,
-            ],
-            (upErr) => (upErr ? reject(upErr) : resolve(true))
-          );
-        }).catch(reject);
-      }
+      (err, row) => (err ? reject(err) : resolve(row && row.total_ilosc ? row.total_ilosc : 0))
     );
   });
+}
+
+function workingSheetFieldsFromLatestBatch(latest, totalIlosc) {
+  return {
+    nazwa: latest.nazwa,
+    ilosc: totalIlosc || 0,
+    kod_kreskowy: latest.kod_kreskowy || null,
+    typ: latest.typ || null,
+    sprzedawca: latest.receipt_sprzedawca || null,
+    cena_zakupu_pln: roundMoney(latest.cena_zakupu_pln),
+    data_waznosci: latest.data_waznosci || null,
+    objetosc: latest.objetosc != null ? latest.objetosc : null,
+    koszt_dostawy_per_unit: roundMoney(latest.koszt_dostawy_per_unit),
+    koszt_dostawy_per_unit_srednie: latest.typ === 'aksesoria' ? 0 : roundMoney(latest.koszt_dostawy_per_unit_srednie),
+    podatek_akcyzowy: roundMoney(latest.podatek_akcyzowy),
+  };
+}
+
+function applyWorkingSheetFromLatest(kod, options = {}) {
+  const insertIfMissing = options.insertIfMissing === true;
+  const createdAt = options.createdAt || null;
+  const createdAtOnUpdate = options.createdAtOnUpdate || null;
+
+  return Promise.all([
+    sumProductsIloscAktualnaByKod(kod),
+    loadLatestProductBatchByKod(kod),
+    getWorkingSheetByKod(kod),
+  ]).then(([totalIlosc, latest, existing]) => {
+    if (!latest) return null;
+    const fields = workingSheetFieldsFromLatestBatch(latest, totalIlosc);
+    if (!existing) {
+      if (!insertIfMissing) return null;
+      return new Promise((resolve, reject) => {
+        db.run(
+          `INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            kod, fields.nazwa, fields.ilosc, fields.kod_kreskowy, fields.typ, fields.sprzedawca,
+            fields.cena_zakupu_pln, fields.data_waznosci, fields.objetosc,
+            fields.koszt_dostawy_per_unit, fields.koszt_dostawy_per_unit_srednie, fields.podatek_akcyzowy,
+            createdAt || latest.created_at,
+          ],
+          (err) => (err ? reject(err) : resolve('inserted'))
+        );
+      });
+    }
+
+    const setCreated = createdAtOnUpdate ? ', created_at = ?' : '';
+    const params = [
+      fields.nazwa, fields.ilosc, fields.kod_kreskowy, fields.typ, fields.sprzedawca, fields.cena_zakupu_pln,
+      fields.data_waznosci, fields.objetosc, fields.koszt_dostawy_per_unit, fields.koszt_dostawy_per_unit_srednie,
+      fields.podatek_akcyzowy,
+    ];
+    if (createdAtOnUpdate) params.push(createdAtOnUpdate);
+    params.push(kod);
+
+    return new Promise((resolve, reject) => {
+      db.run(
+        `UPDATE working_sheets SET
+          nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
+          data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?, koszt_dostawy_per_unit_srednie = ?,
+          podatek_akcyzowy = ?${setCreated}
+         WHERE kod = ?`,
+        params,
+        (err) => (err ? reject(err) : resolve('updated'))
+      );
+    });
+  });
+}
+
+function syncWorkingSheetFromRemainingProducts(kod) {
+  return applyWorkingSheetFromLatest(kod, { insertIfMissing: false }).then((result) => result === 'updated');
 }
 
 function dropProductReceiptsProductsJsonColumn(done) {
@@ -991,7 +1025,7 @@ function ensureProductsReceiptLineColumns(done) {
             const next = (i) => {
               if (i >= missing.length) {
                 ensureWorkingSheetsKosztDostawyPerUnitSrednie(() => {
-                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => realignFeralMuriLegacyRates(() => roundExistingCenaZakupu(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(() => dropProductReceiptsProductsJsonColumn(done)))))));
+                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => realignFeralMuriLegacyRates(() => roundExistingCenaZakupu(() => syncWorkingSheetsCenaFromLatestReceipt(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(() => dropProductReceiptsProductsJsonColumn(done))))))));
                 });
                 return;
               }
@@ -1528,6 +1562,32 @@ function roundExistingCenaZakupu(done) {
           );
         }
       );
+    }
+  );
+}
+
+function syncWorkingSheetsCenaFromLatestReceipt(done) {
+  const finish = () => {
+    if (done) done();
+  };
+  db.run(
+    `UPDATE working_sheets
+     SET cena_zakupu_pln = ROUND((
+       SELECT p.cena_zakupu_pln
+       FROM products p
+       LEFT JOIN product_receipts r ON r.id = p.receipt_id
+       WHERE p.kod = working_sheets.kod
+       ORDER BY COALESCE(r.data_przyjecia, p.created_at) DESC, p.id DESC
+       LIMIT 1
+     ), 2)
+     WHERE EXISTS (SELECT 1 FROM products p2 WHERE p2.kod = working_sheets.kod)`,
+    function (err) {
+      if (err) {
+        console.error('❌ Error syncing working_sheets.cena_zakupu_pln from latest receipt:', err.message);
+      } else if (this.changes > 0) {
+        console.log(`✅ Set working_sheets.cena_zakupu_pln from latest receipt on ${this.changes} rows`);
+      }
+      finish();
     }
   );
 }
@@ -9895,214 +9955,43 @@ app.post('/api/product-receipts', upload.fields([
               });
             }
             
-            // Суммируем количество и находим максимальную цену среди всех товаров с таким кодом
-            const summedQuantity = productsList.reduce((sum, p) => sum + (p.ilosc || 0), 0);
-            const maxCenaRaw = Math.max(...productsList.map(p => parseFloat(p.cena || 0)));
-            const maxCena = isNaN(maxCenaRaw) ? 0 : maxCenaRaw;
-            const mainProduct = productsList[0]; // Берем первый товар как основной (для остальных данных)
-            
-            console.log(`📊 Product ${productCode}: ${productsList.length} items, total quantity: ${summedQuantity}, max price: ${maxCena}`);
-            
-            // Обновляем working_sheets
-            console.log(`📝 Processing working_sheets for: ${productCode}`);
-            await new Promise((resolve, reject) => {
-              db.get('SELECT * FROM working_sheets WHERE kod = ?', [productCode], (err, existingProduct) => {
-                if (err) {
-                  console.error('❌ Error checking working_sheets:', err);
-                  reject(err);
-                  return;
-                }
-                
-                if (existingProduct) {
-                  // Если товар существует - сохраняем снимок ДО изменений, затем обновляем
-                  console.log(`📝 Updating existing product: ${productCode}`);
-                  
-                  const oldPrice = existingProduct.cena_zakupu_pln || 0;
-                  const newPrice = maxCena;
-                  
-                  console.log(`💰 Price for ${productCode}: oldPrice=${oldPrice}, newPrice=${newPrice} (max from all items)`);
-                  
-                  // 1. Сначала сохраняем снимок ДО изменений в working_sheets_history
-                  console.log(`📸 Saving snapshot BEFORE changes for ${productCode}`);
-                  db.run(
-                    insertWorkingSheetsHistoryBeforeReceiptSql(),
-                    insertWorkingSheetsHistoryBeforeReceiptParams(receiptId, productCode),
-                    function(err) {
-                      if (err) {
-                        console.error(`❌ Error saving snapshot for ${productCode}:`, err);
-                        reject(err);
-                        return;
-                      }
+            // working_sheets: qty = SUM партий; cena/typ/koszt/akcyza — с последней партии (не max, не первая строка)
+            const existingProduct = await getWorkingSheetByKod(productCode);
+            if (existingProduct) {
+              console.log(`📸 Saving snapshot BEFORE changes for ${productCode}`);
+              await new Promise((resolve, reject) => {
+                db.run(
+                  insertWorkingSheetsHistoryBeforeReceiptSql(),
+                  insertWorkingSheetsHistoryBeforeReceiptParams(receiptId, productCode),
+                  (err) => {
+                    if (err) {
+                      console.error(`❌ Error saving snapshot for ${productCode}:`, err);
+                      reject(err);
+                    } else {
                       console.log(`✅ Snapshot saved for ${productCode} (receipt_id: ${receiptId})`);
-                      
-                      // 2. Затем обновляем working_sheets
-                      console.log(`📝 Updating working_sheets for ${productCode}`);
-                      
-                      const cenaValue = roundMoney(newPrice);
-                      const objetoscValue = parseFloat(String(mainProduct.objetosc || '1').replace(',', '.')) || 1;
-                      const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                      
-                      // Для bezalkoholowe, ferment и aksesoria податок всегда 0
-                      const isBezalkoholoweOrFermentOrAksesoriaUpd = mainProduct.typ === 'bezalkoholowe' || mainProduct.typ === 'ferment' || mainProduct.typ === 'aksesoria';
-                      console.log(`🔍 UPDATE type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoriaUpd=${isBezalkoholoweOrFermentOrAksesoriaUpd}`);
-                      const podatekValueUpd = isBezalkoholoweOrFermentOrAksesoriaUpd ? 0 :
-                        (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
-                      const deliveryWs = deliveryCostWsPair(mainProduct, kosztDostawyPerUnit, productsList);
-                      const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
-                      const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
-                      console.log(`📊 UPDATE ${productCode}:`);
-                      console.log(`  - newPrice: ${newPrice} → ${cenaValue}`);
-                      console.log(`  - objetosc: ${mainProduct.objetosc} → ${objetoscValue}`);
-                      console.log(`  - podatekAkcyzowy: ${podatekAkcyzowy} → ${podatekAkcyzowyValue}`);
-                      console.log(`  - kosztDostawyPerUnit: ${kosztDostawyPerUnit}`);
-                      console.log(`  - podatekValueUpd: ${podatekValueUpd} (forced to 0: ${isBezalkoholoweOrFermentOrAksesoriaUpd})`);
-                      
-                    // Проверяем текущий остаток: если = 0, сбрасываем created_at (новая партия после нулевого остатка)
-                    db.get('SELECT ilosc FROM working_sheets WHERE kod = ?', [productCode], function(checkErr, wsRow) {
-                      const currentIlosc = wsRow ? wsRow.ilosc : 1;
-                      const isZeroStock = currentIlosc === 0;
-                      if (isZeroStock) {
-                        console.log(`🔄 Zero stock detected for ${productCode} — resetting created_at to receipt date ${date}`);
-                      }
-
-                      const updateQuery = isZeroStock
-                        ? `UPDATE working_sheets SET 
-                            ilosc = ilosc + ?, 
-                            nazwa = ?,
-                            kod_kreskowy = ?,
-                            typ = ?,
-                            sprzedawca = ?,
-                            cena_zakupu_pln = ?,
-                            data_waznosci = ?,
-                            objetosc = ?,
-                            koszt_dostawy_per_unit = ?,
-                            koszt_dostawy_per_unit_srednie = ?,
-                            podatek_akcyzowy = ?,
-                            created_at = ?
-                          WHERE kod = ?`
-                        : `UPDATE working_sheets SET 
-                            ilosc = ilosc + ?, 
-                            nazwa = ?,
-                            kod_kreskowy = ?,
-                            typ = ?,
-                            sprzedawca = ?,
-                            cena_zakupu_pln = ?,
-                            data_waznosci = ?,
-                            objetosc = ?,
-                            koszt_dostawy_per_unit = ?,
-                            koszt_dostawy_per_unit_srednie = ?,
-                            podatek_akcyzowy = ?
-                          WHERE kod = ?`;
-
-                      const updateParams = isZeroStock
-                        ? [
-                            summedQuantity,
-                            mainProduct.nazwa,
-                            mainProduct.kod_kreskowy || null,
-                            mainProduct.typ || null,
-                            sprzedawca || null,
-                            cenaValue,
-                            mainProduct.dataWaznosci || null,
-                            mainProduct.objetosc || null,
-                            kosztDostawyPerUnitForProduct || 0,
-                            kosztDostawyPerUnitSrednieForProduct || 0,
-                            podatekValueUpd || 0,
-                            date,
-                            productCode
-                          ]
-                        : [
-                            summedQuantity,
-                            mainProduct.nazwa,
-                            mainProduct.kod_kreskowy || null,
-                            mainProduct.typ || null,
-                            sprzedawca || null,
-                            cenaValue,
-                            mainProduct.dataWaznosci || null,
-                            mainProduct.objetosc || null,
-                            kosztDostawyPerUnitForProduct || 0,
-                            kosztDostawyPerUnitSrednieForProduct || 0,
-                            podatekValueUpd || 0,
-                            productCode
-                          ];
-
-                      db.run(updateQuery, updateParams, function(err) {
-                        if (err) {
-                          console.error('❌ Error updating working_sheets:', err);
-                          reject(err);
-                        } else {
-                          console.log(`✅ Updated working_sheets: ${productCode}${isZeroStock ? ' (created_at reset)' : ''}`);
-                          workingSheetsUpdated++;
-                          resolve();
-                        }
-                      });
-                    });
-                    }); // Закрываем функцию сохранения снимка
-                  } else {
-                  // Если товара нет - создаем новую запись в working_sheets
-                  console.log(`➕ Creating new product: ${productCode}`);
-                  const cenaValue = roundMoney(maxCena);
-                  const objetoscValue = parseFloat(String(mainProduct.objetosc || '1').replace(',', '.')) || 1;
-                  const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                  
-                  // Для bezalkoholowe, ferment и aksesoria податок всегда 0
-                  const isBezalkoholoweOrFermentOrAksesoria = mainProduct.typ === 'bezalkoholowe' || mainProduct.typ === 'ferment' || mainProduct.typ === 'aksesoria';
-                  console.log(`🔍 Product type check for ${productCode}: typ="${mainProduct.typ}", isBezalkoholoweOrFermentOrAksesoria=${isBezalkoholoweOrFermentOrAksesoria}`);
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : 
-                    (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
-                  // Для aksesoria транспорт (średnie) не распределяется
-                  const deliveryWs = deliveryCostWsPair(mainProduct, kosztDostawyPerUnit, productsList);
-                  const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
-                  const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
-                  console.log(`💰 Final podatekValue for ${productCode}: ${podatekValue} (forced to 0: ${isBezalkoholoweOrFermentOrAksesoria})`);
-                  
-                  console.log(`📊 Product ${productCode}:`);
-                  console.log(`  - cena: ${mainProduct.cena} → ${cenaValue}`);
-                  console.log(`  - objetosc: ${mainProduct.objetosc} → ${objetoscValue}`);
-                  console.log(`  - podatekAkcyzowy: ${podatekAkcyzowy} → ${podatekAkcyzowyValue}`);
-                  console.log(`  - kurs: ${kurs}`);
-                  console.log(`  - kosztDostawyPerUnit: ${kosztDostawyPerUnit}`);
-                  console.log(`  - podatekValue: ${podatekValue}`);
-                  
-                  const finalKosztDostawy = kosztDostawyPerUnitForProduct || 0;
-                  const finalKosztDostawySrednie = kosztDostawyPerUnitSrednieForProduct || 0;
-                  const finalPodatek = podatekValue || 0;
-                  
-                  console.log(`🔍 FINAL VALUES for SQL INSERT:`);
-                  console.log(`  - koszt_dostawy_per_unit: ${finalKosztDostawy} (type: ${typeof finalKosztDostawy})`);
-                  console.log(`  - podatek_akcyzowy: ${finalPodatek} (type: ${typeof finalPodatek})`);
-                  
-                  db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [
-                      productCode, 
-                      mainProduct.nazwa, 
-                      summedQuantity, 
-                      mainProduct.kod_kreskowy || null, 
-                      mainProduct.typ || null, 
-                      sprzedawca || null, 
-                      cenaValue,
-                      mainProduct.dataWaznosci || null,
-                      mainProduct.objetosc || null,
-                      finalKosztDostawy,
-                      finalKosztDostawySrednie,
-                      finalPodatek,
-                      date // created_at = data zakupu, а не текущая дата создания записи
-                    ],
-                    function(err) {
-                      if (err) {
-                        console.error('❌ Error inserting into working_sheets:', err);
-                        reject(err);
-                      } else {
-                        console.log(`✅ Created new working_sheets record: ${productCode}`);
-                        workingSheetsInserted++;
-                        
-                        resolve();
-                      }
+                      resolve();
                     }
-                  );
-                }
+                  }
+                );
               });
+            }
+
+            const zeroStock = existingProduct && Number(existingProduct.ilosc) === 0;
+            if (zeroStock) {
+              console.log(`🔄 Zero stock detected for ${productCode} — resetting created_at to receipt date ${date}`);
+            }
+            const applied = await applyWorkingSheetFromLatest(productCode, {
+              insertIfMissing: true,
+              createdAt: date,
+              createdAtOnUpdate: zeroStock ? date : null,
             });
+            if (applied === 'inserted') {
+              console.log(`✅ Created new working_sheets record: ${productCode}`);
+              workingSheetsInserted++;
+            } else if (applied === 'updated') {
+              console.log(`✅ Updated working_sheets: ${productCode}${zeroStock ? ' (created_at reset)' : ''}`);
+              workingSheetsUpdated++;
+            }
             
             processedCount++;
           }
@@ -10687,96 +10576,41 @@ app.put('/api/product-receipts/:id', upload.fields([
               );
             });
             
-            // Шаг 3: Обновляем working_sheets только для товаров, где что-то изменилось
-            console.log('🔄 Step 3: Updating working_sheets for changed products...');
-            
+            // Шаг 3: working_sheets — qty = SUM партий; cena/typ/koszt/akcyza с последней партии
+            console.log('🔄 Step 3: Updating working_sheets from latest remaining batch...');
+
             for (const productCode of allProductCodes) {
               const oldProduct = oldProductsByKod[productCode];
               const newProduct = newProductsByKod[productCode];
-              
+
               if (!oldProduct && newProduct) {
                 const normalizedCode = normalizeProductKod(productCode);
                 console.log(`➕ Adding product to working_sheets: ${normalizedCode}`);
-
-                const totalQuantityResult = await new Promise((resolve, reject) => {
-                  db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [normalizedCode], (err, result) => {
-                    if (err) reject(err);
-                    else resolve(result?.total_ilosc || 0);
-                  });
-                });
-
-                const sourceProduct = newProduct.items[0];
-                const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
-                const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
-                const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
-                const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnitValue, newProduct.items);
-                const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
-                const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
-                const existingWs = await new Promise((resolve, reject) => {
-                  db.get(
-                    'SELECT id FROM working_sheets WHERE kod = ?',
-                    [normalizedCode],
-                    (err, row) => (err ? reject(err) : resolve(row))
-                  );
-                });
-
-                await new Promise((resolve, reject) => {
-                  if (existingWs) {
-                    console.log(`🔄 ${normalizedCode} already in working_sheets — updating`);
+                const existingWs = await getWorkingSheetByKod(normalizedCode);
+                if (existingWs) {
+                  await new Promise((resolve, reject) => {
                     db.run(
-                      `UPDATE working_sheets SET
-                        nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
-                        data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?, koszt_dostawy_per_unit_srednie = ?,
-                        podatek_akcyzowy = ?
-                       WHERE kod = ?`,
-                      [
-                        sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null,
-                        sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena),
-                        sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null,
-                        kosztDostawyPerUnitForProduct, kosztDostawyPerUnitSrednieForProduct, podatekValue, normalizedCode,
-                      ],
-                      function (err) {
-                        if (err) {
-                          console.error(`❌ Error updating working_sheets for ${normalizedCode}:`, err);
-                          reject(err);
-                        } else {
-                          workingSheetsUpdated++;
-                          resolve();
-                        }
-                      }
+                      insertWorkingSheetsHistoryBeforeReceiptSql(),
+                      insertWorkingSheetsHistoryBeforeReceiptParams(id, normalizedCode),
+                      (err) => (err ? reject(err) : resolve())
                     );
-                    return;
-                  }
-
-                  db.run(
-                    'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [normalizedCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, kosztDostawyPerUnitSrednieForProduct, podatekValue, date],
-                    function (err) {
-                      if (err) {
-                        console.error(`❌ Error creating working_sheets for ${normalizedCode}:`, err);
-                        reject(err);
-                      } else {
-                        console.log(`✅ Created working_sheets for ${normalizedCode}`);
-                        workingSheetsUpdated++;
-                        resolve();
-                      }
-                    }
-                  );
+                  });
+                }
+                const applied = await applyWorkingSheetFromLatest(normalizedCode, {
+                  insertIfMissing: true,
+                  createdAt: date,
                 });
+                if (applied) workingSheetsUpdated++;
               } else if (oldProduct && !newProduct) {
-                // Товар удален - проверяем, нужно ли удалить из working_sheets
                 console.log(`🗑️ Checking if ${productCode} should be removed from working_sheets...`);
-                
+
                 const remainingCount = await new Promise((resolve, reject) => {
-                db.get('SELECT COUNT(*) as count FROM products WHERE kod = ?', [productCode], (err, result) => {
+                  db.get('SELECT COUNT(*) as count FROM products WHERE kod = ?', [productCode], (err, result) => {
                     if (err) reject(err);
                     else resolve(result?.count || 0);
                   });
                 });
-                
+
                 if (remainingCount === 0) {
                   const result = await keepWorkingSheetZeroOrDelete(productCode, id);
                   if (result === 'kept') workingSheetsUpdated++;
@@ -10785,316 +10619,41 @@ app.put('/api/product-receipts/:id', upload.fields([
                   if (synced) workingSheetsUpdated++;
                 }
               } else if (oldProduct && newProduct) {
-                // Товар существует - обновляем только измененные поля
-                console.log(`🔄 Updating working_sheets for ${productCode}...`);
-                
-                // Получаем текущую запись из working_sheets
-                const workingSheetRecord = await new Promise((resolve, reject) => {
-                  db.get('SELECT * FROM working_sheets WHERE kod = ?', [productCode], (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                  });
-                });
-                
-                if (!workingSheetRecord) {
-                  console.log(`⚠️ No working_sheets record for ${productCode}, creating new one...`);
-                  // Создаем новую запись
-                  const totalQuantityResult = await new Promise((resolve, reject) => {
-                    db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
-                      if (err) reject(err);
-                      else resolve(result?.total_ilosc || 0);
-                    });
-                  });
-                  
-                  const sourceProduct = newProduct.items[0];
-                  const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                  const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
-                  const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                  const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
-                  const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
-                  const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnitValue, newProduct.items);
-                  const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
-                  const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
-              await new Promise((resolve, reject) => {
-                        db.run(
-                      'INSERT INTO working_sheets (kod, nazwa, ilosc, kod_kreskowy, typ, sprzedawca, cena_zakupu_pln, data_waznosci, objetosc, koszt_dostawy_per_unit, koszt_dostawy_per_unit_srednie, podatek_akcyzowy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                      [productCode, sourceProduct.nazwa, totalQuantityResult, sourceProduct.kod_kreskowy || null, sourceProduct.typ || null, sprzedawca || null, roundMoney(maxCena), sourceProduct.dataWaznosci || null, sourceProduct.objetosc || null, kosztDostawyPerUnitForProduct, kosztDostawyPerUnitSrednieForProduct, podatekValue, date],
-                          function(err) {
-                  if (err) {
-                          console.error(`❌ Error creating working_sheets for ${productCode}:`, err);
-                    reject(err);
-                            } else {
-                          console.log(`✅ Created working_sheets for ${productCode}`);
-                              workingSheetsUpdated++;
-                              resolve();
-                  }
-                          }
-                        );
-                  });
-                  continue;
-                }
-                
-                // Синхронизируем created_at ТОЛЬКО если он был выставлен именно этой приёмкой.
-                // Признак этого: created_at в working_sheets совпадает со старой (до изменения)
-                // датой приёмки — значит эта приёмка сбросила created_at (остаток был 0 при её создании).
-                // Если даты не совпадают — created_at принадлежит другой/более старой партии, не трогаем.
+                console.log(`🔄 Updating working_sheets for ${productCode} from latest remaining batch...`);
+                const workingSheetRecord = await getWorkingSheetByKod(productCode);
                 const oldReceiptDatePart = String(oldReceipt.data_przyjecia || '').slice(0, 10);
-                const wsCreatedAtPart = String(workingSheetRecord.created_at || '').slice(0, 10);
+                const wsCreatedAtPart = String((workingSheetRecord && workingSheetRecord.created_at) || '').slice(0, 10);
                 const shouldSyncCreatedAt = data_przyjeciaChanged && oldReceiptDatePart && wsCreatedAtPart === oldReceiptDatePart;
                 if (data_przyjeciaChanged) {
                   console.log(`🗓️ created_at sync check for ${productCode}: ws.created_at=${wsCreatedAtPart}, oldReceiptDate=${oldReceiptDatePart}, willSync=${shouldSyncCreatedAt}`);
                 }
-                
-                // Определяем, что изменилось в working_sheets
-                const maxCenaForWsCheck = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                const wsChanges = {
-                  ilosc: oldProduct.ilosc !== newProduct.ilosc, // Количество в приемке изменилось
-                  nazwa: (oldProduct.nazwa || '') !== (newProduct.nazwa || ''),
-                  kod_kreskowy: (oldProduct.kod_kreskowy || '') !== (newProduct.kod_kreskowy || ''),
-                  cena: Math.abs((workingSheetRecord.cena_zakupu_pln || 0) - maxCenaForWsCheck) > 0.01, // Изменилась цена в приемке
-                  typ: (oldProduct.typ || '') !== (newProduct.typ || ''),
-                  dataWaznosci: (oldProduct.dataWaznosci || '') !== (newProduct.dataWaznosci || ''),
-                  objetosc: (oldProduct.objetosc || '') !== (newProduct.objetosc || ''),
-                  podatekAkcyzowy: podatekAkcyzowyChanged,
-                  kurs: kursChanged,
-                  kosztDostawy: kosztDostawyChanged,
-                  walutaDostawy: walutaDostawyChanged,
-                  sprzedawca: (workingSheetRecord.sprzedawca || '') !== (sprzedawca || '')
-                };
-                
-                const hasWsChanges = Object.values(wsChanges).some(v => v);
-                
-                // Если изменился только курс, kosztDostawy или podatekAkcyzowy, но не товары, все равно нужно обновить соответствующие поля
-                const needsKosztDostawyUpdate = kursChanged || kosztDostawyChanged || walutaDostawyChanged;
-                const needsPodatekAkcyzowyUpdate = podatekAkcyzowyChanged && !wsChanges.objetosc && !wsChanges.typ;
-                const needsReceiptParamsUpdate = needsKosztDostawyUpdate || needsPodatekAkcyzowyUpdate || shouldSyncCreatedAt;
-                  
-                if (!hasWsChanges && !needsReceiptParamsUpdate) {
-                  console.log(`✅ No working_sheets changes for ${productCode}, skipping update`);
-                  continue;
-                }
-                
-                // Если изменились только параметры приемки (курс, kosztDostawy, podatek_akcyzowy, data zakupu), но не товары, обновляем соответствующие поля
-                // Но только если товар существует и в старой, и в новой версии приемки
-                if (!hasWsChanges && needsReceiptParamsUpdate && oldProduct && newProduct) {
-                  const updateReason = [];
-                  if (kursChanged) updateReason.push('kurs');
-                  if (kosztDostawyChanged) updateReason.push('kosztDostawy');
-                  if (needsPodatekAkcyzowyUpdate) updateReason.push('podatek_akcyzowy');
-                  if (shouldSyncCreatedAt) updateReason.push('data_przyjecia');
-                  console.log(`💰 Only receipt params changed for ${productCode} (${updateReason.join(', ')}), updating working_sheets`);
-                  
-                  // Сохраняем снимок ДО изменений
+                if (workingSheetRecord) {
                   await new Promise((resolve, reject) => {
                     db.run(
                       insertWorkingSheetsHistoryBeforeReceiptSql(),
                       insertWorkingSheetsHistoryBeforeReceiptParams(id, productCode),
-                      function(err) {
-                        if (err) {
-                          reject(err);
-                        } else {
+                      (err) => {
+                        if (err) reject(err);
+                        else {
                           console.log(`✅ Snapshot saved for ${productCode}`);
                           resolve();
                         }
                       }
                     );
                   });
-                  
-                  // Получаем текущую запись из working_sheets
-                  const workingSheetRecord = await new Promise((resolve, reject) => {
-                    db.get('SELECT * FROM working_sheets WHERE kod = ?', [productCode], (err, row) => {
-                      if (err) reject(err);
-                      else resolve(row);
-                    });
-                  });
-                  
-                  if (!workingSheetRecord) {
-                    console.log(`⚠️ No working_sheets record for ${productCode}, skipping`);
-                    continue;
-                  }
-                  
-                  // Пересчитываем koszt_dostawy_per_unit с новым курсом (если изменился курс или kosztDostawy)
-                  const kosztDostawyPerUnitValue = Math.round((((kosztDostawy || 0) / (totalBottles || 1)) * kurs) * 100) / 100;
-                  
-                  // Пересчитываем podatek_akcyzowy (если изменился podatek_akcyzowy на литр)
-                  const sourceProduct = newProduct.items[0];
-                  const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
-                  const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                  const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
-                  
-                  const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnit, newProduct.items);
-                  const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
-                  const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
-                  
-                  // Формируем UPDATE запрос только для измененных полей
-                  const updateFields = [];
-                  const updateValues = [];
-                  
-                  if (needsKosztDostawyUpdate) {
-                    updateFields.push('koszt_dostawy_per_unit = ?');
-                    updateValues.push(kosztDostawyPerUnitForProduct);
-                    updateFields.push('koszt_dostawy_per_unit_srednie = ?');
-                    updateValues.push(kosztDostawyPerUnitSrednieForProduct);
-                      }
-                      
-                  if (needsPodatekAkcyzowyUpdate) {
-                    updateFields.push('podatek_akcyzowy = ?');
-                    updateValues.push(podatekValue);
-                  }
-                  
-                  // Синхронизируем created_at с новой датой приемки, но только если её выставила именно эта приёмка
-                  if (shouldSyncCreatedAt) {
-                    updateFields.push('created_at = ?');
-                    updateValues.push(date);
-                  }
-                  
-                  if (updateFields.length > 0) {
-                  await new Promise((resolve, reject) => {
-                        db.run(
-                      `UPDATE working_sheets SET ${updateFields.join(', ')} WHERE kod = ?`,
-                      [...updateValues, productCode],
-                          function(err) {
-                            if (err) {
-                              console.error(`❌ Error updating working_sheets for ${productCode}:`, err);
-                              reject(err);
-                            } else {
-                          console.log(`✅ Updated working_sheets for ${productCode}: ${updateFields.join(', ')}`);
-                              workingSheetsUpdated++;
-                              resolve();
-                            }
-                          }
-                        );
-                  });
-                  }
-                  continue;
                 }
-                
-                console.log(`📝 Working_sheets changes for ${productCode}:`, wsChanges);
-                
-                // Сохраняем снимок ДО изменений
-                await new Promise((resolve, reject) => {
-                        db.run(
-                    insertWorkingSheetsHistoryBeforeReceiptSql(),
-                    insertWorkingSheetsHistoryBeforeReceiptParams(id, productCode),
-                          function(err) {
-                            if (err) {
-                              reject(err);
-                            } else {
-                        console.log(`✅ Snapshot saved for ${productCode}`);
-                              resolve();
-                            }
-                          }
-                        );
+                const applied = await applyWorkingSheetFromLatest(productCode, {
+                  insertIfMissing: true,
+                  createdAt: date,
+                  createdAtOnUpdate: shouldSyncCreatedAt ? date : null,
                 });
-                
-                // Формируем UPDATE запрос только для измененных полей
-                const updateFields = [];
-                const updateValues = [];
-                
-                // Если количество в приемке изменилось, пересчитываем общее количество
-                if (wsChanges.ilosc) {
-                  const totalQuantityResult = await new Promise((resolve, reject) => {
-                    db.get('SELECT SUM(ilosc_aktualna) as total_ilosc FROM products WHERE kod = ?', [productCode], (err, result) => {
-                      if (err) reject(err);
-                      else resolve(result?.total_ilosc || 0);
-                  });
-                });
-                  updateFields.push('ilosc = ?');
-                  updateValues.push(totalQuantityResult);
-                  console.log(`📊 Quantity changed for ${productCode}: recalculated total = ${totalQuantityResult}`);
-                }
-                
-                if (wsChanges.nazwa) {
-                  updateFields.push('nazwa = ?');
-                  updateValues.push(newProduct.nazwa);
-                }
-                if (wsChanges.kod_kreskowy) {
-                  updateFields.push('kod_kreskowy = ?');
-                  updateValues.push(newProduct.kod_kreskowy || null);
-                }
-                if (wsChanges.typ) {
-                  updateFields.push('typ = ?');
-                  updateValues.push(newProduct.typ || null);
-                }
-                if (wsChanges.dataWaznosci) {
-                  updateFields.push('data_waznosci = ?');
-                  updateValues.push(newProduct.dataWaznosci || null);
-                }
-                // Пересчитываем podatek_akcyzowy только если изменился объем ИЛИ podatekAkcyzowy (на литр) из приемки
-                if (wsChanges.objetosc || wsChanges.podatekAkcyzowy || wsChanges.typ) {
-                  if (wsChanges.objetosc) {
-                    updateFields.push('objetosc = ?');
-                    updateValues.push(newProduct.objetosc || null);
-                  }
-                  
-                  const sourceProduct = newProduct.items[0];
-                  const objetoscValue = parseFloat(String(sourceProduct.objetosc || '1').replace(',', '.')) || 1;
-                  const podatekAkcyzowyValue = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.'));
-                  const isBezalkoholoweOrFermentOrAksesoria = sourceProduct.typ === 'bezalkoholowe' || sourceProduct.typ === 'ferment' || sourceProduct.typ === 'aksesoria';
-                  const podatekValue = isBezalkoholoweOrFermentOrAksesoria ? 0 : (podatekAkcyzowyValue === 0 ? 0 : roundMoney(podatekAkcyzowyValue * objetoscValue));
-                  
-                  updateFields.push('podatek_akcyzowy = ?');
-                  updateValues.push(podatekValue);
-                }
-                
-                // Обновляем цену, если она изменилась
-                const maxCena = Math.max(...newProduct.items.map(p => parseFloat(p.cena || 0)));
-                if (Math.abs((workingSheetRecord.cena_zakupu_pln || 0) - maxCena) > 0.01) {
-                  updateFields.push('cena_zakupu_pln = ?');
-                  updateValues.push(roundMoney(maxCena));
-                }
-                
-                // Обновляем sprzedawca, если он изменился
-                if ((workingSheetRecord.sprzedawca || '') !== (sprzedawca || '')) {
-                  updateFields.push('sprzedawca = ?');
-                  updateValues.push(sprzedawca || null);
-            }
-                
-                // Обновляем koszt_dostawy_per_unit из Koszt/but. и średnie, если изменилась доставка, курс или цена
-                const sourceProduct = newProduct.items[0];
-                const deliveryWs = deliveryCostWsPair(sourceProduct, kosztDostawyPerUnit, newProduct.items);
-                const kosztDostawyPerUnitForProduct = deliveryWs.perUnit;
-                const kosztDostawyPerUnitSrednieForProduct = deliveryWs.srednie;
-                const kosztDostawyPerUnitChanged = Math.abs((workingSheetRecord.koszt_dostawy_per_unit || 0) - kosztDostawyPerUnitForProduct) > 0.01;
-                
-                // Обновляем, если значение изменилось ИЛИ если изменился курс или kosztDostawy в приемке
-                if (kosztDostawyPerUnitChanged || kursChanged || kosztDostawyChanged || walutaDostawyChanged) {
-                  updateFields.push('koszt_dostawy_per_unit = ?');
-                  updateValues.push(kosztDostawyPerUnitForProduct);
-                  updateFields.push('koszt_dostawy_per_unit_srednie = ?');
-                  updateValues.push(kosztDostawyPerUnitSrednieForProduct);
-                }
-                
-                // Синхронизируем created_at с новой датой приемки, но только если её выставила именно эта приёмка
-                if (shouldSyncCreatedAt) {
-                  updateFields.push('created_at = ?');
-                  updateValues.push(date);
-                }
-                
-                if (updateFields.length > 0) {
-                  updateValues.push(productCode);
-                  await new Promise((resolve, reject) => {
-                    db.run(
-                      `UPDATE working_sheets SET ${updateFields.join(', ')} WHERE kod = ?`,
-                      updateValues,
-                      function(err) {
-                        if (err) {
-                          console.error(`❌ Error updating working_sheets for ${productCode}:`, err);
-                          reject(err);
-                        } else {
-                          console.log(`✅ Updated working_sheets for ${productCode}, fields: ${updateFields.join(', ')}`);
-                          workingSheetsUpdated++;
-                          resolve();
-              }
-            }
-                    );
-                  });
+                if (applied) {
+                  console.log(`✅ Updated working_sheets for ${productCode} from latest batch`);
+                  workingSheetsUpdated++;
                 }
               }
             }
-            
+
       }
 
       // Шаг 4: Коммитим транзакцию и отправляем ответ
