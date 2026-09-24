@@ -9311,6 +9311,7 @@ app.get('/api/analiza-zakupow', (req, res) => {
     `SELECT
       p.kod AS kod,
       MAX(p.nazwa) AS nazwa,
+      GROUP_CONCAT(DISTINCT pr.sprzedawca) AS sprzedawca,
       SUM(COALESCE(p.ilosc_pierwotna, 0)) AS ilosc,
       ROUND(SUM(${ANALIZA_ZAKUPOW_LINE_NETTO}), 2) AS netto
     ${ANALIZA_ZAKUPOW_BASE_JOIN}
@@ -9327,6 +9328,11 @@ app.get('/api/analiza-zakupow', (req, res) => {
       const mapped = (rows || []).map((row) => ({
         kod: row.kod,
         nazwa: row.nazwa || '',
+        sprzedawca: String(row.sprzedawca || '')
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean)
+          .join(', '),
         ilosc: Number(row.ilosc) || 0,
         netto: roundMoney(row.netto),
       }));

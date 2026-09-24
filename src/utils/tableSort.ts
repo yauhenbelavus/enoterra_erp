@@ -278,13 +278,15 @@ export function compareAnalizaWydanProducts<
 }
 
 export function compareAnalizaZakupowProducts<
-  T extends { kod?: string; nazwa?: string; ilosc?: number; netto?: number }
+  T extends { kod?: string; nazwa?: string; sprzedawca?: string; ilosc?: number; netto?: number }
 >(a: T, b: T, field: string, direction: SortDirection): number {
   switch (field) {
     case 'kod':
       return compareSortValues(lowerCase(a.kod), lowerCase(b.kod), direction);
     case 'nazwa':
       return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
+    case 'sprzedawca':
+      return compareSortValues(lowerCase(a.sprzedawca), lowerCase(b.sprzedawca), direction);
     case 'ilosc':
       return compareSortValues(a.ilosc ?? 0, b.ilosc ?? 0, direction);
     case 'netto':

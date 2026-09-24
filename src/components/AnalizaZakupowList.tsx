@@ -6,6 +6,7 @@ import { compareAnalizaZakupowProducts, useTableSort } from '../utils/tableSort'
 interface ZakupProduct {
   kod: string;
   nazwa: string;
+  sprzedawca: string;
   ilosc: number;
   netto: number;
 }
@@ -471,6 +472,15 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
             </th>
             <th
               className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              onClick={() => handleSort('sprzedawca')}
+            >
+              <div className="flex items-center gap-1">
+                Sprzedawca
+                <SortIndicator field="sprzedawca" sortField={sortField} sortDirection={sortDirection} />
+              </div>
+            </th>
+            <th
+              className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
               onClick={() => handleSort('ilosc')}
             >
               <div className="flex items-center gap-1">
@@ -492,19 +502,19 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
         <tbody className="bg-white divide-y divide-gray-200">
           {isLoading ? (
             <tr>
-              <td colSpan={4} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+              <td colSpan={5} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                 Ładowanie danych...
               </td>
             </tr>
           ) : error ? (
             <tr>
-              <td colSpan={4} className="px-8 py-8 text-center text-sm text-red-600 font-sora">
+              <td colSpan={5} className="px-8 py-8 text-center text-sm text-red-600 font-sora">
                 {error}
               </td>
             </tr>
           ) : products.length === 0 ? (
             <tr>
-              <td colSpan={4} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+              <td colSpan={5} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                 Brak danych o zakupach
               </td>
             </tr>
@@ -527,6 +537,9 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
                     <td className="px-8 py-3 text-sm text-gray-900 font-sora">
                       {product.nazwa}
                     </td>
+                    <td className="px-8 py-3 text-sm text-gray-600 font-sora">
+                      {product.sprzedawca}
+                    </td>
                     <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-600 font-sora">
                       {product.ilosc}
                     </td>
@@ -537,7 +550,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
 
                   {isExpanded && isDetailsLoading && (
                     <tr className="bg-gray-50">
-                      <td colSpan={4} className="px-8 py-3 text-sm text-gray-500 font-sora">
+                      <td colSpan={5} className="px-8 py-3 text-sm text-gray-500 font-sora">
                         Ładowanie szczegółów...
                       </td>
                     </tr>
@@ -545,7 +558,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
 
                   {isExpanded && detailsError && (
                     <tr className="bg-gray-50">
-                      <td colSpan={4} className="px-8 py-3 text-sm text-red-600 font-sora">
+                      <td colSpan={5} className="px-8 py-3 text-sm text-red-600 font-sora">
                         {detailsError}
                       </td>
                     </tr>
@@ -553,7 +566,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
 
                   {isExpanded && !isDetailsLoading && !detailsError && receiptRows.length === 0 && (
                     <tr className="bg-gray-50">
-                      <td colSpan={4} className="px-8 py-3 text-sm text-gray-500 font-sora">
+                      <td colSpan={5} className="px-8 py-3 text-sm text-gray-500 font-sora">
                         Brak danych o przyjęciach
                       </td>
                     </tr>
@@ -567,6 +580,7 @@ export const AnalizaZakupowList: React.FC<AnalizaZakupowListProps> = ({
                         <td className="px-8 py-2 pl-12 whitespace-nowrap text-sm text-gray-500 font-sora">
                           {formatPrzyjecieDate(row.data_przyjecia)}
                         </td>
+                        <td className="px-8 py-2 text-sm text-gray-500 font-sora" />
                         <td className="px-8 py-2 text-sm text-gray-700 font-sora">
                           {row.sprzedawca}
                         </td>
