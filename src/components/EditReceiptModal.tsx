@@ -105,9 +105,16 @@ export type KodChangeConflict = {
   documents: KodChangeBlockedDocument[];
 };
 
+export type ReceiptQtyConflict = {
+  oldKod: string;
+  nazwa: string;
+  issued: number;
+  requested: number;
+};
+
 export type EditReceiptSubmitResult =
   | { ok: true }
-  | { ok: false; kodBlocked?: { conflicts: KodChangeConflict[]; message?: string } };
+  | { ok: false; kodBlocked?: { conflicts: KodChangeConflict[]; message?: string }; qtyBlocked?: { conflicts: ReceiptQtyConflict[]; message?: string } };
 
 const ORDER_TYP_LABELS: Record<string, string> = {
   zamowienie: 'Zamówienie',
@@ -239,6 +246,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const [kwotaVat, setKwotaVat] = useState('');
   const [sumaBrutto, setSumaBrutto] = useState('');
   const [kodChangeConflicts, setKodChangeConflicts] = useState<KodChangeConflict[] | null>(null);
+  const [qtyConflicts, setQtyConflicts] = useState<ReceiptQtyConflict[] | null>(null);
+  const [qtyConflictMessage, setQtyConflictMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showFieldErrors, setShowFieldErrors] = useState(false);
   const skipBruttoSyncRef = useRef(false);
@@ -640,6 +649,11 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
         setKodChangeConflicts(result.kodBlocked.conflicts);
         return;
       }
+      if (result && result.ok === false && result.qtyBlocked) {
+        setQtyConflicts(result.qtyBlocked.conflicts);
+        setQtyConflictMessage(result.qtyBlocked.message || null);
+        return;
+      }
 
       handleClose();
     } finally {
@@ -649,6 +663,8 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
 
   const handleClose = () => {
     setKodChangeConflicts(null);
+    setQtyConflicts(null);
+    setQtyConflictMessage(null);
     setIsSaving(false);
     setSelectedDate(null);
     setPosition({ x: 0, y: 0 });
@@ -1386,6 +1402,58 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
             <button
               type="button"
               onClick={() => setKodChangeConflicts(null)}
+              className="px-4 py-2 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700"
+            >
+              Zamknij
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!qtyConflicts && qtyConflicts.length > 0}
+        onRequestClose={() => { setQtyConflicts(null); setQtyConflictMessage(null); }}
+        style={{
+          content: {
+            width: '560px',
+            maxWidth: '92%',
+            maxHeight: '80vh',
+            margin: 'auto',
+            padding: '1.25rem',
+            borderRadius: '0.5rem',
+            overflow: 'auto',
+          },
+          overlay: { zIndex: 60, backgroundColor: 'rgba(0,0,0,0.45)' },
+        }}
+        ariaHideApp={false}
+      >
+        <div className="font-sora text-sm text-gray-900">
+          <h3 className="text-base font-semibold mb-3">Nie można zmniejszyć ilości</h3>
+          <p className="text-xs text-gray-600 mb-4">
+            {qtyConflictMessage ||
+              'Z partii tego przyjęcia towar został już wydany. Ilość w dokumencie nie może być mniejsza niż wydana.'}
+          </p>
+
+          <div className="space-y-4">
+            {qtyConflicts?.map((conflict) => (
+              <div key={conflict.oldKod} className="border border-gray-200 rounded-md p-3">
+                <p className="text-xs font-medium mb-1">
+                  Kod <span className="font-semibold">{conflict.oldKod}</span>
+                  {conflict.nazwa ? (
+                    <span className="text-gray-600"> ({conflict.nazwa})</span>
+                  ) : null}
+                </p>
+                <p className="text-xs text-gray-800 mt-2">
+                  Wydano {conflict.issued} szt., próba zapisu: {conflict.requested} szt.
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end mt-5">
+            <button
+              type="button"
+              onClick={() => { setQtyConflicts(null); setQtyConflictMessage(null); }}
               className="px-4 py-2 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700"
             >
               Zamknij

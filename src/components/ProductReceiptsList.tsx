@@ -41,7 +41,7 @@ interface ProductReceipt {
 
 interface ProductReceiptsListProps {
   receipts: ProductReceipt[];
-  onDelete: (id: number) => void;
+  onDelete: (id: number) => void | Promise<void>;
   onUpdate: (data: {
     id: number;
     date: string;
@@ -111,11 +111,11 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
 
   const handlePasswordSubmit = () => {
     if (password === '5202') {
-      if (receiptToDelete?.id) {
-        onDelete(receiptToDelete.id);
-        toast.success('Zapis został usunięty');
-      }
+      const id = receiptToDelete?.id;
       handlePasswordClose();
+      if (id) {
+        void Promise.resolve(onDelete(id));
+      }
     } else {
       toast.error('Nieprawidłowe hasło');
       setPassword('');

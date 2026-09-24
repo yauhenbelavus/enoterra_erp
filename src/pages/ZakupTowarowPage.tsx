@@ -312,6 +312,9 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         if (body.error === 'kod_change_blocked' && Array.isArray(body.conflicts)) {
           return { ok: false, kodBlocked: { conflicts: body.conflicts, message: body.message } };
         }
+        if (body.error === 'receipt_qty_blocked' && Array.isArray(body.conflicts)) {
+          return { ok: false, qtyBlocked: { conflicts: body.conflicts, message: body.message } };
+        }
       }
 
       if (!response.ok) throw new Error('Failed to update product receipt');
@@ -337,6 +340,14 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
   const handleDeleteReceipt = async (id: number) => {
     try {
       const response = await fetch(`${API_URL}/api/product-receipts/${id}`, { method: 'DELETE' });
+      if (response.status === 409) {
+        const body = await response.json().catch(() => ({}));
+        toast.error(
+          body.message ||
+            'Nie można usunąć przyjęcia: z partii tego dokumentu były wydania'
+        );
+        return;
+      }
       if (!response.ok) throw new Error('Failed to delete receipt');
 
       const updatedReceipts = await loadProductReceiptsFromDb();
