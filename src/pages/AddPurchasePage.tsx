@@ -140,6 +140,14 @@ const VAT_RATES = [
 const getTodayDate = () => new Date();
 const parsePlNumber = (value: string) => parseFloat(value.replace(',', '.')) || 0;
 const formatPlMoney = (value: number) => value.toFixed(2).replace('.', ',');
+const parseOcrMoney = (value: unknown): number | null => {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (s === '') return null;
+  const n = parseFloat(s.replace(',', '.').replace(/\s/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+const ocrMoneyDiffers = (fromRows: number, fromInvoice: number) => Math.abs(fromRows - fromInvoice) > 0.01;
 
 const getRowLineValue = (row: ProductRow): number => {
   const ilosc = parseFloat(row.ilosc) || 0;
@@ -300,12 +308,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     skipBruttoSyncRef.current = true;
     if (payload.sprzedawca) setSprzedawca(payload.sprzedawca);
     if (payload.waluta) setWalutaFaktury(normalizeWalutaFaktury(payload.waluta));
-    if (payload.suma_netto != null && String(payload.suma_netto).trim() !== '') setKwotaNetto(String(payload.suma_netto));
-    if (payload.suma_vat != null && String(payload.suma_vat).trim() !== '') setKwotaVat(String(payload.suma_vat));
-    if (payload.suma_brutto != null && String(payload.suma_brutto).trim() !== '') setSumaBrutto(String(payload.suma_brutto));
-    if (payload.products.length > 0) {
-      setProductRows(
-        payload.products.map((p) => ({
+
+    const nextRows: ProductRow[] = payload.products.length > 0
+      ? payload.products.map((p) => ({
           kod: p.kod?.trim() || '',
           nazwa: p.nazwa || '',
           kod_kreskowy: p.kod_kreskowy?.trim() || '',
@@ -318,8 +323,29 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           typ: p.typ?.trim() || '',
           objetosc: p.objetosc?.trim() || '',
         }))
-      );
-    }
+      : productRows;
+
+    if (payload.products.length > 0) setProductRows(nextRows);
+
+    const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
+    const factor = 1 - rabatValue / 100;
+    const nettoFromRows = nextRows.reduce((sum, row) => sum + getRowLineValue(row), 0) * factor;
+    const bruttoFromRows = nextRows.reduce((sum, row) => sum + getRowLineBrutto(row), 0) * factor;
+    const vatFromRows = nextRows.reduce((sum, row) => sum + getRowLineVat(row), 0) * factor;
+
+    const ocrNetto = parseOcrMoney(payload.suma_netto);
+    const ocrBrutto = parseOcrMoney(payload.suma_brutto);
+    const ocrVat = parseOcrMoney(payload.suma_vat);
+
+    const netto = ocrNetto != null && ocrMoneyDiffers(nettoFromRows, ocrNetto) ? ocrNetto : nettoFromRows;
+    const brutto = ocrBrutto != null && ocrMoneyDiffers(bruttoFromRows, ocrBrutto) ? ocrBrutto : bruttoFromRows;
+    const vat = ocrVat != null && ocrMoneyDiffers(vatFromRows, ocrVat)
+      ? ocrVat
+      : Math.max(0, brutto - netto);
+
+    setKwotaNetto(formatPlMoney(netto));
+    setSumaBrutto(formatPlMoney(brutto));
+    setKwotaVat(formatPlMoney(vat));
   };
 
   const handleOcrPdfChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
