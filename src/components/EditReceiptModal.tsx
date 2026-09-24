@@ -110,6 +110,7 @@ export type ReceiptQtyConflict = {
   nazwa: string;
   issued: number;
   requested: number;
+  id?: number;
 };
 
 export type EditReceiptSubmitResult =

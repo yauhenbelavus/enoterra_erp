@@ -68,6 +68,7 @@ interface ProductReceipt {
   }>;
   product_invoice?: string;
   transport_invoice?: string;
+  version?: number;
 }
 
 interface EditPurchasePageProps {
@@ -317,6 +318,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const [kodChangeConflicts, setKodChangeConflicts] = useState<KodChangeConflict[] | null>(null);
   const [qtyConflicts, setQtyConflicts] = useState<ReceiptQtyConflict[] | null>(null);
   const [qtyConflictMessage, setQtyConflictMessage] = useState<string | null>(null);
+  const [versionConflict, setVersionConflict] = useState<string | null>(null);
+  const [receiptVersion, setReceiptVersion] = useState<number>(1);
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const transportFileInputRef = useRef<HTMLInputElement>(null);
@@ -418,6 +421,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         setSumaBrutto(Number(receipt.wartosc_przyjecia_brutto) > 0 ? formatPlMoney(Number(receipt.wartosc_przyjecia_brutto)) : '');
         setExistingProductInvoice(receipt.product_invoice || null);
         setExistingTransportInvoice(receipt.transport_invoice || null);
+        setReceiptVersion(Number(receipt.version) || 1);
         setProductInvoice(null);
         setTransportInvoice(null);
         setProductRows(
@@ -642,6 +646,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
       walutaDostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
       kurs_2: kursFakturyNumber,
       kursMode: 'toPln' as const,
+      version: receiptVersion,
       products: formattedProducts,
     };
 
@@ -671,6 +676,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         if (body.error === 'receipt_qty_blocked' && Array.isArray(body.conflicts)) {
           setQtyConflicts(body.conflicts);
           setQtyConflictMessage(body.message || null);
+          return;
+        }
+        if (body.error === 'version_conflict') {
+          setVersionConflict(body.message || 'Przyjęcie zostało zmienione. Odśwież dokument i zapisz ponownie.');
           return;
         }
       }
@@ -1319,7 +1328,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
           </p>
           <div className="space-y-4">
             {qtyConflicts?.map((conflict) => (
-              <div key={conflict.oldKod} className="border border-gray-200 rounded-md p-3">
+              <div key={`${conflict.oldKod}-${conflict.id ?? 'kod'}`} className="border border-gray-200 rounded-md p-3">
                 <p className="text-xs font-medium mb-1">
                   Kod <span className="font-semibold">{conflict.oldKod}</span>
                   {conflict.nazwa ? <span className="text-gray-600"> ({conflict.nazwa})</span> : null}
@@ -1337,6 +1346,45 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               className="px-4 py-2 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700"
             >
               Zamknij
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!versionConflict}
+        onRequestClose={() => setVersionConflict(null)}
+        style={{
+          content: {
+            width: '480px',
+            maxWidth: '92%',
+            margin: 'auto',
+            padding: '1.25rem',
+            borderRadius: '0.5rem',
+          },
+          overlay: { zIndex: 60, backgroundColor: 'rgba(0,0,0,0.45)' },
+        }}
+        ariaHideApp={false}
+      >
+        <div className="font-sora text-sm text-gray-900">
+          <h3 className="text-base font-semibold mb-3">Dokument został zmieniony</h3>
+          <p className="text-xs text-gray-600 mb-4">
+            {versionConflict}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setVersionConflict(null)}
+              className="px-4 py-2 text-xs text-gray-600 hover:text-gray-800"
+            >
+              Zamknij
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700"
+            >
+              Odśwież
             </button>
           </div>
         </div>

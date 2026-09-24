@@ -639,26 +639,40 @@ function updateProductBatchByIdParams(product, productId, withQty, iloscAktualna
   return values;
 }
 
+function productBatchIssuedQty(record) {
+  const pierwotna = Number(record && (record.ilosc_pierwotna != null ? record.ilosc_pierwotna : record.ilosc)) || 0;
+  const aktualna = Number(record && record.ilosc_aktualna) || 0;
+  return Math.max(0, pierwotna - aktualna);
+}
+
 function pairReceiptProductBatches(oldRecords, newItems) {
   const unused = (oldRecords || []).slice();
-  const unmatchedNew = [];
   const pairs = [];
+  const unknownIds = [];
+  const duplicateIds = [];
+  const seenIds = new Set();
   for (const item of newItems || []) {
     const itemId = Number(item && item.id);
-    const idx = itemId ? unused.findIndex((row) => Number(row.id) === itemId) : -1;
+    if (!itemId) {
+      pairs.push({ record: null, item });
+      continue;
+    }
+    if (seenIds.has(itemId)) {
+      duplicateIds.push(itemId);
+      continue;
+    }
+    seenIds.add(itemId);
+    const idx = unused.findIndex((row) => Number(row.id) === itemId);
     if (idx >= 0) {
       pairs.push({ record: unused.splice(idx, 1)[0], item });
     } else {
-      unmatchedNew.push(item);
+      unknownIds.push(itemId);
     }
   }
-  unmatchedNew.forEach((item, i) => {
-    pairs.push({ record: i < unused.length ? unused[i] : null, item });
-  });
-  for (let i = unmatchedNew.length; i < unused.length; i++) {
-    pairs.push({ record: unused[i], item: null });
+  for (const record of unused) {
+    pairs.push({ record, item: null });
   }
-  return pairs;
+  return { pairs, unknownIds, duplicateIds };
 }
 
 function attachReceiptProductsFromTable(receipts, callback) {
@@ -2820,6 +2834,7 @@ db.serialize(() => {
     kurs_2 REAL DEFAULT 1,
     product_invoice TEXT,
     transport_invoice TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
     if (err) {
@@ -2939,6 +2954,17 @@ db.serialize(() => {
           }
         } else {
           console.log('✅ Column waluta_dostawy added to product_receipts');
+        }
+      });
+      db.run(`ALTER TABLE product_receipts ADD COLUMN version INTEGER DEFAULT 1`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column version already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding version column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column version added to product_receipts');
         }
       });
     }
@@ -9742,6 +9768,7 @@ function readReceiptRequestPayload(req) {
       walutaDostawy: source.waluta_dostawy ?? source.walutaDostawy,
       productInvoice: files.product_invoice ? files.product_invoice[0].filename : source.product_invoice,
       transportInvoice: files.transport_invoice ? files.transport_invoice[0].filename : source.transport_invoice,
+      version: source.version,
     };
   } catch (error) {
     console.error('❌ Error parsing JSON data from FormData:', error);
@@ -9758,7 +9785,7 @@ function prepareReceiptWriteRequest(req, options = {}) {
   let {
     date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products,
     productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury,
-    kursMode, walutaDostawy,
+    kursMode, walutaDostawy, version,
   } = receiptPayload;
 
   if (req.files?.product_invoice) {
@@ -9863,6 +9890,7 @@ function prepareReceiptWriteRequest(req, options = {}) {
     calculatedNetto,
     kosztDostawyPerUnit,
     assigned,
+    version,
   };
 }
 
@@ -10092,6 +10120,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     walutaDostawyForDb,
     aktualnyKursForDb,
     kosztDostawyPerUnit,
+    version,
   } = prepared;
 
   console.log(`📦 PUT /api/product-receipts/${id} lines=${products.length}`);
@@ -10114,7 +10143,7 @@ app.put('/api/product-receipts/:id', upload.fields([
     try {
       // Сначала получаем старые данные для сравнения
       const oldReceipt = await new Promise((resolve, reject) => {
-        db.get('SELECT data_przyjecia, product_invoice, transport_invoice, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy FROM product_receipts WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT data_przyjecia, product_invoice, transport_invoice, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy, version FROM product_receipts WHERE id = ?', [id], (err, row) => {
           if (err) reject(err);
           else resolve(row);
         });
@@ -10126,20 +10155,18 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       const oldProductRows = await loadReceiptProductBatches(id);
       const oldProducts = oldProductRows.map(mapProductBatchToReceiptLine);
-      const oldPodatekAkcyzowy = parseFloat(String(oldReceipt.stawka_podatek_akcyzowy || '0').replace(',', '.')) || 0;
-      const newPodatekAkcyzowy = parseFloat(String(podatekAkcyzowy || '0').replace(',', '.')) || 0;
-      const podatekAkcyzowyChanged = Math.abs(oldPodatekAkcyzowy - newPodatekAkcyzowy) > 0.01;
-      
-      walutaDostawyForDb = walutaDostawyForDb || oldReceipt.waluta_dostawy || null;
-      const walutaDostawyChanged = String(oldReceipt.waluta_dostawy || '') !== String(walutaDostawyForDb || '');
-      const walutaPrzyjeciaChanged = normalizeWalutaFaktury(oldReceipt.waluta_przyjecia) !== walutaFaktury;
-      const kursChanged =
-        Math.abs(parseKursValue(oldReceipt.kurs_1) - parseKursValue(aktualnyKursForDb)) > 0.01 ||
-        Math.abs(parseKursValue(oldReceipt.kurs_2) - parseKursValue(kursFaktury)) > 0.01 ||
-        walutaPrzyjeciaChanged;
-      const oldKosztDostawy = roundMoney(oldReceipt.wartosc_dostawy);
-      const newKosztDostawy = roundMoney(kosztDostawy);
-      const kosztDostawyChanged = Math.abs(oldKosztDostawy - newKosztDostawy) > 0.01;
+      const currentVersion = Number(oldReceipt.version) || 1;
+      const expectedVersion = Number(version);
+      if (!Number.isInteger(expectedVersion) || expectedVersion !== currentVersion) {
+        throw Object.assign(new Error('Receipt version conflict'), {
+          statusCode: 409,
+          payload: {
+            error: 'version_conflict',
+            message: 'Przyjęcie zostało zmienione. Odśwież dokument i zapisz ponownie.',
+            currentVersion,
+          },
+        });
+      }
 
       // Blokada zmiany/usunięcia kodu, jeśli istnieją dokumenty z tym kodem
       // (zamówienie / rozchód / zwrot / przychód) — A: wydania z partii przyjęcia, B: dokumenty po dacie przyjęcia
@@ -10201,11 +10228,25 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, product_invoice = ?, transport_invoice = ?, created_at = ? WHERE id = ?',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, finalProductInvoice, finalTransportInvoice, date, id],
+          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, product_invoice = ?, transport_invoice = ?, created_at = ?, version = version + 1 WHERE id = ? AND version = ?',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, finalProductInvoice, finalTransportInvoice, date, id, expectedVersion],
           function(err) {
-            if (err) reject(err);
-            else resolve();
+            if (err) {
+              reject(err);
+              return;
+            }
+            if (this.changes === 0) {
+              reject(Object.assign(new Error('Receipt version conflict'), {
+                statusCode: 409,
+                payload: {
+                  error: 'version_conflict',
+                  message: 'Przyjęcie zostało zmienione. Odśwież dokument i zapisz ponownie.',
+                  currentVersion,
+                },
+              }));
+              return;
+            }
+            resolve();
           }
         );
       });
@@ -10219,7 +10260,6 @@ app.put('/api/product-receipts/:id', upload.fields([
       }
 
       // Обновляем товары в working_sheets и products
-      let processedCount = 0;
       let workingSheetsUpdated = 0;
       let productsUpdated = 0;
       let productsInserted = 0;
@@ -10289,19 +10329,31 @@ app.put('/api/product-receipts/:id', upload.fields([
             });
               
             const allProductCodes = [...new Set([...Object.keys(oldProductsByKod), ...Object.keys(newProductsByKod)])];
+            const { pairs, unknownIds, duplicateIds } = pairReceiptProductBatches(oldProductRows, products);
+            if (unknownIds.length > 0 || duplicateIds.length > 0) {
+              throw Object.assign(new Error('Invalid product batch ids'), {
+                statusCode: 400,
+                payload: {
+                  error: 'unknown_product_id',
+                  message: 'Nieprawidłowe identyfikatory partii w przyjęciu',
+                  unknownIds,
+                  duplicateIds,
+                },
+              });
+            }
+
             const qtyConflicts = [];
-            for (const productCode of allProductCodes) {
-              const oldProduct = oldProductsByKod[productCode];
-              const newProduct = newProductsByKod[productCode];
-              if (!oldProduct || !newProduct) continue;
-              const oldAktualna = oldProduct.records.reduce((sum, row) => sum + (Number(row.ilosc_aktualna) || 0), 0);
-              const issued = Math.max(0, (oldProduct.ilosc || 0) - oldAktualna);
-              if ((newProduct.ilosc || 0) < issued) {
+            for (const { record, item } of pairs) {
+              if (!record) continue;
+              const issued = productBatchIssuedQty(record);
+              const requested = item ? (Number(item.ilosc) || 0) : 0;
+              if (requested < issued) {
                 qtyConflicts.push({
-                  oldKod: productCode,
-                  nazwa: newProduct.nazwa || oldProduct.nazwa || '',
+                  oldKod: normalizeProductKod((item && item.kod) || record.kod),
+                  nazwa: (item && item.nazwa) || record.nazwa || '',
                   issued,
-                  requested: newProduct.ilosc || 0,
+                  requested,
+                  id: record.id,
                 });
               }
             }
@@ -10318,141 +10370,55 @@ app.put('/api/product-receipts/:id', upload.fields([
               });
             }
 
-            // Шаг 2: Сравниваем старые и новые товары и обновляем только измененные
-            for (const productCode of allProductCodes) {
-              const oldProduct = oldProductsByKod[productCode];
-              const newProduct = newProductsByKod[productCode];
-              
-              if (!oldProduct && newProduct) {
-                // Новый товар - создаем записи в products
-                for (const item of newProduct.items) {
-              await new Promise((resolve, reject) => {
-                    db.run(
-                      insertProductBatchSql(),
-                      insertProductBatchParams(item, id, item.ilosc, date),
-                      function(err) {
-                  if (err) {
-                          console.error(`❌ Error inserting new product ${productCode}:`, err);
-                    reject(err);
-                  } else {
-                          productsInserted++;
-                    resolve();
-                  }
-                      }
-                    );
-              });
-            }
-              } else if (oldProduct && !newProduct) {
-                // Товар удален - удаляем записи из products
+            for (const { record, item } of pairs) {
+              if (!item) {
                 await new Promise((resolve, reject) => {
-                  db.run('DELETE FROM products WHERE receipt_id = ? AND kod = ?', [id, productCode], function(err) {
-                    if (err) {
-                      console.error(`❌ Error deleting product ${productCode}:`, err);
-                      reject(err);
-                    } else {
+                  db.run('DELETE FROM products WHERE id = ?', [record.id], function (err) {
+                    if (err) reject(err);
+                    else {
                       productsDeleted += this.changes;
                       resolve();
                     }
                   });
                 });
-              } else if (oldProduct && newProduct) {
-                const headerMoneyChanged = kursChanged || kosztDostawyChanged || podatekAkcyzowyChanged || walutaDostawyChanged;
-                const pairs = pairReceiptProductBatches(oldProduct.records, newProduct.items);
-                const qtyChanged = oldProduct.ilosc !== newProduct.ilosc;
-                const lineChanged = pairs.some(({ record, item }) => {
-                  if (!record || !item) return true;
-                  const recDataWaznosci = record.data_waznosci || '';
-                  const itemDataWaznosci = item.dataWaznosci || item.data_waznosci || '';
-                  return (
-                    (record.nazwa || '') !== (item.nazwa || '') ||
-                    (record.kod_kreskowy || '') !== (item.kod_kreskowy || '') ||
-                    Math.abs(roundMoney(record.cena_zakupu_pln) - roundMoney(item.cena)) > 0.01 ||
-                    (record.typ || '') !== (item.typ || '') ||
-                    String(recDataWaznosci) !== String(itemDataWaznosci) ||
-                    String(record.objetosc || '') !== String(item.objetosc || '') ||
-                    Math.abs(roundMoney(record.vat) - roundMoney(item.vat)) > 0.01 ||
-                    (record.ilosc_pierwotna || record.ilosc || 0) !== (item.ilosc || 0)
+                continue;
+              }
+              if (item.vat == null || item.vat === '') item.vat = record ? record.vat : 0;
+              if (!record) {
+                await new Promise((resolve, reject) => {
+                  db.run(
+                    insertProductBatchSql(),
+                    insertProductBatchParams(item, id, item.ilosc, date),
+                    function (err) {
+                      if (err) {
+                        console.error('❌ Error inserting product batch:', err);
+                        reject(err);
+                      } else {
+                        productsInserted++;
+                        resolve();
+                      }
+                    }
                   );
                 });
-
-                if (!qtyChanged && !lineChanged && !headerMoneyChanged) {
-                  continue;
-                }
-
-                const oldTotalIloscAktualna = oldProduct.records.reduce((sum, r) => sum + (r.ilosc_aktualna || 0), 0);
-                const delta = (newProduct.ilosc || 0) - (oldProduct.ilosc || 0);
-                let newTotalIloscAktualna = oldTotalIloscAktualna + delta;
-                if (newTotalIloscAktualna < 0) newTotalIloscAktualna = 0;
-                if (newTotalIloscAktualna > newProduct.ilosc) newTotalIloscAktualna = newProduct.ilosc;
-
-                let remainingAktualnaToDistribute = newTotalIloscAktualna;
-                for (let itemIndex = 0; itemIndex < pairs.length; itemIndex++) {
-                  const { record, item } = pairs[itemIndex];
-                  if (!item) {
-                    await new Promise((resolve, reject) => {
-                      db.run('DELETE FROM products WHERE id = ?', [record.id], function (err) {
-                        if (err) reject(err);
-                        else {
-                          productsDeleted += this.changes;
-                          resolve();
-                        }
-                      });
-                    });
-                    continue;
-                  }
-                  if (item.vat == null || item.vat === '') item.vat = record ? record.vat : oldProduct.vat;
-                  let itemIloscAktualna;
-                  if (qtyChanged) {
-                    const isLastItem = itemIndex === pairs.length - 1 || pairs.slice(itemIndex + 1).every((pair) => !pair.item);
-                    if (isLastItem) {
-                      itemIloscAktualna = remainingAktualnaToDistribute;
-                    } else {
-                      const share = (newProduct.ilosc || 0) > 0 ? (item.ilosc || 0) / newProduct.ilosc : 0;
-                      itemIloscAktualna = Math.min(item.ilosc || 0, Math.round(newTotalIloscAktualna * share));
-                    }
-                    itemIloscAktualna = Math.max(0, Math.min(itemIloscAktualna, item.ilosc || 0));
-                    remainingAktualnaToDistribute -= itemIloscAktualna;
-                  } else if (record) {
-                    itemIloscAktualna = record.ilosc_aktualna;
-                  } else {
-                    itemIloscAktualna = item.ilosc;
-                  }
-
-                  if (record) {
-                    await new Promise((resolve, reject) => {
-                      db.run(
-                        updateProductBatchByIdSql(true),
-                        updateProductBatchByIdParams(item, record.id, true, itemIloscAktualna),
-                        function (err) {
-                          if (err) {
-                            console.error(`❌ Error updating product ${productCode} id=${record.id}:`, err);
-                            reject(err);
-                          } else {
-                            productsUpdated += this.changes;
-                            resolve();
-                          }
-                        }
-                      );
-                    });
-                  } else {
-                    await new Promise((resolve, reject) => {
-                      db.run(
-                        insertProductBatchSql(),
-                        insertProductBatchParams(item, id, itemIloscAktualna, date),
-                        function (err) {
-                          if (err) {
-                            console.error(`❌ Error inserting product ${productCode}:`, err);
-                            reject(err);
-                          } else {
-                            productsInserted++;
-                            resolve();
-                          }
-                        }
-                      );
-                    });
-                  }
-                }
+                continue;
               }
+              const issued = productBatchIssuedQty(record);
+              const itemIloscAktualna = Math.max(0, (Number(item.ilosc) || 0) - issued);
+              await new Promise((resolve, reject) => {
+                db.run(
+                  updateProductBatchByIdSql(true),
+                  updateProductBatchByIdParams(item, record.id, true, itemIloscAktualna),
+                  function (err) {
+                    if (err) {
+                      console.error(`❌ Error updating product id=${record.id}:`, err);
+                      reject(err);
+                    } else {
+                      productsUpdated += this.changes;
+                      resolve();
+                    }
+                  }
+                );
+              });
             }
 
             await new Promise((resolve, reject) => {
@@ -10585,8 +10551,8 @@ app.put('/api/product-receipts/:id', upload.fields([
 
       if (!res.headersSent) {
         const statusCode = error.statusCode || 500;
-        if (statusCode === 409 && error.payload) {
-          res.status(409).json(error.payload);
+        if ((statusCode === 409 || statusCode === 400) && error.payload) {
+          res.status(statusCode).json(error.payload);
         } else {
           res.status(statusCode).json({
             error: statusCode === 404 ? 'Product receipt not found' : 'Failed to update working sheets: ' + error.message
