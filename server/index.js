@@ -9230,6 +9230,152 @@ app.get('/api/analiza-wydan/:kod', (req, res) => {
   });
 });
 
+const ANALIZA_ZAKUPOW_BASE_JOIN = `
+  FROM products p
+  JOIN product_receipts pr ON pr.id = p.receipt_id
+`;
+
+const ANALIZA_ZAKUPOW_BASE_WHERE = `
+  p.receipt_id IS NOT NULL
+  AND TRIM(COALESCE(p.kod, '')) != ''
+`;
+
+const ANALIZA_ZAKUPOW_LINE_NETTO = `
+  COALESCE(p.ilosc_pierwotna, 0) * COALESCE(p.cena_zakupu_pln, 0)
+  * (1.0 - COALESCE(pr.rabat, 0) / 100.0)
+`;
+
+function parseAnalizaZakupowFilters(query) {
+  return {
+    sprzedawca: String(query.sprzedawca || '').trim(),
+    typ: String(query.typ || '').trim(),
+    year: String(query.year || '').trim(),
+    month: String(query.month || '').trim(),
+  };
+}
+
+function buildAnalizaZakupowWhere(filters, kod) {
+  const conditions = [ANALIZA_ZAKUPOW_BASE_WHERE.trim()];
+  const params = [];
+  if (kod) {
+    conditions.push('p.kod = ?');
+    params.push(kod);
+  }
+  if (filters.sprzedawca) {
+    conditions.push('pr.sprzedawca = ?');
+    params.push(filters.sprzedawca);
+  }
+  if (filters.typ) {
+    conditions.push(`COALESCE(NULLIF(TRIM(p.typ), ''), 'brak') = ?`);
+    params.push(filters.typ);
+  }
+  if (filters.year) {
+    conditions.push(`strftime('%Y', pr.data_przyjecia) = ?`);
+    params.push(filters.year);
+  }
+  if (filters.month) {
+    conditions.push(`strftime('%m', pr.data_przyjecia) = ?`);
+    params.push(filters.month.padStart(2, '0'));
+  }
+  return { where: conditions.join(' AND '), params };
+}
+
+app.get('/api/analiza-zakupow/filters', (req, res) => {
+  console.log('📊 GET /api/analiza-zakupow/filters - Fetching filter options');
+  db.all(
+    `SELECT DISTINCT
+      pr.sprzedawca AS sprzedawca,
+      COALESCE(NULLIF(TRIM(p.typ), ''), 'brak') AS typ,
+      pr.data_przyjecia AS data_przyjecia
+    ${ANALIZA_ZAKUPOW_BASE_JOIN}
+    WHERE ${ANALIZA_ZAKUPOW_BASE_WHERE}
+      AND pr.sprzedawca IS NOT NULL
+      AND TRIM(pr.sprzedawca) != ''`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza zakupow filters:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.json(rows || []);
+    }
+  );
+});
+
+app.get('/api/analiza-zakupow', (req, res) => {
+  const filters = parseAnalizaZakupowFilters(req.query);
+  console.log('📊 GET /api/analiza-zakupow - Fetching purchased products grouped by kod', filters);
+  const built = buildAnalizaZakupowWhere(filters, null);
+  db.all(
+    `SELECT
+      p.kod AS kod,
+      MAX(p.nazwa) AS nazwa,
+      SUM(COALESCE(p.ilosc_pierwotna, 0)) AS ilosc,
+      ROUND(SUM(${ANALIZA_ZAKUPOW_LINE_NETTO}), 2) AS netto
+    ${ANALIZA_ZAKUPOW_BASE_JOIN}
+    WHERE ${built.where}
+    GROUP BY p.kod
+    ORDER BY nazwa COLLATE NOCASE`,
+    built.params,
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza zakupow:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      const mapped = (rows || []).map((row) => ({
+        kod: row.kod,
+        nazwa: row.nazwa || '',
+        ilosc: Number(row.ilosc) || 0,
+        netto: roundMoney(row.netto),
+      }));
+      console.log(`✅ Found ${mapped.length} grouped products for analiza zakupow`);
+      res.json(mapped);
+    }
+  );
+});
+
+app.get('/api/analiza-zakupow/:kod', (req, res) => {
+  const { kod } = req.params;
+  const filters = parseAnalizaZakupowFilters(req.query);
+  console.log(`📊 GET /api/analiza-zakupow/${kod} - Fetching receipt breakdown`, filters);
+  const built = buildAnalizaZakupowWhere(filters, kod);
+  db.all(
+    `SELECT
+      pr.id AS receipt_id,
+      pr.data_przyjecia AS data_przyjecia,
+      pr.sprzedawca AS sprzedawca,
+      MAX(p.nazwa) AS nazwa,
+      SUM(COALESCE(p.ilosc_pierwotna, 0)) AS ilosc,
+      ROUND(SUM(${ANALIZA_ZAKUPOW_LINE_NETTO}), 2) AS netto
+    ${ANALIZA_ZAKUPOW_BASE_JOIN}
+    WHERE ${built.where}
+    GROUP BY pr.id
+    ORDER BY pr.data_przyjecia DESC, pr.id DESC`,
+    built.params,
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza zakupow details:', err);
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      const byReceipt = (rows || []).map((row) => ({
+        receipt_id: row.receipt_id,
+        data_przyjecia: row.data_przyjecia || '',
+        sprzedawca: row.sprzedawca || '',
+        ilosc: Number(row.ilosc) || 0,
+        netto: roundMoney(row.netto),
+      }));
+      const nazwa = rows?.[0]?.nazwa || '';
+      const totalIlosc = byReceipt.reduce((sum, row) => sum + (row.ilosc || 0), 0);
+      const totalNetto = roundMoney(byReceipt.reduce((sum, row) => sum + (row.netto || 0), 0));
+      console.log(`✅ Found ${byReceipt.length} receipt rows for kod ${kod}`);
+      res.json({ kod, nazwa, ilosc: totalIlosc, netto: totalNetto, by_receipt: byReceipt });
+    }
+  );
+});
+
 app.post('/api/order-products', (req, res) => {
   const { orderId, kod, nazwa, ilosc, typ } = req.body;
   console.log('📋 POST /api/order-products - Adding product to order:', { orderId, kod, nazwa, ilosc });

@@ -277,6 +277,23 @@ export function compareAnalizaWydanProducts<
   }
 }
 
+export function compareAnalizaZakupowProducts<
+  T extends { kod?: string; nazwa?: string; ilosc?: number; netto?: number }
+>(a: T, b: T, field: string, direction: SortDirection): number {
+  switch (field) {
+    case 'kod':
+      return compareSortValues(lowerCase(a.kod), lowerCase(b.kod), direction);
+    case 'nazwa':
+      return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
+    case 'ilosc':
+      return compareSortValues(a.ilosc ?? 0, b.ilosc ?? 0, direction);
+    case 'netto':
+      return compareSortValues(a.netto ?? 0, b.netto ?? 0, direction);
+    default:
+      return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
+  }
+}
+
 export function compareCzasSkladowania<
   T extends {
     kod?: string;

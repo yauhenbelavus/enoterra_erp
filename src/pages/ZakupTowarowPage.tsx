@@ -6,6 +6,7 @@ import { ReplaceFileModal } from '../components/ReplaceFileModal';
 import { ReceiptDetailsModal } from '../components/ReceiptDetailsModal';
 import { EditReceiptModal, EditReceiptSubmitResult } from '../components/EditReceiptModal';
 import { ProductReceiptsList } from '../components/ProductReceiptsList';
+import { AnalizaZakupowList } from '../components/AnalizaZakupowList';
 import { DataTable } from '../components/DataTable';
 import { openExcelModal } from '../utils/modalUtils';
 import toast from 'react-hot-toast';
@@ -487,11 +488,11 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
 
         {/* Analiza zakupów */}
         {activeSubTab === 'analiza' && (
-          <div className="flex flex-col gap-4">
-            <div className="bg-white p-6 rounded-lg border">
-              <h2 className="text-lg font-bold text-gray-900 font-sora mb-4">Analiza zakupów</h2>
-              <p className="text-gray-600 font-sora">Funkcja analizy zakupów będzie dostępna wkrótce.</p>
-            </div>
+          <div className="flex flex-col gap-4 mt-6 w-full">
+            <AnalizaZakupowList
+              refreshTrigger={productReceipts.map((receipt) => receipt.id).join(',')}
+              apiUrl={API_URL}
+            />
           </div>
         )}
 
