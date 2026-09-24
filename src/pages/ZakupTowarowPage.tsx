@@ -4,7 +4,6 @@ import { FileSpreadsheet, Plus } from 'lucide-react';
 import { ExcelFileUploadModal } from '../components/ExcelFileUploadModal';
 import { ReplaceFileModal } from '../components/ReplaceFileModal';
 import { ReceiptDetailsModal } from '../components/ReceiptDetailsModal';
-import { EditReceiptModal, EditReceiptSubmitResult } from '../components/EditReceiptModal';
 import { ProductReceiptsList } from '../components/ProductReceiptsList';
 import { AnalizaZakupowList } from '../components/AnalizaZakupowList';
 import { DataTable } from '../components/DataTable';
@@ -133,8 +132,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
   const navigate = useNavigate();
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
-  const [isEditReceiptModalOpen, setIsEditReceiptModalOpen] = useState(false);
-  const [receiptToEdit, setReceiptToEdit] = useState<any>(null);
   const [isReceiptDetailsModalOpen, setIsReceiptDetailsModalOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<ProductReceipt | null>(null);
 
@@ -230,113 +227,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     }
   };
 
-  const handleUpdateReceipt = async (data: {
-    id: number;
-    date: string;
-    sprzedawca: string;
-    wartosc_przyjecia_netto: number;
-    vat?: number;
-    wartosc_przyjecia_brutto?: number;
-    wartosc_dostawy: number;
-    kurs_1?: number;
-    kurs_2?: number;
-    kursMode?: 'toPln';
-    stawka_podatek_akcyzowy?: number | string;
-    rabat?: number | string;
-    waluta_przyjecia?: string;
-    waluta_dostawy?: string;
-    products: Array<{
-      id?: number;
-      kod: string;
-      nazwa: string;
-      kod_kreskowy?: string;
-      ilosc: number;
-      cena: number;
-      dataWaznosci?: string;
-      typ?: string;
-      objetosc?: number;
-      vat?: number;
-    }>;
-    product_invoice?: File | null;
-    transport_invoice?: File | null;
-  }): Promise<EditReceiptSubmitResult> => {
-    try {
-      let response;
-      if (data.product_invoice || data.transport_invoice) {
-        const formData = new FormData();
-        const jsonData = {
-          date: data.date,
-          sprzedawca: data.sprzedawca,
-          wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
-          vat: data.vat,
-          wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
-          wartosc_dostawy: data.wartosc_dostawy,
-          kurs_1: data.kurs_1,
-          kurs_2: data.kurs_2,
-          kursMode: data.kursMode,
-          stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
-          rabat: data.rabat,
-          waluta_przyjecia: data.waluta_przyjecia,
-          waluta_dostawy: data.waluta_dostawy,
-          products: data.products,
-        };
-        formData.append('data', JSON.stringify(jsonData));
-        if (data.product_invoice) formData.append('product_invoice', data.product_invoice);
-        if (data.transport_invoice) formData.append('transport_invoice', data.transport_invoice);
-        response = await fetch(`${API_URL}/api/product-receipts/${data.id}`, { method: 'PUT', body: formData });
-      } else {
-        response = await fetch(`${API_URL}/api/product-receipts/${data.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: data.date,
-            sprzedawca: data.sprzedawca,
-            wartosc_przyjecia_netto: data.wartosc_przyjecia_netto,
-            vat: data.vat,
-            wartosc_przyjecia_brutto: data.wartosc_przyjecia_brutto,
-            wartosc_dostawy: data.wartosc_dostawy,
-            kurs_1: data.kurs_1,
-            kurs_2: data.kurs_2,
-            kursMode: data.kursMode,
-            stawka_podatek_akcyzowy: data.stawka_podatek_akcyzowy,
-            rabat: data.rabat,
-            waluta_przyjecia: data.waluta_przyjecia,
-            waluta_dostawy: data.waluta_dostawy,
-            products: data.products,
-          }),
-        });
-      }
-
-      if (response.status === 409) {
-        const body = await response.json().catch(() => ({}));
-        if (body.error === 'kod_change_blocked' && Array.isArray(body.conflicts)) {
-          return { ok: false, kodBlocked: { conflicts: body.conflicts, message: body.message } };
-        }
-        if (body.error === 'receipt_qty_blocked' && Array.isArray(body.conflicts)) {
-          return { ok: false, qtyBlocked: { conflicts: body.conflicts, message: body.message } };
-        }
-      }
-
-      if (!response.ok) throw new Error('Failed to update product receipt');
-
-      const updatedReceipts = await loadProductReceiptsFromDb();
-      const updatedProducts = await loadProductsFromDb();
-      onReceiptsChange(updatedReceipts);
-      onProductsChange(updatedProducts);
-
-      toast.success('Zakup został zaktualizowany');
-      setIsEditReceiptModalOpen(false);
-      setReceiptToEdit(null);
-      setIsReceiptDetailsModalOpen(false);
-      setSelectedReceipt(null);
-      return { ok: true };
-    } catch (error) {
-      console.error('Error updating product receipt:', error);
-      toast.error('Wystąpił błąd podczas aktualizacji zakupu');
-      return { ok: false };
-    }
-  };
-
   const handleDeleteReceipt = async (id: number) => {
     try {
       const response = await fetch(`${API_URL}/api/product-receipts/${id}`, { method: 'DELETE' });
@@ -416,16 +306,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         receipt={selectedReceipt}
       />
 
-      <EditReceiptModal
-        isOpen={isEditReceiptModalOpen}
-        onClose={() => {
-          setIsEditReceiptModalOpen(false);
-          setReceiptToEdit(null);
-        }}
-        onSubmit={handleUpdateReceipt}
-        receipt={receiptToEdit}
-      />
-
       <div className="flex flex-col gap-4 mt-4 w-full relative">
         {/* Подвкладки */}
         <div className="flex">
@@ -492,7 +372,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
             <ProductReceiptsList
               receipts={productReceipts}
               onDelete={handleDeleteReceipt}
-              onUpdate={handleUpdateReceipt}
             />
           </div>
         )}

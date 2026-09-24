@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Eye, X, Edit } from 'lucide-react';
 import { ReceiptDetailsModal } from './ReceiptDetailsModal';
-import { EditReceiptModal, EditReceiptSubmitResult } from './EditReceiptModal';
 import toast from 'react-hot-toast';
 import Modal from 'react-modal';
 import { formatPlMoney, getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
 import { SortIndicator } from './SortIndicator';
 import { compareReceipts, useTableSort } from '../utils/tableSort';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
+import { getZakupEdycjaPath } from '../routes';
 
 interface ProductReceipt {
   id?: number;
@@ -42,36 +43,6 @@ interface ProductReceipt {
 interface ProductReceiptsListProps {
   receipts: ProductReceipt[];
   onDelete: (id: number) => void | Promise<void>;
-  onUpdate: (data: {
-    id: number;
-    date: string;
-    sprzedawca: string;
-    wartosc_przyjecia_netto: number;
-    vat?: number;
-    wartosc_przyjecia_brutto?: number;
-    wartosc_dostawy: number;
-    kurs_1?: number;
-    kurs_2?: number;
-    kursMode?: 'toPln';
-    stawka_podatek_akcyzowy?: number;
-    rabat?: number;
-    waluta_przyjecia?: string;
-    waluta_dostawy?: string;
-    products: Array<{
-      id?: number;
-      kod: string;
-      nazwa: string;
-      kod_kreskowy?: string;
-      ilosc: number;
-      cena: number;
-      dataWaznosci?: string;
-      typ?: string;
-      objetosc?: number;
-      vat?: number;
-    }>;
-    product_invoice?: File;
-    transport_invoice?: File;
-  }) => Promise<EditReceiptSubmitResult | void> | EditReceiptSubmitResult | void;
   selectedCategory?: string;
 }
 
@@ -79,11 +50,10 @@ const getReceiptDisplayWartosc = (receipt: ProductReceipt) => {
   return Number(receipt.wartosc_przyjecia_netto) || 0;
 };
 
-export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receipts, onDelete, onUpdate, selectedCategory = '' }) => {
+export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receipts, onDelete, selectedCategory = '' }) => {
+  const navigate = useNavigate();
   const [selectedReceipt, setSelectedReceipt] = useState<ProductReceipt | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [receiptToEdit, setReceiptToEdit] = useState<ProductReceipt | null>(null);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [receiptToDelete, setReceiptToDelete] = useState<ProductReceipt | null>(null);
   const [password, setPassword] = useState('');
@@ -99,8 +69,8 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   };
 
   const handleEdit = (receipt: ProductReceipt) => {
-    setReceiptToEdit(receipt);
-    setIsEditModalOpen(true);
+    if (receipt.id == null) return;
+    navigate(getZakupEdycjaPath(receipt.id));
   };
 
   const handleDeleteClick = (receipt: ProductReceipt) => {
@@ -487,51 +457,6 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
         isOpen={isDetailsModalOpen}
         onClose={() => setIsDetailsModalOpen(false)}
         receipt={selectedReceipt}
-      />
-
-      <EditReceiptModal
-        isOpen={isEditModalOpen}
-        onClose={() => {
-          setIsEditModalOpen(false);
-          setReceiptToEdit(null);
-        }}
-        onSubmit={async (data) => {
-          const result = await onUpdate({
-            ...data,
-            product_invoice: data.product_invoice ?? undefined,
-            transport_invoice: data.transport_invoice ?? undefined,
-          });
-          if (!result || result.ok !== false) {
-            setIsEditModalOpen(false);
-            setReceiptToEdit(null);
-          }
-          return result;
-        }}
-        receipt={(() => {
-          if (receiptToEdit) {
-            const preparedReceipt = {
-              id: receiptToEdit.id || 0,
-              data_przyjecia: receiptToEdit.data_przyjecia,
-              sprzedawca: receiptToEdit.sprzedawca,
-              wartosc_przyjecia_netto: receiptToEdit.wartosc_przyjecia_netto,
-              vat: receiptToEdit.vat,
-              wartosc_przyjecia_brutto: receiptToEdit.wartosc_przyjecia_brutto,
-              wartosc_dostawy: receiptToEdit.wartosc_dostawy,
-              rabat: receiptToEdit.rabat,
-              waluta_przyjecia: receiptToEdit.waluta_przyjecia,
-              waluta_dostawy: receiptToEdit.waluta_dostawy,
-              kurs_1: receiptToEdit.kurs_1,
-              kurs_2: receiptToEdit.kurs_2,
-              stawka_podatek_akcyzowy: receiptToEdit.stawka_podatek_akcyzowy,
-              products: receiptToEdit.products,
-              product_invoice: receiptToEdit.product_invoice,
-              transport_invoice: receiptToEdit.transport_invoice
-            };
-
-            return preparedReceipt;
-          }
-          return null;
-        })()}
       />
     </div>
   );

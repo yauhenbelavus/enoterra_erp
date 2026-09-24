@@ -19,6 +19,13 @@ export type AppSubTab =
 export const HOME_PATH = '/';
 export const ZAKUP_PATH = '/zakup';
 export const ZAKUP_NOWE_PATH = '/zakup/nowe';
+export const getZakupEdycjaPath = (id: number | string) => `/zakup/${id}/edycja`;
+export const getZakupEdycjaId = (pathname: string): number | null => {
+  const match = pathname.match(/^\/zakup\/(\d+)\/edycja$/);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : null;
+};
 export const KLIENCI_PATH = '/klienci';
 export const STANY_PATH = '/stany';
 export const PRE_ROUTED_TAB_KEY = 'preRoutedTab';

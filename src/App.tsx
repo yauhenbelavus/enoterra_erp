@@ -8,6 +8,7 @@ import { ProductDetailsModal } from './components/ProductDetailsModal';
 import { Product } from './types/Product';
 import { ZakupTowarowPage } from './pages/ZakupTowarowPage';
 import { AddPurchasePage } from './pages/AddPurchasePage';
+import { EditPurchasePage } from './pages/EditPurchasePage';
 import { KlienciPage } from './pages/KlienciPage';
 import { SprzedazPage } from './pages/SprzedazPage';
 import { StanyMagazynowePage } from './pages/StanyMagazynowePage';
@@ -18,6 +19,7 @@ import {
   PRE_ROUTED_TAB_KEY,
   resolveSubTabForTab,
   ZAKUP_NOWE_PATH,
+  getZakupEdycjaId,
 } from './routes';
 
 // Set the app element for react-modal
@@ -484,9 +486,11 @@ function App() {
   };
 
   const isAddPurchaseRoute = location.pathname === ZAKUP_NOWE_PATH;
+  const editPurchaseId = getZakupEdycjaId(location.pathname);
+  const isPurchaseFormRoute = isAddPurchaseRoute || editPurchaseId != null;
 
   return (
-    <div className={isAddPurchaseRoute ? 'h-screen overflow-hidden bg-gray-200' : 'min-h-screen bg-white'}>
+    <div className={isPurchaseFormRoute ? 'h-screen overflow-hidden bg-gray-200' : 'min-h-screen bg-white'}>
       <Toaster position="top-right" containerStyle={{ zIndex: 99999 }} />
       
       <ProductDetailsModal
@@ -497,6 +501,12 @@ function App() {
 
       {isAddPurchaseRoute ? (
         <AddPurchasePage
+          onReceiptsChange={(receipts) => setAppState(prev => ({ ...prev, productReceipts: receipts }))}
+          onProductsChange={(products) => setAppState(prev => ({ ...prev, products }))}
+        />
+      ) : editPurchaseId != null ? (
+        <EditPurchasePage
+          receiptId={editPurchaseId}
           onReceiptsChange={(receipts) => setAppState(prev => ({ ...prev, productReceipts: receipts }))}
           onProductsChange={(products) => setAppState(prev => ({ ...prev, products }))}
         />
