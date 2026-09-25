@@ -105,7 +105,7 @@ function getRowInvalidFields(row) {
     nazwa: !String(product.nazwa || '').trim(),
     kod_kreskowy: !String(product.kod_kreskowy || '').trim(),
     ilosc: !Number.isFinite(ilosc) || ilosc <= 0,
-    cena: !Number.isFinite(cena) || cena <= 0,
+    cena: !Number.isFinite(cena) || cena < 0,
     typ: !typ,
     objetosc: typ !== 'aksesoria' && (product.objetosc == null || String(product.objetosc).trim() === ''),
     dataWaznosci: typ === 'ferment' && !product.dataWaznosci,
@@ -124,7 +124,7 @@ function getRowValidationError(row, index) {
   if (invalid.nazwa) return `Pozycja ${n}: uzupełnij nazwę`;
   if (invalid.kod_kreskowy) return `Pozycja ${n}: uzupełnij kod kreskowy`;
   if (invalid.ilosc) return `Pozycja ${n}: ilość musi być większa od 0`;
-  if (invalid.cena) return `Pozycja ${n}: cena musi być większa od 0`;
+  if (invalid.cena) return `Pozycja ${n}: uzupełnij cenę`;
   if (invalid.typ) return `Pozycja ${n}: wybierz typ`;
   if (invalid.objetosc) return `Pozycja ${n}: wybierz objętość`;
   if (invalid.dataWaznosci) return `Pozycja ${n}: podaj termin ważności`;
