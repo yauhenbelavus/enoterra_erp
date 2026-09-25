@@ -33,7 +33,13 @@ import { PlMoneyInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
-import { cancelScheduledInvoiceOpen, scheduleInvoiceOpen } from '../utils/receiptInvoice';
+import {
+  handleReceiptInvoiceButtonClick,
+  handleReceiptInvoiceButtonDoubleClick,
+  INVOICE_FILE_BUTTON_TITLE_EMPTY,
+  INVOICE_FILE_BUTTON_TITLE_HAS_FILE,
+  isPdfFile,
+} from '../utils/receiptInvoice';
 import { KursInputSpinner, usePurchaseNbpRates } from '../utils/nbpRates';
 
 registerLocale('pl', pl);
@@ -254,6 +260,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invoicePreviewWindowRef = useRef<Window | null>(null);
+  const invoiceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { isLoadingDostawy: isNbpLoadingDostawy, isLoadingFaktury: isNbpLoadingFaktury } = usePurchaseNbpRates({
     selectedDate,
@@ -263,24 +270,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     setKursFaktury,
   });
 
-  const pickInvoiceFile = (input: HTMLInputElement | null) => {
-    if (!input) return;
-    input.value = '';
-    input.click();
-  };
-
-  const handleInvoiceButtonClick = (file: File | null, input: HTMLInputElement | null) => {
-    if (!file) {
-      pickInvoiceFile(input);
-      return;
-    }
-    scheduleInvoiceOpen(URL.createObjectURL(file), invoiceClickTimerRef, invoicePreviewWindowRef);
-  };
-
-  const handleInvoiceButtonDoubleClick = (input: HTMLInputElement | null) => {
-    cancelScheduledInvoiceOpen(invoiceClickTimerRef, invoicePreviewWindowRef);
-    pickInvoiceFile(input);
-  };
+  const invoiceButtonRefs = (file: File | null, input: HTMLInputElement | null) => ({
+    file,
+    existing: null,
+    input,
+    debounceRef: invoiceDebounceRef,
+    timerRef: invoiceClickTimerRef,
+    previewRef: invoicePreviewWindowRef,
+  });
 
   const calculateDeliveryCostPerUnit = () => {
     const totalBottles = productRows.reduce(
@@ -533,8 +530,17 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`${response.status} - ${errorText}`);
+        const raw = await response.text();
+        let message = 'Wystąpił błąd podczas dodawania towaru';
+        try {
+          const body = JSON.parse(raw) as { error?: string; message?: string };
+          if (typeof body.error === 'string' && body.error.trim()) message = body.error;
+          else if (typeof body.message === 'string' && body.message.trim()) message = body.message;
+        } catch {
+          if (raw.trim()) message = raw.slice(0, 200);
+        }
+        toast.error(message);
+        return;
       }
 
       toast.success('Dodano nowy towar');
@@ -699,20 +705,20 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <input
                   type="file"
                   accept=".pdf"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (isPdfFile(f)) setProductInvoice(f); }}
                   className="hidden"
                   ref={productFileInputRef}
                 />
                 <button
                   type="button"
-                  onClick={() => handleInvoiceButtonClick(productInvoice, productFileInputRef.current)}
-                  onDoubleClick={() => handleInvoiceButtonDoubleClick(productFileInputRef.current)}
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
                   className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     productInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
                   }`}
-                  title={productInvoice ? 'Kliknij, aby otworzyć. Kliknij dwukrotnie, aby zamienić.' : 'Dodaj fakturę za towar'}
+                  title={productInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
                 >
                   <Grape className={`h-4 w-4 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
@@ -721,20 +727,20 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <input
                   type="file"
                   accept=".pdf"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (isPdfFile(f)) setTransportInvoice(f); }}
                   className="hidden"
                   ref={transportFileInputRef}
                 />
                 <button
                   type="button"
-                  onClick={() => handleInvoiceButtonClick(transportInvoice, transportFileInputRef.current)}
-                  onDoubleClick={() => handleInvoiceButtonDoubleClick(transportFileInputRef.current)}
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
                   className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     transportInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
                   }`}
-                  title={transportInvoice ? 'Kliknij, aby otworzyć. Kliknij dwukrotnie, aby zamienić.' : 'Dodaj fakturę za transport'}
+                  title={transportInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
                 >
                   <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>

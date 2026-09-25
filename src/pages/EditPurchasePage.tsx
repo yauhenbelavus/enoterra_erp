@@ -35,9 +35,11 @@ import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
 import {
-  cancelScheduledInvoiceOpen,
-  receiptInvoiceUrl,
-  scheduleInvoiceOpen,
+  handleReceiptInvoiceButtonClick,
+  handleReceiptInvoiceButtonDoubleClick,
+  INVOICE_FILE_BUTTON_TITLE_EMPTY,
+  INVOICE_FILE_BUTTON_TITLE_HAS_FILE,
+  isPdfFile,
 } from '../utils/receiptInvoice';
 import { KursInputSpinner, usePurchaseNbpRates } from '../utils/nbpRates';
 import {
@@ -327,6 +329,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invoicePreviewWindowRef = useRef<Window | null>(null);
+  const invoiceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { isLoadingDostawy: isNbpLoadingDostawy, isLoadingFaktury: isNbpLoadingFaktury } = usePurchaseNbpRates({
     selectedDate,
@@ -338,25 +341,14 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     skipInitial: true,
   });
 
-  const pickInvoiceFile = (input: HTMLInputElement | null) => {
-    if (!input) return;
-    input.value = '';
-    input.click();
-  };
-
-  const handleInvoiceButtonClick = (file: File | null, existing: string | null, input: HTMLInputElement | null) => {
-    if (!file && !existing) {
-      pickInvoiceFile(input);
-      return;
-    }
-    const url = file ? URL.createObjectURL(file) : receiptInvoiceUrl(existing || '');
-    scheduleInvoiceOpen(url, invoiceClickTimerRef, invoicePreviewWindowRef);
-  };
-
-  const handleInvoiceButtonDoubleClick = (input: HTMLInputElement | null) => {
-    cancelScheduledInvoiceOpen(invoiceClickTimerRef, invoicePreviewWindowRef);
-    pickInvoiceFile(input);
-  };
+  const invoiceButtonRefs = (file: File | null, existing: string | null, input: HTMLInputElement | null) => ({
+    file,
+    existing,
+    input,
+    debounceRef: invoiceDebounceRef,
+    timerRef: invoiceClickTimerRef,
+    previewRef: invoicePreviewWindowRef,
+  });
 
   const calculateDeliveryCostPerUnit = () => {
     const totalBottles = productRows.reduce(
@@ -676,8 +668,17 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`${response.status} - ${errorText}`);
+        const raw = await response.text();
+        let message = 'Wystąpił błąd podczas aktualizacji zakupu';
+        try {
+          const body = JSON.parse(raw) as { error?: string; message?: string };
+          if (typeof body.error === 'string' && body.error.trim()) message = body.error;
+          else if (typeof body.message === 'string' && body.message.trim()) message = body.message;
+        } catch {
+          if (raw.trim()) message = raw.slice(0, 200);
+        }
+        toast.error(message);
+        return;
       }
 
       toast.success('Zakup został zaktualizowany');
@@ -850,14 +851,14 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 <input
                   type="file"
                   accept=".pdf"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setProductInvoice(f); }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (isPdfFile(f)) setProductInvoice(f); }}
                   className="hidden"
                   ref={productFileInputRef}
                 />
                 <button
                   type="button"
-                  onClick={() => handleInvoiceButtonClick(productInvoice, existingProductInvoice, productFileInputRef.current)}
-                  onDoubleClick={() => handleInvoiceButtonDoubleClick(productFileInputRef.current)}
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(productInvoice, existingProductInvoice, productFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(productInvoice, existingProductInvoice, productFileInputRef.current))}
                   className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     productInvoice || existingProductInvoice
                       ? 'border border-green-500 hover:bg-green-50'
@@ -865,8 +866,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   }`}
                   title={
                     productInvoice || existingProductInvoice
-                      ? 'Kliknij, aby otworzyć. Kliknij dwukrotnie, aby zamienić.'
-                      : 'Dodaj fakturę za towar'
+                      ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE
+                      : INVOICE_FILE_BUTTON_TITLE_EMPTY
                   }
                 >
                   <Grape className={`h-4 w-4 ${productInvoice || existingProductInvoice ? 'text-green-600' : 'text-gray-500'}`} />
@@ -876,14 +877,14 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 <input
                   type="file"
                   accept=".pdf"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f && f.type === 'application/pdf') setTransportInvoice(f); }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (isPdfFile(f)) setTransportInvoice(f); }}
                   className="hidden"
                   ref={transportFileInputRef}
                 />
                 <button
                   type="button"
-                  onClick={() => handleInvoiceButtonClick(transportInvoice, existingTransportInvoice, transportFileInputRef.current)}
-                  onDoubleClick={() => handleInvoiceButtonDoubleClick(transportFileInputRef.current)}
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(transportInvoice, existingTransportInvoice, transportFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(transportInvoice, existingTransportInvoice, transportFileInputRef.current))}
                   className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     transportInvoice || existingTransportInvoice
                       ? 'border border-green-500 hover:bg-green-50'
@@ -891,8 +892,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   }`}
                   title={
                     transportInvoice || existingTransportInvoice
-                      ? 'Kliknij, aby otworzyć. Kliknij dwukrotnie, aby zamienić.'
-                      : 'Dodaj fakturę za transport'
+                      ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE
+                      : INVOICE_FILE_BUTTON_TITLE_EMPTY
                   }
                 >
                   <Car className={`h-4 w-4 ${transportInvoice || existingTransportInvoice ? 'text-green-600' : 'text-gray-500'}`} />

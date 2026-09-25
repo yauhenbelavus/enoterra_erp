@@ -31,6 +31,7 @@ import {
 } from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput } from './PlMoneyInput';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
+import { isPdfFile } from '../utils/receiptInvoice';
 import "react-datepicker/dist/react-datepicker.css";
 import "./DatePicker.css";
 
@@ -553,7 +554,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const handleProductFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     console.log('📎 Product file selected (edit):', file);
-    if (file && file.type === 'application/pdf') {
+    if (isPdfFile(file)) {
       setProductInvoice(file);
       console.log('✅ Product invoice set (edit):', file.name);
     } else {
@@ -564,7 +565,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const handleTransportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     console.log('📎 Transport file selected (edit):', file);
-    if (file && file.type === 'application/pdf') {
+    if (isPdfFile(file)) {
       setTransportInvoice(file);
       console.log('✅ Transport invoice set (edit):', file.name);
     } else {

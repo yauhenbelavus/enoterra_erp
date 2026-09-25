@@ -9813,13 +9813,25 @@ app.get('/api/product-receipts/:id', (req, res) => {
   });
 });
 
+function unwrapMultipartValue(value) {
+  if (Array.isArray(value) && value.length === 1) return unwrapMultipartValue(value[0]);
+  if (Buffer.isBuffer(value)) return value.toString('utf8');
+  return value;
+}
+
 function readReceiptRequestPayload(req) {
   try {
     const files = req.files || {};
-    const rawData = req.body && req.body.data;
-    const source = typeof rawData === 'string' && rawData.trim() !== ''
-      ? JSON.parse(rawData)
-      : (req.body || {});
+    const body = req.body || {};
+    const rawData = unwrapMultipartValue(body.data);
+    let source;
+    if (typeof rawData === 'string' && rawData.trim() !== '') {
+      source = JSON.parse(rawData);
+    } else if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+      source = rawData;
+    } else {
+      source = body;
+    }
     return {
       date: source.date,
       sprzedawca: source.sprzedawca,
@@ -9969,10 +9981,22 @@ function rejectPreparedReceiptWrite(req, res, prepared) {
   return res.status(400).json({ error: prepared.error });
 }
 
-app.post('/api/product-receipts', upload.fields([
+const receiptUploadFields = upload.fields([
   { name: 'product_invoice', maxCount: 1 },
   { name: 'transport_invoice', maxCount: 1 }
-]), (req, res) => {
+]);
+
+function withReceiptUploads(req, res, next) {
+  receiptUploadFields(req, res, (err) => {
+    if (err) {
+      console.error('❌ Receipt PDF upload:', err);
+      return res.status(400).json({ error: 'Nie udało się wczytać pliku PDF. Spróbuj ponownie.' });
+    }
+    next();
+  });
+}
+
+app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
   const prepared = prepareReceiptWriteRequest(req, { defaultDateIfMissing: true });
   if (prepared.error) {
     return rejectPreparedReceiptWrite(req, res, prepared);
@@ -10162,10 +10186,7 @@ app.post('/api/product-receipts', upload.fields([
   });
 });
 
-app.put('/api/product-receipts/:id', upload.fields([
-  { name: 'product_invoice', maxCount: 1 },
-  { name: 'transport_invoice', maxCount: 1 }
-]), (req, res) => {
+app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
   const { id } = req.params;
   const prepared = prepareReceiptWriteRequest(req);
   if (prepared.error) {
