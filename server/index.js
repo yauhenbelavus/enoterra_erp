@@ -640,10 +640,31 @@ function updateProductBatchByIdParams(product, productId, withQty, iloscAktualna
   return values;
 }
 
+function productBatchPierwotna(record) {
+  return Number(record && (record.ilosc_pierwotna != null ? record.ilosc_pierwotna : record.ilosc)) || 0;
+}
+
+function productBatchAktualna(record) {
+  return Number(record && record.ilosc_aktualna) || 0;
+}
+
 function productBatchIssuedQty(record) {
-  const pierwotna = Number(record && (record.ilosc_pierwotna != null ? record.ilosc_pierwotna : record.ilosc)) || 0;
-  const aktualna = Number(record && record.ilosc_aktualna) || 0;
-  return Math.max(0, pierwotna - aktualna);
+  return Math.max(0, productBatchPierwotna(record) - productBatchAktualna(record));
+}
+
+function adjustWorkingSheetIlosc(kod, delta) {
+  const amount = Number(delta) || 0;
+  if (!kod || amount === 0) return Promise.resolve(false);
+  return new Promise((resolve, reject) => {
+    db.run(
+      'UPDATE working_sheets SET ilosc = ilosc + ? WHERE kod = ?',
+      [amount, kod],
+      function (err) {
+        if (err) reject(err);
+        else resolve(this.changes > 0);
+      }
+    );
+  });
 }
 
 function pairReceiptProductBatches(oldRecords, newItems) {
@@ -785,6 +806,7 @@ function applyWorkingSheetFromLatest(kod, options = {}) {
   const insertIfMissing = options.insertIfMissing === true;
   const createdAt = options.createdAt || null;
   const createdAtOnUpdate = options.createdAtOnUpdate || null;
+  const preserveIlosc = options.preserveIlosc === true;
 
   return Promise.all([
     sumProductsIloscAktualnaByKod(kod),
@@ -811,18 +833,23 @@ function applyWorkingSheetFromLatest(kod, options = {}) {
     }
 
     const setCreated = createdAtOnUpdate ? ', created_at = ?' : '';
+    const iloscSql = preserveIlosc ? '' : 'ilosc = ?, ';
     const params = [
-      fields.nazwa, fields.ilosc, fields.kod_kreskowy, fields.typ, fields.sprzedawca, fields.cena_zakupu_pln,
+      fields.nazwa,
+    ];
+    if (!preserveIlosc) params.push(fields.ilosc);
+    params.push(
+      fields.kod_kreskowy, fields.typ, fields.sprzedawca, fields.cena_zakupu_pln,
       fields.data_waznosci, fields.objetosc, fields.koszt_dostawy_per_unit, fields.koszt_dostawy_per_unit_srednie,
       fields.podatek_akcyzowy,
-    ];
+    );
     if (createdAtOnUpdate) params.push(createdAtOnUpdate);
     params.push(kod);
 
     return new Promise((resolve, reject) => {
       db.run(
         `UPDATE working_sheets SET
-          nazwa = ?, ilosc = ?, kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
+          nazwa = ?, ${iloscSql}kod_kreskowy = ?, typ = ?, sprzedawca = ?, cena_zakupu_pln = ?,
           data_waznosci = ?, objetosc = ?, koszt_dostawy_per_unit = ?, koszt_dostawy_per_unit_srednie = ?,
           podatek_akcyzowy = ?${setCreated}
          WHERE kod = ?`,
@@ -10365,14 +10392,18 @@ app.put('/api/product-receipts/:id', upload.fields([
             const qtyConflicts = [];
             for (const { record, item } of pairs) {
               if (!record) continue;
-              const issued = productBatchIssuedQty(record);
-              const requested = item ? (Number(item.ilosc) || 0) : 0;
-              if (requested < issued) {
+              const oldAktualna = productBatchAktualna(record);
+              const oldPierwotna = productBatchPierwotna(record);
+              const newPierwotna = item ? (Number(item.ilosc) || 0) : 0;
+              const qtyDelta = newPierwotna - oldPierwotna;
+              if (oldAktualna + qtyDelta < 0) {
                 qtyConflicts.push({
                   oldKod: normalizeProductKod((item && item.kod) || record.kod),
                   nazwa: (item && item.nazwa) || record.nazwa || '',
-                  issued,
-                  requested,
+                  issued: productBatchIssuedQty(record),
+                  requested: newPierwotna,
+                  remaining: oldAktualna,
+                  delta: qtyDelta,
                   id: record.id,
                 });
               }
@@ -10390,8 +10421,17 @@ app.put('/api/product-receipts/:id', upload.fields([
               });
             }
 
+            const stanyDeltaByKod = {};
+            const addStanyDelta = (kod, delta) => {
+              const key = normalizeProductKod(kod);
+              const amount = Number(delta) || 0;
+              if (!key || amount === 0) return;
+              stanyDeltaByKod[key] = (stanyDeltaByKod[key] || 0) + amount;
+            };
+
             for (const { record, item } of pairs) {
               if (!item) {
+                addStanyDelta(record.kod, -productBatchAktualna(record));
                 await new Promise((resolve, reject) => {
                   db.run('DELETE FROM products WHERE id = ?', [record.id], function (err) {
                     if (err) reject(err);
@@ -10405,6 +10445,7 @@ app.put('/api/product-receipts/:id', upload.fields([
               }
               if (item.vat == null || item.vat === '') item.vat = record ? record.vat : 0;
               if (!record) {
+                addStanyDelta(item.kod, Number(item.ilosc) || 0);
                 await new Promise((resolve, reject) => {
                   db.run(
                     insertProductBatchSql(),
@@ -10422,12 +10463,17 @@ app.put('/api/product-receipts/:id', upload.fields([
                 });
                 continue;
               }
-              const issued = productBatchIssuedQty(record);
-              const itemIloscAktualna = Math.max(0, (Number(item.ilosc) || 0) - issued);
+              const oldPierwotna = productBatchPierwotna(record);
+              const oldAktualna = productBatchAktualna(record);
+              const newPierwotna = Number(item.ilosc) || 0;
+              const qtyDelta = newPierwotna - oldPierwotna;
+              addStanyDelta(item.kod, qtyDelta);
+              const withQty = qtyDelta !== 0;
+              const itemIloscAktualna = oldAktualna + qtyDelta;
               await new Promise((resolve, reject) => {
                 db.run(
-                  updateProductBatchByIdSql(true),
-                  updateProductBatchByIdParams(item, record.id, true, itemIloscAktualna),
+                  updateProductBatchByIdSql(withQty),
+                  updateProductBatchByIdParams(item, record.id, withQty, itemIloscAktualna),
                   function (err) {
                     if (err) {
                       console.error(`❌ Error updating product id=${record.id}:`, err);
@@ -10456,10 +10502,12 @@ app.put('/api/product-receipts/:id', upload.fields([
               );
             });
             
-            // Шаг 3: working_sheets — qty = SUM партий; cena/typ/koszt/akcyza с последней партии
+            // Шаг 3: working_sheets — цена/тип с последней партии;
+            // ilosc двигаем на ту же дельту, что и ilosc_aktualna, без пересборки SUM.
             for (const productCode of allProductCodes) {
               const oldProduct = oldProductsByKod[productCode];
               const newProduct = newProductsByKod[productCode];
+              const stanyDelta = stanyDeltaByKod[normalizeProductKod(productCode)] || 0;
 
               if (!oldProduct && newProduct) {
                 const normalizedCode = normalizeProductKod(productCode);
@@ -10472,12 +10520,20 @@ app.put('/api/product-receipts/:id', upload.fields([
                       (err) => (err ? reject(err) : resolve())
                     );
                   });
+                  const applied = await applyWorkingSheetFromLatest(normalizedCode, {
+                    insertIfMissing: false,
+                    createdAt: date,
+                    preserveIlosc: true,
+                  });
+                  const adjusted = await adjustWorkingSheetIlosc(normalizedCode, stanyDelta);
+                  if (applied || adjusted) workingSheetsUpdated++;
+                } else {
+                  const applied = await applyWorkingSheetFromLatest(normalizedCode, {
+                    insertIfMissing: true,
+                    createdAt: date,
+                  });
+                  if (applied) workingSheetsUpdated++;
                 }
-                const applied = await applyWorkingSheetFromLatest(normalizedCode, {
-                  insertIfMissing: true,
-                  createdAt: date,
-                });
-                if (applied) workingSheetsUpdated++;
               } else if (oldProduct && !newProduct) {
                 const remainingCount = await new Promise((resolve, reject) => {
                   db.get('SELECT COUNT(*) as count FROM products WHERE kod = ?', [productCode], (err, result) => {
@@ -10490,8 +10546,12 @@ app.put('/api/product-receipts/:id', upload.fields([
                   const result = await keepWorkingSheetZeroOrDelete(productCode, id);
                   if (result === 'kept') workingSheetsUpdated++;
                 } else {
-                  const synced = await syncWorkingSheetFromRemainingProducts(productCode);
-                  if (synced) workingSheetsUpdated++;
+                  const applied = await applyWorkingSheetFromLatest(productCode, {
+                    insertIfMissing: false,
+                    preserveIlosc: true,
+                  });
+                  const adjusted = await adjustWorkingSheetIlosc(productCode, stanyDelta);
+                  if (applied || adjusted) workingSheetsUpdated++;
                 }
               } else if (oldProduct && newProduct) {
                 const workingSheetRecord = await getWorkingSheetByKod(productCode);
@@ -10514,8 +10574,10 @@ app.put('/api/product-receipts/:id', upload.fields([
                   insertIfMissing: true,
                   createdAt: date,
                   createdAtOnUpdate: shouldSyncCreatedAt ? date : null,
+                  preserveIlosc: true,
                 });
-                if (applied) {
+                const adjusted = await adjustWorkingSheetIlosc(productCode, stanyDelta);
+                if (applied || adjusted) {
                   workingSheetsUpdated++;
                 }
               }
