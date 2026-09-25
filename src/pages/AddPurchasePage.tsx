@@ -165,8 +165,17 @@ const getRowLineValue = (row: ProductRow): number => {
   return ilosc * cenaPelna;
 };
 
+const getRowLineValuePoRabacie = (row: ProductRow, rabatPercent: number): number => {
+  const ilosc = parseFloat(row.ilosc) || 0;
+  const cenaPelna = row.cenaPelna ?? parsePlNumber(row.cena);
+  return ilosc * cenaPoRabacie(cenaPelna, rabatPercent);
+};
+
 const getRowLineBrutto = (row: ProductRow): number =>
   getRowLineValue(row) * (1 + (row.vat || 0) / 100);
+
+const getRowLineBruttoPoRabacie = (row: ProductRow, rabatPercent: number): number =>
+  getRowLineValuePoRabacie(row, rabatPercent) * (1 + (row.vat || 0) / 100);
 
 const getRowLineVat = (row: ProductRow): number =>
   getRowLineValue(row) * (row.vat || 0) / 100;
@@ -191,7 +200,7 @@ const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
 const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_52px]';
-const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(180px,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px_52px]';
+const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px_52px]';
 
 const SelectChevron = () => (
   <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -333,10 +342,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     if (payload.products.length > 0) setProductRows(nextRows);
 
     const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
-    const factor = 1 - rabatValue / 100;
-    const nettoFromRows = nextRows.reduce((sum, row) => sum + getRowLineValue(row), 0) * factor;
-    const bruttoFromRows = nextRows.reduce((sum, row) => sum + getRowLineBrutto(row), 0) * factor;
-    const vatFromRows = nextRows.reduce((sum, row) => sum + getRowLineVat(row), 0) * factor;
+    const nettoFromRows = nextRows.reduce((sum, row) => sum + getRowLineValuePoRabacie(row, rabatValue), 0);
+    const bruttoFromRows = nextRows.reduce((sum, row) => sum + getRowLineBruttoPoRabacie(row, rabatValue), 0);
+    const vatFromRows = Math.max(0, bruttoFromRows - nettoFromRows);
 
     const ocrNetto = parseOcrMoney(payload.suma_netto);
     const ocrBrutto = parseOcrMoney(payload.suma_brutto);
@@ -379,15 +387,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   };
 
   const calculateTotal = () => {
-    const subtotal = productRows.reduce((sum, row) => sum + getRowLineValue(row), 0);
     const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
-    return formatPlMoney(subtotal * (1 - rabatValue / 100));
+    return formatPlMoney(productRows.reduce((sum, row) => sum + getRowLineValuePoRabacie(row, rabatValue), 0));
   };
 
   const calculateTotalVat = () => {
     const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
-    const factor = 1 - rabatValue / 100;
-    return productRows.reduce((sum, row) => sum + getRowLineVat(row) * factor, 0);
+    return productRows.reduce((sum, row) => {
+      return sum + getRowLineBruttoPoRabacie(row, rabatValue) - getRowLineValuePoRabacie(row, rabatValue);
+    }, 0);
   };
 
   const kwotaNettoNumber = parsePlNumber(kwotaNetto);
@@ -588,12 +596,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const rabatPercent = parsePlNumber(rabat);
   const showRabatCol = rabatPercent > 0;
   const rabatKwota = roundMoney(
-    productRows.reduce((sum, row) => sum + getRowLineValue(row), 0) * rabatPercent / 100
+    productRows.reduce((sum, row) => sum + getRowLineValue(row), 0)
+    - productRows.reduce((sum, row) => sum + getRowLineValuePoRabacie(row, rabatPercent), 0)
   );
   const productRowGrid = `${PRODUCT_ROW_GRID_BASE} ${showRabatCol ? PRODUCT_ROW_COLS_RABAT : PRODUCT_ROW_COLS}`;
   const productRowHeader = `${productRowGrid} items-end justify-items-stretch`;
   const productRowFields = `${productRowGrid} items-center`;
-  const productRowsInnerClass = `product-rows-inner${showRabatCol ? ' is-wide' : ''}`;
 
   return (
     <div className="font-sora h-screen w-full bg-gray-200 overflow-hidden">
@@ -852,14 +860,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
           <div className="product-table-hscroll flex flex-col">
-          <div className={`${productRowsInnerClass} shrink-0 mb-2 bg-white ${productRowHeader}`}>
+          <div className={`product-rows-inner shrink-0 mb-2 bg-white ${productRowHeader}`}>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Ilość</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Cena</span>
             {showRabatCol && (
-              <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora leading-tight">Cena<br/>po rabacie</span>
+              <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora whitespace-nowrap">Cena po rab.</span>
             )}
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. netto</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">VAT</span>
@@ -871,7 +879,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div className="product-rows-scroll flex-1 min-h-0">
-            <div className={productRowsInnerClass}>
+            <div className="product-rows-inner">
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
@@ -924,7 +932,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 )}
                 <input
                   type="text"
-                  value={formatPlMoney(getRowLineValue(row))}
+                  value={formatPlMoney(getRowLineValuePoRabacie(row, rabatPercent))}
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
@@ -953,7 +961,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 </div>
                 <input
                   type="text"
-                  value={formatPlMoney(getRowLineBrutto(row))}
+                  value={formatPlMoney(getRowLineBruttoPoRabacie(row, rabatPercent))}
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
@@ -1057,10 +1065,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
-          <div className="flex items-center flex-nowrap gap-x-4 text-sm text-gray-700 font-sora">
-            <span className="inline-flex items-center gap-2">
+          <div className="flex items-center flex-nowrap gap-x-4 text-sm text-gray-700 font-sora overflow-x-auto min-w-0">
+            <span className="inline-flex items-center gap-2 shrink-0">
               Netto:
-              <span className="relative w-[148px]">
+              <span className="relative w-[148px] shrink-0">
                 <PlMoneyInput
                   value={kwotaNetto}
                   onChange={handleKwotaNettoChange}
@@ -1072,9 +1080,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 </span>
               </span>
             </span>
-            <span className="inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-2 shrink-0">
               Brutto:
-              <span className="relative w-[148px]">
+              <span className="relative w-[148px] shrink-0">
                 <PlMoneyInput
                   value={sumaBrutto}
                   onChange={handleSumaBruttoChange}
@@ -1086,9 +1094,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 </span>
               </span>
             </span>
-            <span className="inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-2 shrink-0">
               VAT:
-              <span className="relative w-[148px]">
+              <span className="relative w-[148px] shrink-0">
                 <PlMoneyInput
                   value={kwotaVat}
                   onChange={handleKwotaVatChange}
@@ -1101,9 +1109,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               </span>
             </span>
             {showRabatCol && (
-            <span className="inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-2 shrink-0">
               Rabat:
-              <span className="relative w-[148px]">
+              <span className="relative w-[148px] shrink-0">
                 <input
                   type="text"
                   readOnly

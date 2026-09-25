@@ -42,14 +42,11 @@ body {
 .product-rows-scroll {
   overflow-x: hidden;
   overflow-y: auto;
+  min-width: 0;
 }
 
 .product-rows-inner {
   width: calc(100cqw - 8px);
-}
-
-.product-rows-inner.is-wide {
-  width: max(calc(100cqw - 8px), 1320px);
 }
 
 .product-rows-scroll::-webkit-scrollbar-track {
