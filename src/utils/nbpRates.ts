@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   WalutaFakturySelection,
@@ -45,6 +45,24 @@ export async function fetchNbpRates(
   return payload.rates || {};
 }
 
+export function NbpKursSpinner() {
+  return (
+    <div
+      className="h-3 w-3 shrink-0 animate-spin rounded-full border-b-2 border-blue-500"
+      aria-hidden="true"
+    />
+  );
+}
+
+export function KursInputSpinner({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
+      <NbpKursSpinner />
+    </div>
+  );
+}
+
 export function usePurchaseNbpRates(options: {
   selectedDate: Date | null;
   walutaDostawy: WalutaFakturySelection;
@@ -53,7 +71,7 @@ export function usePurchaseNbpRates(options: {
   setKursFaktury: (value: string) => void;
   enabled?: boolean;
   skipInitial?: boolean;
-}): void {
+}): { isLoading: boolean } {
   const {
     selectedDate,
     walutaDostawy,
@@ -64,6 +82,7 @@ export function usePurchaseNbpRates(options: {
     skipInitial = false,
   } = options;
 
+  const [isLoading, setIsLoading] = useState(false);
   const previousSignatureRef = useRef<string | null>(null);
   const dateKey = selectedDate ? toIsoDate(selectedDate) : '';
   const signature = `${dateKey}|${walutaDostawy}|${walutaFaktury}`;
@@ -78,12 +97,19 @@ export function usePurchaseNbpRates(options: {
     if (previousSignatureRef.current === signature) return;
     previousSignatureRef.current = signature;
 
-    if (!selectedDate) return;
+    if (!selectedDate) {
+      setIsLoading(false);
+      return;
+    }
     const codes = neededCodes(walutaDostawy, walutaFaktury);
-    if (codes.length === 0) return;
+    if (codes.length === 0) {
+      setIsLoading(false);
+      return;
+    }
 
     const controller = new AbortController();
     const date = toIsoDate(selectedDate);
+    setIsLoading(true);
 
     void (async () => {
       try {
@@ -103,6 +129,8 @@ export function usePurchaseNbpRates(options: {
       } catch (err) {
         if (controller.signal.aborted) return;
         toast.error('Nie udało się pobrać kursu NBP');
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     })();
 
@@ -117,4 +145,6 @@ export function usePurchaseNbpRates(options: {
     setKursDostawy,
     setKursFaktury,
   ]);
+
+  return { isLoading };
 }

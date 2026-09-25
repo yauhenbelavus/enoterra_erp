@@ -37,7 +37,7 @@ import {
   receiptInvoiceUrl,
   scheduleInvoiceOpen,
 } from '../utils/receiptInvoice';
-import { usePurchaseNbpRates } from '../utils/nbpRates';
+import { KursInputSpinner, usePurchaseNbpRates } from '../utils/nbpRates';
 import {
   KodChangeConflict,
   ReceiptQtyConflict,
@@ -334,7 +334,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invoicePreviewWindowRef = useRef<Window | null>(null);
 
-  usePurchaseNbpRates({
+  const { isLoading: isNbpLoading } = usePurchaseNbpRates({
     selectedDate,
     walutaDostawy,
     walutaFaktury,
@@ -568,6 +568,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
+  const isNbpLoadingDostawy = isNbpLoading && needsKursToPln(walutaDostawy);
+  const isNbpLoadingFaktury = isNbpLoading && needsKursToPln(walutaFaktury);
   const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury, kosztDostawy);
   const headerInvalid = getHeaderInvalidFields({
     hasDate: Boolean(selectedDate),
@@ -836,7 +838,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
             <div className="w-[96px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
               {kurs1Active ? (
-                <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursDostawy)} />
+                <div className="relative w-[96px]">
+                  <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
+                  <KursInputSpinner visible={isNbpLoadingDostawy} />
+                </div>
               ) : (
                 <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
@@ -960,7 +965,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
             <div className="w-[96px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
-                <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursFaktury)} />
+                <div className="relative w-[96px]">
+                  <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)} />
+                  <KursInputSpinner visible={isNbpLoadingFaktury} />
+                </div>
               ) : (
                 <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
