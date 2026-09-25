@@ -22,12 +22,53 @@ function toIsoDate(date: Date): string {
 
 function neededCodes(
   walutaDostawy: WalutaFakturySelection,
-  walutaFaktury: WalutaFakturySelection
+  walutaFaktury: WalutaFakturySelection,
+  fields: { dostawy: boolean; faktury: boolean }
 ): string[] {
   const codes = new Set<string>();
-  if (needsKursToPln(walutaDostawy)) codes.add(walutaDostawy);
-  if (needsKursToPln(walutaFaktury)) codes.add(walutaFaktury);
+  if (fields.dostawy && needsKursToPln(walutaDostawy)) codes.add(walutaDostawy);
+  if (fields.faktury && needsKursToPln(walutaFaktury)) codes.add(walutaFaktury);
   return [...codes];
+}
+
+function parseSignature(signature: string): {
+  date: string;
+  walutaDostawy: WalutaFakturySelection;
+  walutaFaktury: WalutaFakturySelection;
+} {
+  const [date = '', walutaDostawy = '', walutaFaktury = ''] = signature.split('|');
+  return {
+    date,
+    walutaDostawy: walutaDostawy as WalutaFakturySelection,
+    walutaFaktury: walutaFaktury as WalutaFakturySelection,
+  };
+}
+
+function fieldsToLoad(
+  previousSignature: string | null,
+  selectedDate: Date | null,
+  walutaDostawy: WalutaFakturySelection,
+  walutaFaktury: WalutaFakturySelection
+): { dostawy: boolean; faktury: boolean } {
+  const dostawyActive = isKursDostawyInputActive(walutaDostawy);
+  const fakturyActive = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
+  if (!selectedDate) return { dostawy: false, faktury: false };
+
+  if (previousSignature === null) {
+    return { dostawy: dostawyActive, faktury: fakturyActive };
+  }
+
+  const previous = parseSignature(previousSignature);
+  const dateChanged = previous.date !== toIsoDate(selectedDate);
+  if (dateChanged) {
+    return { dostawy: dostawyActive, faktury: fakturyActive };
+  }
+
+  const wasFakturyActive = isKursFakturyInputActive(previous.walutaDostawy, previous.walutaFaktury);
+  return {
+    dostawy: dostawyActive && previous.walutaDostawy !== walutaDostawy,
+    faktury: fakturyActive && (previous.walutaFaktury !== walutaFaktury || !wasFakturyActive),
+  };
 }
 
 const NBP_NOT_FOUND_MESSAGE = 'Nie znaleziono kursu NBP dla wybranej daty';
@@ -111,7 +152,7 @@ export function usePurchaseNbpRates(options: {
   setKursFaktury: (value: string) => void;
   enabled?: boolean;
   skipInitial?: boolean;
-}): { isLoading: boolean } {
+}): { isLoading: boolean; isLoadingDostawy: boolean; isLoadingFaktury: boolean } {
   const {
     selectedDate,
     walutaDostawy,
@@ -122,7 +163,7 @@ export function usePurchaseNbpRates(options: {
     skipInitial = false,
   } = options;
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingFields, setLoadingFields] = useState({ dostawy: false, faktury: false });
   const previousSignatureRef = useRef<string | null>(null);
   const dateKey = selectedDate ? toIsoDate(selectedDate) : '';
   const signature = `${dateKey}|${walutaDostawy}|${walutaFaktury}`;
@@ -135,21 +176,24 @@ export function usePurchaseNbpRates(options: {
       return;
     }
     if (previousSignatureRef.current === signature) return;
+
+    const previousSignature = previousSignatureRef.current;
     previousSignatureRef.current = signature;
 
-    if (!selectedDate) {
-      setIsLoading(false);
+    const fields = fieldsToLoad(previousSignature, selectedDate, walutaDostawy, walutaFaktury);
+    if (!selectedDate || (!fields.dostawy && !fields.faktury)) {
+      setLoadingFields({ dostawy: false, faktury: false });
       return;
     }
-    const codes = neededCodes(walutaDostawy, walutaFaktury);
+    const codes = neededCodes(walutaDostawy, walutaFaktury, fields);
     if (codes.length === 0) {
-      setIsLoading(false);
+      setLoadingFields({ dostawy: false, faktury: false });
       return;
     }
 
     const controller = new AbortController();
     const date = toIsoDate(selectedDate);
-    setIsLoading(true);
+    setLoadingFields(fields);
 
     void (async () => {
       try {
@@ -158,11 +202,11 @@ export function usePurchaseNbpRates(options: {
 
         const missing = codes.filter((code) => !rates[code]);
         const applied: NbpRate[] = [];
-        if (isKursDostawyInputActive(walutaDostawy) && rates[walutaDostawy]) {
+        if (fields.dostawy && rates[walutaDostawy]) {
           setKursDostawy(formatPlMoney(rates[walutaDostawy].mid));
           applied.push(rates[walutaDostawy]);
         }
-        if (isKursFakturyInputActive(walutaDostawy, walutaFaktury) && rates[walutaFaktury]) {
+        if (fields.faktury && rates[walutaFaktury]) {
           setKursFaktury(formatPlMoney(rates[walutaFaktury].mid));
           applied.push(rates[walutaFaktury]);
         }
@@ -187,7 +231,7 @@ export function usePurchaseNbpRates(options: {
         }
         toast.error(NBP_NETWORK_MESSAGE, { duration: NBP_NOT_FOUND_TOAST_MS });
       } finally {
-        if (!controller.signal.aborted) setIsLoading(false);
+        if (!controller.signal.aborted) setLoadingFields({ dostawy: false, faktury: false });
       }
     })();
 
@@ -203,5 +247,9 @@ export function usePurchaseNbpRates(options: {
     setKursFaktury,
   ]);
 
-  return { isLoading };
+  return {
+    isLoading: loadingFields.dostawy || loadingFields.faktury,
+    isLoadingDostawy: loadingFields.dostawy,
+    isLoadingFaktury: loadingFields.faktury,
+  };
 }

@@ -261,7 +261,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invoicePreviewWindowRef = useRef<Window | null>(null);
 
-  const { isLoading: isNbpLoading } = usePurchaseNbpRates({
+  const { isLoadingDostawy: isNbpLoadingDostawy, isLoadingFaktury: isNbpLoadingFaktury } = usePurchaseNbpRates({
     selectedDate,
     walutaDostawy,
     walutaFaktury,
@@ -444,8 +444,6 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
-  const isNbpLoadingDostawy = isNbpLoading && needsKursToPln(walutaDostawy);
-  const isNbpLoadingFaktury = isNbpLoading && needsKursToPln(walutaFaktury);
   const kursError = validatePurchaseKursPair(walutaDostawy, kursDostawy, walutaFaktury, kursFaktury, kosztDostawy);
   const headerInvalid = getHeaderInvalidFields({
     hasDate: Boolean(selectedDate),
