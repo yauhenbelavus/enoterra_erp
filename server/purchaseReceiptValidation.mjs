@@ -1,7 +1,10 @@
 'use strict';
 
+const LEADING_QUOTES_PATTERN = /^(["'«»‹›„“”‘’‚‛]+)/u;
+
 /**
  * Title-case nazwa: trim, collapse spaces, capitalize first letter of each word.
+ * Words that start with a quote still get a capital letter after the quote ("esprit → "Esprit).
  * Matches the production SQL rule; uses pl-PL for Polish letters.
  * @param {unknown} value
  * @returns {string}
@@ -12,8 +15,23 @@ function toTitleCaseNazwa(value) {
   return trimmed
     .toLocaleLowerCase('pl-PL')
     .split(' ')
-    .map((word) => word.charAt(0).toLocaleUpperCase('pl-PL') + word.slice(1))
+    .map((word) => capitalizeNazwaWord(word))
     .join(' ');
+}
+
+/**
+ * @param {string} word
+ * @returns {string}
+ */
+function capitalizeNazwaWord(word) {
+  const quoteMatch = word.match(LEADING_QUOTES_PATTERN);
+  if (quoteMatch) {
+    const quotes = quoteMatch[1];
+    const rest = word.slice(quotes.length);
+    if (!rest) return word;
+    return quotes + rest.charAt(0).toLocaleUpperCase('pl-PL') + rest.slice(1);
+  }
+  return word.charAt(0).toLocaleUpperCase('pl-PL') + word.slice(1);
 }
 
 /** @type {Record<string, boolean>} */
