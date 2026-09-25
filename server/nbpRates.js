@@ -101,6 +101,10 @@ async function fetchNbpRates(date, codes) {
     if (found) rates[code] = found;
   }
 
+  if (uniqueCodes.length > 0 && Object.keys(rates).length === 0) {
+    return { status: 404, error: 'Nie znaleziono kursu NBP dla wybranej daty' };
+  }
+
   return { date, rates };
 }
 

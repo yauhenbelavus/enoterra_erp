@@ -3608,7 +3608,7 @@ app.get('/api/nbp/rates', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('❌ NBP rates error:', err);
-    res.status(502).json({ error: 'Nie udało się pobrać kursu NBP' });
+    res.status(502).json({ error: 'Serwis NBP jest niedostępny. Spróbuj ponownie.' });
   }
 });
 
