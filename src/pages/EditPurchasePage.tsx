@@ -27,6 +27,7 @@ import {
   getHeaderInvalidFields,
   getRowInvalidFields,
   validatePurchaseReceipt,
+  kosztButWgWartosci,
 } from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
@@ -165,14 +166,6 @@ const getRowLineBrutto = (row: ProductRow): number =>
 
 const getRowLineVat = (row: ProductRow): number =>
   getRowLineValue(row) * (row.vat || 0) / 100;
-
-const getRowKosztButWgWartosci = (row: ProductRow, totalValue: number, deliveryCost: number): number => {
-  if (row.typ === 'aksesoria') return 0;
-  const qty = parseFloat(row.ilosc) || 0;
-  const lineValue = getRowLineValue(row);
-  if (totalValue <= 0 || qty <= 0) return 0;
-  return (deliveryCost * lineValue) / (totalValue * qty);
-};
 
 const emptyRow = (): ProductRow => ({
   kod: '',
@@ -606,10 +599,6 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
     const kursDostawyNumber = toKursToPln(walutaDostawy, kursDostawy);
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
-    const totalLineValueSubmit = productRows.reduce((sum, row) => {
-      if (row.typ === 'aksesoria') return sum;
-      return sum + getRowLineValue(row);
-    }, 0);
 
     const formattedProducts = productRows.map(row => ({
         id: row.id,
@@ -622,7 +611,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         vat: row.vat,
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
-        koszt_dostawy_per_unit: roundMoney(getRowKosztButWgWartosci(row, totalLineValueSubmit, deliveryCost) * kursDostawyNumber),
+        koszt_dostawy_per_unit: roundMoney(kosztButWgWartosci(row, productRows, deliveryCost) * kursDostawyNumber),
         podatek_akcyzowy: (row.typ === 'bezalkoholowe' || row.typ === 'ferment' || row.typ === 'aksesoria')
           ? 0
           : roundMoney(roundMoney(podatekAkcyzowy) * (parseFloat(String(row.objetosc || '1').replace(',', '.')) || 1)),
@@ -729,10 +718,6 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     setOpenObjetoscDropdownIndex(null);
   };
 
-  const totalLineValue = productRows.reduce((sum, row) => {
-    if (row.typ === 'aksesoria') return sum;
-    return sum + getRowLineValue(row);
-  }, 0);
   const deliveryCostNumber = parsePlNumber(kosztDostawy);
 
   return (
@@ -1143,7 +1128,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 </div>
                 <input
                   type="text"
-                  value={formatPlMoney(getRowKosztButWgWartosci(row, totalLineValue, deliveryCostNumber))}
+                  value={formatPlMoney(kosztButWgWartosci(row, productRows, deliveryCostNumber))}
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />

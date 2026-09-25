@@ -130,7 +130,7 @@ const ocrUpload = multer({
 });
 
 const { parsePurchaseInvoicePdf } = require('./purchaseInvoiceOcr');
-const { validatePurchaseReceipt, toTitleCaseNazwa } = require('./purchaseReceiptValidation.mjs');
+const { validatePurchaseReceipt, toTitleCaseNazwa, freightLineValue, receiptFreightValueTotal } = require('./purchaseReceiptValidation.mjs');
 const { isKursValueFilled, needsKursToPln, validateRequiredKurs } = require('./receiptKursValidation.mjs');
 const { fetchNbpRates } = require('./nbpRates');
 
@@ -495,31 +495,20 @@ function stampKosztDostawyPerUnitSrednie(products, kosztDostawyPerUnit) {
   return products;
 }
 
-function productLineCena(product) {
-  return parseFloat(String(product == null || product.cena == null ? '0' : product.cena).replace(',', '.')) || 0;
-}
-
-function receiptLineValueTotal(products) {
-  return (products || []).reduce((sum, product) => {
-    if (product && product.typ === 'aksesoria') return sum;
-    return sum + ((product.ilosc || 0) * productLineCena(product));
-  }, 0);
-}
-
-function kosztDostawyPerUnitFromKosztBut(product, totalValue, kosztDostawy, kurs) {
-  const qty = product.ilosc || 0;
-  const lineValue = qty * productLineCena(product);
+function kosztDostawyPerUnitFromKosztBut(product, products, totalValue, kosztDostawy, kurs) {
+  const qty = parseFloat(String(product == null || product.ilosc == null ? '0' : product.ilosc).replace(',', '.')) || 0;
+  const lineValue = freightLineValue(product, products);
   if (totalValue <= 0 || qty <= 0) return 0;
   return roundMoney(((kosztDostawy || 0) * lineValue) / (totalValue * qty) * (kurs || 0));
 }
 
 function stampKosztDostawyPerUnit(products, kosztDostawy, kurs) {
   if (!Array.isArray(products)) return products;
-  const totalValue = receiptLineValueTotal(products);
+  const totalValue = receiptFreightValueTotal(products);
   for (const product of products) {
     product.koszt_dostawy_per_unit = product.typ === 'aksesoria'
       ? 0
-      : kosztDostawyPerUnitFromKosztBut(product, totalValue, kosztDostawy, kurs);
+      : kosztDostawyPerUnitFromKosztBut(product, products, totalValue, kosztDostawy, kurs);
   }
   return products;
 }

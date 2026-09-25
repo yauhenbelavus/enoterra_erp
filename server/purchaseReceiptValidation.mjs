@@ -196,6 +196,89 @@ function validatePurchaseReceipt(input) {
   return null;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function parseLineQty(value) {
+  const n = parsePlNumber(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Unit price for the invoice line. 0 is a valid sample price.
+ * @param {any} product
+ * @returns {number}
+ */
+function ownLineCena(product) {
+  const row = product || {};
+  const raw = row.cenaPelna != null && row.cenaPelna !== '' ? row.cenaPelna : row.cena;
+  const n = parsePlNumber(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Freight share uses the paid sibling with the same kod when this line is 0 (sample).
+ * Invoice netto stays on ownLineCena; only transport allocation borrows the brother's price.
+ * @param {any} product
+ * @param {any[]} products
+ * @returns {number}
+ */
+function freightUnitCena(product, products) {
+  if (!product || String(product.typ || '').trim() === 'aksesoria') return 0;
+  const own = ownLineCena(product);
+  if (own > 0) return own;
+  const kod = String(product.kod || '').trim().toLowerCase();
+  if (!kod) return 0;
+  const rows = Array.isArray(products) ? products : [];
+  for (const other of rows) {
+    if (!other || other === product) continue;
+    if (String(other.typ || '').trim() === 'aksesoria') continue;
+    if (String(other.kod || '').trim().toLowerCase() !== kod) continue;
+    const cena = ownLineCena(other);
+    if (cena > 0) return cena;
+  }
+  return 0;
+}
+
+/**
+ * @param {any} product
+ * @param {any[]} products
+ * @returns {number}
+ */
+function freightLineValue(product, products) {
+  return parseLineQty(product && product.ilosc) * freightUnitCena(product, products);
+}
+
+/**
+ * @param {any[]} products
+ * @returns {number}
+ */
+function receiptFreightValueTotal(products) {
+  const rows = Array.isArray(products) ? products : [];
+  return rows.reduce((sum, product) => {
+    if (product && String(product.typ || '').trim() === 'aksesoria') return sum;
+    return sum + freightLineValue(product, rows);
+  }, 0);
+}
+
+/**
+ * Delivery cost per bottle in the delivery currency (before kurs).
+ * Sample with cena 0 gets the same per-bottle share as its paid kod sibling.
+ * @param {any} product
+ * @param {any[]} products
+ * @param {unknown} deliveryCost
+ * @returns {number}
+ */
+function kosztButWgWartosci(product, products, deliveryCost) {
+  if (!product || String(product.typ || '').trim() === 'aksesoria') return 0;
+  const qty = parseLineQty(product.ilosc);
+  const totalValue = receiptFreightValueTotal(products);
+  const lineValue = freightLineValue(product, products);
+  if (totalValue <= 0 || qty <= 0) return 0;
+  return (parseLineQty(deliveryCost) * lineValue) / (totalValue * qty);
+}
+
 export {
   toTitleCaseNazwa,
   getRowInvalidFields,
@@ -203,4 +286,8 @@ export {
   getRowValidationError,
   validatePurchaseReceipt,
   rowNeedsAkcyza,
+  freightUnitCena,
+  freightLineValue,
+  receiptFreightValueTotal,
+  kosztButWgWartosci,
 };
