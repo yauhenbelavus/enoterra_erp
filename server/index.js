@@ -10325,8 +10325,8 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
       const oldProductRows = await loadReceiptProductBatches(id);
       const oldProducts = oldProductRows.map(mapProductBatchToReceiptLine);
       const currentVersion = Number(oldReceipt.version) || 1;
-      const expectedVersion = Number(version);
-      if (!Number.isInteger(expectedVersion) || expectedVersion !== currentVersion) {
+      const expectedVersion = Number.parseInt(String(version ?? ''), 10);
+      if (!Number.isFinite(expectedVersion) || expectedVersion !== currentVersion) {
         throw Object.assign(new Error('Receipt version conflict'), {
           statusCode: 409,
           payload: {

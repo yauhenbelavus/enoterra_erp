@@ -39,7 +39,7 @@ import {
   INVOICE_FILE_BUTTON_TITLE_EMPTY,
   INVOICE_FILE_BUTTON_TITLE_HAS_FILE,
   isPdfFile,
-  uploadReceiptInvoices,
+  buildReceiptWriteFormData,
 } from '../utils/receiptInvoice';
 import { KursInputSpinner, usePurchaseNbpRates } from '../utils/nbpRates';
 
@@ -519,11 +519,19 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
     setIsSaving(true);
     try {
-      const response = await fetch(`${API_URL}/api/product-receipts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(receiptPayload),
-      });
+      let response: Response;
+      if (productInvoice || transportInvoice) {
+        response = await fetch(`${API_URL}/api/product-receipts`, {
+          method: 'POST',
+          body: buildReceiptWriteFormData(receiptPayload, productInvoice, transportInvoice),
+        });
+      } else {
+        response = await fetch(`${API_URL}/api/product-receipts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(receiptPayload),
+        });
+      }
 
       if (!response.ok) {
         const raw = await response.text();
@@ -537,25 +545,6 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         }
         toast.error(message);
         return;
-      }
-
-      const saved = await response.json().catch(() => ({} as { id?: number }));
-      if (productInvoice || transportInvoice) {
-        if (!saved.id) {
-          toast.error('Zapisano przyjęcie, ale nie udało się podpiąć pliku PDF');
-          const updatedReceipts = await loadProductReceiptsFromDb();
-          onReceiptsChange(updatedReceipts);
-          navigate(ZAKUP_PATH);
-          return;
-        }
-        const fileResult = await uploadReceiptInvoices(saved.id, productInvoice, transportInvoice);
-        if (!fileResult.ok) {
-          toast.error(fileResult.error);
-          const updatedReceipts = await loadProductReceiptsFromDb();
-          onReceiptsChange(updatedReceipts);
-          navigate(ZAKUP_PATH);
-          return;
-        }
       }
 
       toast.success('Dodano nowy towar');
