@@ -40,6 +40,7 @@ import {
   INVOICE_FILE_BUTTON_TITLE_EMPTY,
   INVOICE_FILE_BUTTON_TITLE_HAS_FILE,
   isPdfFile,
+  uploadReceiptInvoices,
 } from '../utils/receiptInvoice';
 import { KursInputSpinner, usePurchaseNbpRates } from '../utils/nbpRates';
 import {
@@ -639,20 +640,11 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
     setIsSaving(true);
     try {
-      let response: Response;
-      if (productInvoice || transportInvoice) {
-        const formData = new FormData();
-        formData.append('data', JSON.stringify(receiptPayload));
-        if (productInvoice) formData.append('product_invoice', productInvoice, productInvoice.name);
-        if (transportInvoice) formData.append('transport_invoice', transportInvoice, transportInvoice.name);
-        response = await fetch(`${API_URL}/api/product-receipts/${receiptId}`, { method: 'PUT', body: formData });
-      } else {
-        response = await fetch(`${API_URL}/api/product-receipts/${receiptId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(receiptPayload),
-        });
-      }
+      const response = await fetch(`${API_URL}/api/product-receipts/${receiptId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(receiptPayload),
+      });
 
       if (response.status === 409) {
         const body = await response.json().catch(() => ({}));
@@ -683,6 +675,15 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         }
         toast.error(message);
         return;
+      }
+
+      if (productInvoice || transportInvoice) {
+        const fileResult = await uploadReceiptInvoices(receiptId, productInvoice, transportInvoice);
+        if (!fileResult.ok) {
+          setReceiptVersion((current) => current + 1);
+          toast.error(fileResult.error);
+          return;
+        }
       }
 
       toast.success('Zakup został zaktualizowany');

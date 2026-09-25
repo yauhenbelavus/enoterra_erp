@@ -33,7 +33,10 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
 
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const PL_SLUG_MAP = {
@@ -10001,7 +10004,10 @@ function withReceiptUploads(req, res, next) {
   receiptUploadFields(req, res, (err) => {
     if (err) {
       console.error('❌ Receipt PDF upload:', err);
-      return res.status(400).json({ error: 'Nie udało się wczytać pliku PDF. Spróbuj ponownie.' });
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'Plik PDF jest zbyt duży (max 20 MB).' });
+      }
+      return res.status(400).json({ error: err.message || 'Nie udało się wczytać pliku PDF. Spróbuj ponownie.' });
     }
     next();
   });
@@ -10195,6 +10201,68 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
       res.status(500).json({ error: 'Failed to process products: ' + error.message });
     }
   });
+});
+
+app.put('/api/product-receipts/:id/invoices', withReceiptUploads, (req, res) => {
+  const { id } = req.params;
+  const productFile = uploadedReceiptFile(req, 'product_invoice');
+  const transportFile = uploadedReceiptFile(req, 'transport_invoice');
+  if (!productFile && !transportFile) {
+    return res.status(400).json({ error: 'Brak pliku PDF' });
+  }
+
+  db.get(
+    'SELECT sprzedawca, product_invoice, transport_invoice FROM product_receipts WHERE id = ?',
+    [id],
+    (err, oldReceipt) => {
+      if (err) {
+        console.error('❌ Receipt invoice lookup:', err);
+        discardRequestReceiptUploads(req, null);
+        return res.status(500).json({ error: 'Nie udało się zapisać pliku PDF' });
+      }
+      if (!oldReceipt) {
+        discardRequestReceiptUploads(req, null);
+        return res.status(404).json({ error: 'Product receipt not found' });
+      }
+
+      let productInvoice = null;
+      let transportInvoice = null;
+      try {
+        if (productFile && productFile.filename) {
+          productInvoice = assignReceiptUploadName(productFile.filename, 'towar', oldReceipt.sprzedawca);
+        }
+        if (transportFile && transportFile.filename) {
+          transportInvoice = assignReceiptUploadName(transportFile.filename, 'transport', oldReceipt.sprzedawca);
+        }
+      } catch (assignErr) {
+        console.error('❌ Receipt invoice rename:', assignErr);
+        discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+        return res.status(500).json({ error: 'Nie udało się zapisać pliku PDF' });
+      }
+
+      const nextProduct = productInvoice || oldReceipt.product_invoice;
+      const nextTransport = transportInvoice || oldReceipt.transport_invoice;
+      db.run(
+        'UPDATE product_receipts SET product_invoice = ?, transport_invoice = ? WHERE id = ?',
+        [nextProduct, nextTransport, id],
+        function(updateErr) {
+          if (updateErr) {
+            console.error('❌ Receipt invoice update:', updateErr);
+            discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+            return res.status(500).json({ error: 'Nie udało się zapisać pliku PDF' });
+          }
+          if (productInvoice) unlinkReplacedReceiptUpload(oldReceipt.product_invoice, productInvoice);
+          if (transportInvoice) unlinkReplacedReceiptUpload(oldReceipt.transport_invoice, transportInvoice);
+          console.log(`📎 PUT /api/product-receipts/${id}/invoices product=${nextProduct || '-'} transport=${nextTransport || '-'}`);
+          res.json({
+            message: 'Invoice files updated',
+            product_invoice: nextProduct,
+            transport_invoice: nextTransport,
+          });
+        }
+      );
+    }
+  );
 });
 
 app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {

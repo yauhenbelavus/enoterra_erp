@@ -154,3 +154,37 @@ export const handleReceiptInvoiceButtonDoubleClick = (
 export const INVOICE_FILE_BUTTON_TITLE_HAS_FILE =
   'Kliknij, aby otworzyć. Kliknij dwukrotnie lub Shift+klik, aby zamienić.';
 export const INVOICE_FILE_BUTTON_TITLE_EMPTY = 'Dodaj fakturę PDF';
+
+const readApiError = async (response: Response, fallback: string): Promise<string> => {
+  const raw = await response.text();
+  try {
+    const body = JSON.parse(raw) as { error?: string; message?: string };
+    if (typeof body.error === 'string' && body.error.trim()) return body.error;
+    if (typeof body.message === 'string' && body.message.trim()) return body.message;
+  } catch {
+    /* not json */
+  }
+  if (raw.trim()) return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || fallback;
+  return fallback;
+};
+
+export const uploadReceiptInvoices = async (
+  receiptId: number | string,
+  productInvoice: File | null,
+  transportInvoice: File | null,
+): Promise<{ ok: true } | { ok: false; error: string }> => {
+  if (!productInvoice && !transportInvoice) return { ok: true };
+  const formData = new FormData();
+  if (productInvoice) formData.append('product_invoice', productInvoice, 'faktura-towar.pdf');
+  if (transportInvoice) formData.append('transport_invoice', transportInvoice, 'faktura-transport.pdf');
+  try {
+    const response = await fetch(`${API_URL}/api/product-receipts/${receiptId}/invoices`, {
+      method: 'PUT',
+      body: formData,
+    });
+    if (response.ok) return { ok: true };
+    return { ok: false, error: await readApiError(response, 'Nie udało się zapisać pliku PDF') };
+  } catch {
+    return { ok: false, error: 'Nie udało się wysłać pliku PDF' };
+  }
+};
