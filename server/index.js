@@ -76,6 +76,12 @@ function nextReceiptUploadName(kind, sprzedawca) {
   return name;
 }
 
+function uploadedReceiptFile(req, field) {
+  const entry = req.files && req.files[field];
+  if (!entry) return null;
+  return Array.isArray(entry) ? entry[0] || null : entry;
+}
+
 function assignReceiptUploadName(tempFilename, kind, sprzedawca) {
   if (!tempFilename) return null;
   const tempPath = path.join(UPLOADS_DIR, path.basename(tempFilename));
@@ -107,13 +113,15 @@ function unlinkReplacedReceiptUpload(oldName, newName) {
 }
 
 function discardRequestReceiptUploads(req, assigned) {
-  if (req.files?.product_invoice) {
+  const productFile = uploadedReceiptFile(req, 'product_invoice');
+  if (productFile) {
     unlinkReceiptUpload(assigned && assigned.productInvoice);
-    unlinkReceiptUpload(req.files.product_invoice[0] && req.files.product_invoice[0].filename);
+    unlinkReceiptUpload(productFile.filename);
   }
-  if (req.files?.transport_invoice) {
+  const transportFile = uploadedReceiptFile(req, 'transport_invoice');
+  if (transportFile) {
     unlinkReceiptUpload(assigned && assigned.transportInvoice);
-    unlinkReceiptUpload(req.files.transport_invoice[0] && req.files.transport_invoice[0].filename);
+    unlinkReceiptUpload(transportFile.filename);
   }
 }
 
@@ -9821,7 +9829,6 @@ function unwrapMultipartValue(value) {
 
 function readReceiptRequestPayload(req) {
   try {
-    const files = req.files || {};
     const body = req.body || {};
     const rawData = unwrapMultipartValue(body.data);
     let source;
@@ -9832,6 +9839,8 @@ function readReceiptRequestPayload(req) {
     } else {
       source = body;
     }
+    const productFile = uploadedReceiptFile(req, 'product_invoice');
+    const transportFile = uploadedReceiptFile(req, 'transport_invoice');
     return {
       date: source.date,
       sprzedawca: source.sprzedawca,
@@ -9847,8 +9856,8 @@ function readReceiptRequestPayload(req) {
       kursFaktury: source.kurs_2,
       kursMode: source.kursMode,
       walutaDostawy: source.waluta_dostawy ?? source.walutaDostawy,
-      productInvoice: files.product_invoice ? files.product_invoice[0].filename : source.product_invoice,
-      transportInvoice: files.transport_invoice ? files.transport_invoice[0].filename : source.transport_invoice,
+      productInvoice: productFile ? productFile.filename : source.product_invoice,
+      transportInvoice: transportFile ? transportFile.filename : source.transport_invoice,
       version: source.version,
     };
   } catch (error) {
@@ -9869,11 +9878,13 @@ function prepareReceiptWriteRequest(req, options = {}) {
     kursMode, walutaDostawy, version,
   } = receiptPayload;
 
-  if (req.files?.product_invoice) {
-    productInvoice = assignReceiptUploadName(req.files.product_invoice[0].filename, 'towar', sprzedawca);
+  const productFile = uploadedReceiptFile(req, 'product_invoice');
+  const transportFile = uploadedReceiptFile(req, 'transport_invoice');
+  if (productFile && productFile.filename) {
+    productInvoice = assignReceiptUploadName(productFile.filename, 'towar', sprzedawca);
   }
-  if (req.files?.transport_invoice) {
-    transportInvoice = assignReceiptUploadName(req.files.transport_invoice[0].filename, 'transport', sprzedawca);
+  if (transportFile && transportFile.filename) {
+    transportInvoice = assignReceiptUploadName(transportFile.filename, 'transport', sprzedawca);
   }
   const assigned = { productInvoice, transportInvoice };
 

@@ -2,7 +2,7 @@ import { MutableRefObject, MouseEvent as ReactMouseEvent } from 'react';
 import { API_URL } from '../config';
 
 const INVOICE_OPEN_DELAY_MS = 250;
-const INVOICE_SINGLE_CLICK_MS = 400;
+const INVOICE_DOUBLE_CLICK_MS = 500;
 
 export const receiptInvoiceUrl = (filename: string): string => {
   const raw = String(filename || '').trim();
@@ -65,13 +65,15 @@ export const scheduleInvoiceOpen = (
   }, INVOICE_OPEN_DELAY_MS);
 };
 
-type InvoiceButtonRefs = {
+export type InvoiceButtonRefs = {
   file: File | null;
   existing?: string | null;
   input: HTMLInputElement | null;
   debounceRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   previewRef: MutableRefObject<Window | null>;
+  lastClickRef: MutableRefObject<number>;
+  replaceLockRef: MutableRefObject<boolean>;
 };
 
 const clearInvoiceDebounce = (debounceRef: InvoiceButtonRefs['debounceRef']) => {
@@ -92,6 +94,8 @@ const openOrPickInvoice = (refs: InvoiceButtonRefs) => {
 };
 
 const replaceInvoiceFile = (refs: InvoiceButtonRefs) => {
+  refs.replaceLockRef.current = true;
+  refs.lastClickRef.current = 0;
   clearInvoiceDebounce(refs.debounceRef);
   cancelScheduledInvoiceOpen(refs.timerRef, refs.previewRef);
   pickInvoiceFile(refs.input);
@@ -101,16 +105,37 @@ export const handleReceiptInvoiceButtonClick = (
   event: ReactMouseEvent<HTMLButtonElement>,
   refs: InvoiceButtonRefs,
 ) => {
-  event.preventDefault();
-  if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.detail >= 2) {
+  if (!refs.file && !refs.existing) {
+    const now = Date.now();
+    const isPairedClick =
+      refs.lastClickRef.current > 0 && now - refs.lastClickRef.current < INVOICE_DOUBLE_CLICK_MS;
+    if (event.detail >= 2 || isPairedClick) return;
+    refs.lastClickRef.current = now;
+    refs.replaceLockRef.current = false;
+    clearInvoiceDebounce(refs.debounceRef);
+    pickInvoiceFile(refs.input);
+    return;
+  }
+
+  const now = Date.now();
+  const isPairedClick =
+    refs.lastClickRef.current > 0 && now - refs.lastClickRef.current < INVOICE_DOUBLE_CLICK_MS;
+  const wantsReplace =
+    event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.detail >= 2 || isPairedClick;
+
+  if (wantsReplace) {
     replaceInvoiceFile(refs);
     return;
   }
+
+  refs.replaceLockRef.current = false;
+  refs.lastClickRef.current = now;
   clearInvoiceDebounce(refs.debounceRef);
   refs.debounceRef.current = setTimeout(() => {
     refs.debounceRef.current = null;
+    refs.lastClickRef.current = 0;
     openOrPickInvoice(refs);
-  }, INVOICE_SINGLE_CLICK_MS);
+  }, INVOICE_DOUBLE_CLICK_MS);
 };
 
 export const handleReceiptInvoiceButtonDoubleClick = (
@@ -118,6 +143,11 @@ export const handleReceiptInvoiceButtonDoubleClick = (
   refs: InvoiceButtonRefs,
 ) => {
   event.preventDefault();
+  if (!refs.file && !refs.existing) return;
+  if (refs.replaceLockRef.current) {
+    refs.replaceLockRef.current = false;
+    return;
+  }
   replaceInvoiceFile(refs);
 };
 

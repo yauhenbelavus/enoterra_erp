@@ -330,6 +330,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invoicePreviewWindowRef = useRef<Window | null>(null);
   const invoiceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const invoiceLastClickRef = useRef(0);
+  const invoiceReplaceLockRef = useRef(false);
 
   const { isLoadingDostawy: isNbpLoadingDostawy, isLoadingFaktury: isNbpLoadingFaktury } = usePurchaseNbpRates({
     selectedDate,
@@ -348,6 +350,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     debounceRef: invoiceDebounceRef,
     timerRef: invoiceClickTimerRef,
     previewRef: invoicePreviewWindowRef,
+    lastClickRef: invoiceLastClickRef,
+    replaceLockRef: invoiceReplaceLockRef,
   });
 
   const calculateDeliveryCostPerUnit = () => {
@@ -639,8 +643,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
       if (productInvoice || transportInvoice) {
         const formData = new FormData();
         formData.append('data', JSON.stringify(receiptPayload));
-        if (productInvoice) formData.append('product_invoice', productInvoice);
-        if (transportInvoice) formData.append('transport_invoice', transportInvoice);
+        if (productInvoice) formData.append('product_invoice', productInvoice, productInvoice.name);
+        if (transportInvoice) formData.append('transport_invoice', transportInvoice, transportInvoice.name);
         response = await fetch(`${API_URL}/api/product-receipts/${receiptId}`, { method: 'PUT', body: formData });
       } else {
         response = await fetch(`${API_URL}/api/product-receipts/${receiptId}`, {
@@ -851,7 +855,12 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 <input
                   type="file"
                   accept=".pdf"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (isPdfFile(f)) setProductInvoice(f); }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
+                    setProductInvoice(f);
+                  }}
                   className="hidden"
                   ref={productFileInputRef}
                 />
@@ -877,7 +886,12 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 <input
                   type="file"
                   accept=".pdf"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (isPdfFile(f)) setTransportInvoice(f); }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
+                    setTransportInvoice(f);
+                  }}
                   className="hidden"
                   ref={transportFileInputRef}
                 />
