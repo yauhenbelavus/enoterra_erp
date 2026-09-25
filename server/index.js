@@ -132,6 +132,7 @@ const ocrUpload = multer({
 const { parsePurchaseInvoicePdf } = require('./purchaseInvoiceOcr');
 const { validatePurchaseReceipt, toTitleCaseNazwa } = require('./purchaseReceiptValidation.mjs');
 const { isKursValueFilled, needsKursToPln, validateRequiredKurs } = require('./receiptKursValidation.mjs');
+const { fetchNbpRates } = require('./nbpRates');
 
 // Serve uploaded files from uploads directory (ДОЛЖЕН БЫТЬ ПЕРЕД ВСЕМИ API endpoints)
 app.use('/uploads', (req, res, next) => {
@@ -3590,6 +3591,25 @@ app.get('/api/health', (req, res) => {
     message: 'EnoTerra ERP Server is running',
     timestamp: new Date().toISOString()
   });
+});
+
+app.get('/api/nbp/rates', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    const codes = String(req.query.codes || '')
+      .split(',')
+      .map((code) => code.trim())
+      .filter(Boolean);
+    const result = await fetchNbpRates(date, codes);
+    if (result.error) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('❌ NBP rates error:', err);
+    res.status(502).json({ error: 'Nie udało się pobrać kursu NBP' });
+  }
 });
 
 // Test endpoint для проверки путей

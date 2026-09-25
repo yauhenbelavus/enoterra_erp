@@ -37,6 +37,7 @@ import {
   receiptInvoiceUrl,
   scheduleInvoiceOpen,
 } from '../utils/receiptInvoice';
+import { usePurchaseNbpRates } from '../utils/nbpRates';
 import {
   KodChangeConflict,
   ReceiptQtyConflict,
@@ -332,6 +333,16 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invoicePreviewWindowRef = useRef<Window | null>(null);
+
+  usePurchaseNbpRates({
+    selectedDate,
+    walutaDostawy,
+    walutaFaktury,
+    setKursDostawy,
+    setKursFaktury,
+    enabled: !isLoadingReceipt,
+    skipInitial: true,
+  });
 
   const pickInvoiceFile = (input: HTMLInputElement | null) => {
     if (!input) return;

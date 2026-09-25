@@ -32,6 +32,7 @@ import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
 import { cancelScheduledInvoiceOpen, scheduleInvoiceOpen } from '../utils/receiptInvoice';
+import { usePurchaseNbpRates } from '../utils/nbpRates';
 
 registerLocale('pl', pl);
 
@@ -259,6 +260,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invoicePreviewWindowRef = useRef<Window | null>(null);
+
+  usePurchaseNbpRates({
+    selectedDate,
+    walutaDostawy,
+    walutaFaktury,
+    setKursDostawy,
+    setKursFaktury,
+  });
 
   const pickInvoiceFile = (input: HTMLInputElement | null) => {
     if (!input) return;
