@@ -15,9 +15,10 @@ type PlMoneyInputProps = Omit<
   onChange: (value: string) => void;
 };
 
-export function PlMoneyInput({ value, onChange, onKeyDown, onPaste, ...props }: PlMoneyInputProps) {
+export function PlMoneyInput({ value, onChange, onKeyDown, onPaste, readOnly, disabled, ...props }: PlMoneyInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const caretRef = useRef<PlMoneyEditResult | null>(null);
+  const locked = Boolean(readOnly || disabled);
 
   const commitEdit = (result: PlMoneyEditResult) => {
     caretRef.current = result;
@@ -39,10 +40,12 @@ export function PlMoneyInput({ value, onChange, onKeyDown, onPaste, ...props }: 
       ref={inputRef}
       type="text"
       inputMode="decimal"
+      readOnly={readOnly}
+      disabled={disabled}
       value={value}
       onKeyDown={(e) => {
         onKeyDown?.(e);
-        if (e.defaultPrevented) return;
+        if (e.defaultPrevented || locked) return;
 
         const input = e.currentTarget;
         const selStart = input.selectionStart ?? value.length;
@@ -67,7 +70,7 @@ export function PlMoneyInput({ value, onChange, onKeyDown, onPaste, ...props }: 
       }}
       onPaste={(e) => {
         onPaste?.(e);
-        if (e.defaultPrevented) return;
+        if (e.defaultPrevented || locked) return;
 
         e.preventDefault();
         const input = e.currentTarget;

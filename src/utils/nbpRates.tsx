@@ -72,6 +72,7 @@ function fieldsToLoad(
 }
 
 const NBP_NOT_FOUND_MESSAGE = 'Nie znaleziono kursu NBP dla wybranej daty';
+const NBP_FUTURE_DATE_MESSAGE = 'Nie można pobrać kursu NBP dla daty z przyszłości';
 const NBP_UNAVAILABLE_MESSAGE = 'Serwis NBP jest niedostępny. Spróbuj ponownie.';
 const NBP_NETWORK_MESSAGE = 'Nie udało się pobrać kursu NBP. Brak połączenia z internetem.';
 const NBP_NOT_FOUND_TOAST_MS = 10000;
@@ -82,8 +83,16 @@ function formatPlDate(isoDate: string): string {
   return `${day}.${month}.${year}`;
 }
 
+function isWeekend(isoDate: string): boolean {
+  const day = new Date(`${isoDate}T12:00:00`).getDay();
+  return day === 0 || day === 6;
+}
+
 function nbpFallbackRateMessage(requestedDate: string, effectiveDate: string): string {
   const from = formatPlDate(effectiveDate);
+  if (isWeekend(requestedDate)) {
+    return `Wybrana data wypada w weekend. NBP nie publikuje kursu. Wprowadzono kurs z dnia ${from}.`;
+  }
   const today = toIsoDate(new Date());
   if (requestedDate === today) {
     return `Na dziś nie ma kursu NBP. Wprowadzono kurs z dnia ${from}.`;
@@ -95,6 +104,13 @@ class NbpNotFoundError extends Error {
   constructor() {
     super(NBP_NOT_FOUND_MESSAGE);
     this.name = 'NbpNotFoundError';
+  }
+}
+
+class NbpFutureDateError extends Error {
+  constructor() {
+    super(NBP_FUTURE_DATE_MESSAGE);
+    this.name = 'NbpFutureDateError';
   }
 }
 
@@ -115,6 +131,13 @@ export async function fetchNbpRates(
   const response = await fetch(`${API_URL}/api/nbp/rates?${params.toString()}`, { signal });
   if (response.status === 404) {
     throw new NbpNotFoundError();
+  }
+  if (response.status === 400) {
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    if (payload.error === NBP_FUTURE_DATE_MESSAGE) {
+      throw new NbpFutureDateError();
+    }
+    throw new Error('nbp');
   }
   if (response.status === 502) {
     throw new NbpUnavailableError();
@@ -191,8 +214,19 @@ export function usePurchaseNbpRates(options: {
       return;
     }
 
-    const controller = new AbortController();
     const date = toIsoDate(selectedDate);
+    const clearLoadedKurs = () => {
+      if (fields.dostawy) setKursDostawy('');
+      if (fields.faktury) setKursFaktury('');
+    };
+    if (date > toIsoDate(new Date())) {
+      clearLoadedKurs();
+      setLoadingFields({ dostawy: false, faktury: false });
+      toast.error(NBP_FUTURE_DATE_MESSAGE, { duration: NBP_NOT_FOUND_TOAST_MS });
+      return;
+    }
+
+    const controller = new AbortController();
     setLoadingFields(fields);
 
     void (async () => {
@@ -202,13 +236,21 @@ export function usePurchaseNbpRates(options: {
 
         const missing = codes.filter((code) => !rates[code]);
         const applied: NbpRate[] = [];
-        if (fields.dostawy && rates[walutaDostawy]) {
-          setKursDostawy(formatPlMoney(rates[walutaDostawy].mid));
-          applied.push(rates[walutaDostawy]);
+        if (fields.dostawy) {
+          if (rates[walutaDostawy]) {
+            setKursDostawy(formatPlMoney(rates[walutaDostawy].mid));
+            applied.push(rates[walutaDostawy]);
+          } else {
+            setKursDostawy('');
+          }
         }
-        if (fields.faktury && rates[walutaFaktury]) {
-          setKursFaktury(formatPlMoney(rates[walutaFaktury].mid));
-          applied.push(rates[walutaFaktury]);
+        if (fields.faktury) {
+          if (rates[walutaFaktury]) {
+            setKursFaktury(formatPlMoney(rates[walutaFaktury].mid));
+            applied.push(rates[walutaFaktury]);
+          } else {
+            setKursFaktury('');
+          }
         }
         const fallback = applied.find((rate) => rate.effectiveDate && rate.effectiveDate !== rate.requestedDate);
         if (fallback) {
@@ -221,8 +263,13 @@ export function usePurchaseNbpRates(options: {
         }
       } catch (err) {
         if (controller.signal.aborted) return;
+        clearLoadedKurs();
         if (err instanceof NbpNotFoundError) {
           toast.error(NBP_NOT_FOUND_MESSAGE, { duration: NBP_NOT_FOUND_TOAST_MS });
+          return;
+        }
+        if (err instanceof NbpFutureDateError) {
+          toast.error(NBP_FUTURE_DATE_MESSAGE, { duration: NBP_NOT_FOUND_TOAST_MS });
           return;
         }
         if (err instanceof NbpUnavailableError) {

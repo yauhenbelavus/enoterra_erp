@@ -837,7 +837,13 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
               {kurs1Active ? (
                 <div className="relative w-[96px]">
-                  <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
+                  <PlMoneyInput
+                    value={kursDostawy}
+                    onChange={setKursDostawy}
+                    readOnly
+                    placeholder="0,00"
+                    className={withInvalid(`w-[96px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)}
+                  />
                   <KursInputSpinner visible={isNbpLoadingDostawy} />
                 </div>
               ) : (
@@ -964,7 +970,13 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
                 <div className="relative w-[96px]">
-                  <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)} />
+                  <PlMoneyInput
+                    value={kursFaktury}
+                    onChange={setKursFaktury}
+                    readOnly
+                    placeholder="0,00"
+                    className={withInvalid(`w-[96px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)}
+                  />
                   <KursInputSpinner visible={isNbpLoadingFaktury} />
                 </div>
               ) : (

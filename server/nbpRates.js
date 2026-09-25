@@ -10,6 +10,7 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_PATTERN = /^[A-Z]{3}$/;
 const MAX_LOOKBACK_DAYS = 10;
 const NBP_TIMEOUT_MS = 10000;
+const NBP_FUTURE_DATE_MESSAGE = 'Nie można pobrać kursu NBP dla daty z przyszłości';
 
 function shiftIsoDate(isoDate, days) {
   const date = new Date(`${isoDate}T12:00:00`);
@@ -80,6 +81,10 @@ async function fetchOneRate(code, requestedDate) {
   return null;
 }
 
+function todayIsoWarsaw() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Warsaw' });
+}
+
 /**
  * @param {string} date YYYY-MM-DD
  * @param {string[]} codes ISO currency codes
@@ -87,6 +92,9 @@ async function fetchOneRate(code, requestedDate) {
 async function fetchNbpRates(date, codes) {
   if (!DATE_PATTERN.test(date)) {
     return { status: 400, error: 'Podaj datę w formacie RRRR-MM-DD' };
+  }
+  if (date > todayIsoWarsaw()) {
+    return { status: 400, error: NBP_FUTURE_DATE_MESSAGE };
   }
 
   const uniqueCodes = [...new Set(
