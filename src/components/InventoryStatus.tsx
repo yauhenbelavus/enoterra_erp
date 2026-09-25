@@ -9,7 +9,7 @@ import { OrderDetailsModal } from './OrderDetailsModal';
 import { SortIndicator } from './SortIndicator';
 import { compareInventoryItems, useTableSort } from '../utils/tableSort';
 import { computeStorageAgeByKod, formatDate as formatStorageDate } from '../utils/storageAge';
-import { cenaPoRabacie, formatRabatPercent, getKosztWlasny, parseRabatPercent } from '../utils/receiptCurrency';
+import { getKosztWlasny, parseRabatPercent } from '../utils/receiptCurrency';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
 
 // Глобальные стили для тултипов и таблицы
@@ -126,6 +126,7 @@ interface InventoryItem {
   created_at?: string; // Дата создания записи в working_sheets
   sprzedawca?: string; // Added sprzedawca field
   cena_zakupu_pln?: number; // цена закупки PLN из working_sheets (z faktury, bez rabatu)
+  cena_zakupu_po_rabacie?: number | null;
   rabat?: number; // rabat % z przyjęcia najnowszej płatnej partii
   cena_sprzedazy_pln?: number;
   koszt_dostawy_per_unit?: number; // Added koszt_dostawy_per_unit field
@@ -711,7 +712,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
   const [hideZeroStock, setHideZeroStock] = useState<boolean>(true);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedItemForEdit, setSelectedItemForEdit] = useState<InventoryItem | null>(null);
-  const [priceHistory, setPriceHistory] = useState<{[key: string]: any[]}>({});
   const [samplesCount, setSamplesCount] = useState<{[key: string]: number}>({});
   const [reservationsCount, setReservationsCount] = useState<{[key: string]: number}>({});
   const [reservationsByClient, setReservationsByClient] = useState<{
@@ -838,31 +838,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
       if (response.ok) {
         const allProducts = await response.json();
         setProductBatches(allProducts);
-        const newPriceHistory: {[key: string]: any[]} = {};
-        
-        // Группируем продукты по коду и создаем структуру для tooltip
-        allProducts.forEach((product: any) => {
-          if (Number(product.czy_probki) === 1 || product.status === 'samples') return;
-          if (!newPriceHistory[product.kod]) {
-            newPriceHistory[product.kod] = [];
-          }
-          // Добавляем данные из products для tooltip
-          newPriceHistory[product.kod].push({
-            cena: product.cena_zakupu_pln,
-            rabat: product.rabat,
-            ilosc_aktualna: product.ilosc_aktualna,
-            data_zmiany: product.updated_at || product.created_at
-          });
-        });
-        
-        // Сортируем каждую группу по дате изменения (новые первыми)
-        Object.keys(newPriceHistory).forEach(kod => {
-          newPriceHistory[kod].sort((a, b) => 
-            new Date(b.data_zmiany).getTime() - new Date(a.data_zmiany).getTime()
-          );
-        });
-        
-        setPriceHistory(newPriceHistory);
       }
     } catch (error) {
       console.error('Error loading all products:', error);
@@ -944,7 +919,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
         console.error('❌ Error loading order consumptions:', error);
       }
       
-      // Загружаем историю цен для всех товаров
       await loadAllPriceHistory();
       
       // Загружаем количество samples для каждого товара
@@ -1323,7 +1297,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           : '-',
         Rezerwacje: reservationsCount[item.kod] || 0,
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
-        'Cena zakupu': toExcelMoney(cenaPoRabacie(item.cena_zakupu_pln, item.rabat)),
+        'Cena zakupu': toExcelMoney(item.cena_zakupu_po_rabacie ?? item.cena_zakupu_pln),
         'Koszt własny': toExcelMoney(getKosztWlasny(item)),
         'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy_pln),
         'Data ważności': formatDate(item.data_waznosci),
@@ -1648,7 +1622,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                   className="px-8 py-4 text-left text-[10px] font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 leading-tight"
                   onClick={() => handleSort('cena_zakupu_pln')}
                   style={{ width: '90px' }}
-                  title="Cena zakupu po rabacie z faktury, jeśli przyjęcie ma rabat"
                 >
                   <div className="flex items-center gap-1">
                     <div className="whitespace-normal">Cena<br/>zakupu</div>
@@ -1812,67 +1785,12 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                     <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                       {item.objetosc ? `${item.objetosc} l` : '-'}
                     </td>
-                    <td 
-                      className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap cursor-pointer"
-                      data-tooltip-id={`price-tooltip-${item.kod}`}
-                      onMouseEnter={() => {
-                        if (!priceHistory[item.kod]) {
-                          loadAllPriceHistory();
-                        }
-                      }}
-                    >
-                      {item.cena_zakupu_pln != null ? (
-                        <span className="inline-flex items-baseline gap-1">
-                          <span>{`${cenaPoRabacie(item.cena_zakupu_pln, item.rabat).toFixed(2)} zł`}</span>
-                          {parseRabatPercent(item.rabat) > 0 && (
-                            <span className="text-[9px] font-semibold text-blue-600">
-                              −{formatRabatPercent(item.rabat)}%
-                            </span>
-                          )}
-                        </span>
-                      ) : '-'}
-                      <Tooltip
-                        id={`price-tooltip-${item.kod}`}
-                        className="max-w-md"
-                        place="top"
-                      >
-                        <div className="font-sora">
-                          {parseRabatPercent(item.rabat) > 0 && (
-                            <div className="mb-2 pb-2 border-b border-gray-500">
-                              <div className="mb-1">
-                                <span className="font-medium">Cena z faktury:</span>
-                                <span className="text-gray-500 ml-2">{(item.cena_zakupu_pln ?? 0).toFixed(2)} zł</span>
-                              </div>
-                              <div className="mb-1">
-                                <span className="font-medium">Rabat:</span>
-                                <span className="text-gray-500 ml-2">{formatRabatPercent(item.rabat)}%</span>
-                              </div>
-                              <div>
-                                <span className="font-medium">Cena zakupu:</span>
-                                <span className="text-gray-500 ml-2">{cenaPoRabacie(item.cena_zakupu_pln, item.rabat).toFixed(2)} zł</span>
-                              </div>
-                            </div>
-                          )}
-                          <div className="font-semibold mb-2">Historia cen:</div>
-                          
-                          {/* Данные из products */}
-                          {priceHistory[item.kod] && priceHistory[item.kod].length > 0 ? (
-                            priceHistory[item.kod].map((product, index) => (
-                              <div key={index} className="mb-1">
-                                <span className="font-medium">{product.cena != null ? `${cenaPoRabacie(product.cena, product.rabat).toFixed(2)} zł` : 'N/A'}</span>
-                                {parseRabatPercent(product.rabat) > 0 && product.cena != null && (
-                                  <span className="text-gray-500 ml-1">
-                                    (faktura {product.cena.toFixed(2)} zł)
-                                  </span>
-                                )}
-                                <span className="text-gray-500 ml-2">({product.ilosc_aktualna} szt.)</span>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="text-gray-500">Brak danych</div>
-                          )}
-                        </div>
-                      </Tooltip>
+                    <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
+                      {item.cena_zakupu_po_rabacie != null
+                        ? `${Number(item.cena_zakupu_po_rabacie).toFixed(2)} zł`
+                        : item.cena_zakupu_pln != null
+                          ? `${Number(item.cena_zakupu_pln).toFixed(2)} zł`
+                          : '-'}
                     </td>
                     <td 
                       className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap cursor-pointer"
@@ -1886,22 +1804,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                         positionStrategy="fixed"
                       >
                         <div className="font-sora">
-                          {parseRabatPercent(item.rabat) > 0 && (
-                            <>
-                              <div className="mb-1">
-                                <span className="font-medium">cena z faktury:</span>
-                                <span className="text-gray-500 ml-2">{(item.cena_zakupu_pln || 0).toFixed(2)} zł</span>
-                              </div>
-                              <div className="mb-1">
-                                <span className="font-medium">rabat:</span>
-                                <span className="text-gray-500 ml-2">{formatRabatPercent(item.rabat)}%</span>
-                              </div>
-                              <div className="mb-1">
-                                <span className="font-medium">cena po rabacie:</span>
-                                <span className="text-gray-500 ml-2">{cenaPoRabacie(item.cena_zakupu_pln, item.rabat).toFixed(2)} zł</span>
-                              </div>
-                            </>
-                          )}
                           <div className="mb-1">
                             <span className="font-medium">transport:</span>
                             <span className="text-gray-500 ml-2">{item.koszt_dostawy_per_unit != null ? `${item.koszt_dostawy_per_unit.toFixed(2)} zł` : '0,00 zł'}</span>

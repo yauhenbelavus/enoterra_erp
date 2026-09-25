@@ -493,6 +493,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
         kod_kreskowy: row.kod_kreskowy || '',
         ilosc: parseFloat(row.ilosc) || 0,
         cena: parseFloat(row.cena.replace(',', '.')) || 0,
+        cena_zakupu_po_rabacie: cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), parsePlNumber(rabat)),
         dataWaznosci: row.dataWaznosci ? row.dataWaznosci.toLocaleDateString('en-CA') : undefined,
         vat: row.vat,
         typ: row.typ || undefined,
@@ -595,13 +596,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const deliveryCostNumber = parsePlNumber(kosztDostawy);
   const rabatPercent = parsePlNumber(rabat);
   const showRabatCol = rabatPercent > 0;
-  const rabatKwota = roundMoney(
-    productRows.reduce((sum, row) => sum + getRowLineValue(row), 0)
-    - productRows.reduce((sum, row) => sum + getRowLineValuePoRabacie(row, rabatPercent), 0)
-  );
+  const rabatKwota = roundMoney(Math.max(
+    0,
+    productRows.reduce((sum, row) => sum + getRowLineValue(row), 0) - parsePlNumber(kwotaNetto)
+  ));
   const productRowGrid = `${PRODUCT_ROW_GRID_BASE} ${showRabatCol ? PRODUCT_ROW_COLS_RABAT : PRODUCT_ROW_COLS}`;
   const productRowHeader = `${productRowGrid} items-end justify-items-stretch`;
   const productRowFields = `${productRowGrid} items-center`;
+  const productRowsInnerClass = `product-rows-inner${showRabatCol ? ' is-wide' : ''}`;
 
   return (
     <div className="font-sora h-screen w-full bg-gray-200 overflow-hidden">
@@ -860,7 +862,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
         <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
           <div className="product-table-hscroll flex flex-col">
-          <div className={`product-rows-inner shrink-0 mb-2 bg-white ${productRowHeader}`}>
+          <div className={productRowsInnerClass}>
+          <div className={`product-row-head shrink-0 mb-2 bg-white ${productRowHeader}`}>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
@@ -874,12 +877,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. brutto</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Typ</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Objętość</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Koszt/but.</span>
-            <span />
+            <span className="product-col-koszt block w-full text-left text-xs font-medium text-gray-700 font-sora">Koszt/but.</span>
+            <span className="product-col-actions" />
           </div>
 
-          <div className="product-rows-scroll flex-1 min-h-0">
-            <div className="product-rows-inner">
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
@@ -1015,9 +1016,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   type="text"
                   value={formatPlMoney(kosztButWgWartosci(row, productRows, deliveryCostNumber))}
                   readOnly
-                  className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  className="product-col-koszt w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="flex items-center justify-start gap-1">
+                <div className="product-col-actions flex items-center justify-start gap-1">
                   {row.typ === 'ferment' && (
                     <button
                       type="button"
@@ -1059,7 +1060,6 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               >
                 <Plus size={16} />
               </button>
-            </div>
           </div>
           </div>
         </div>

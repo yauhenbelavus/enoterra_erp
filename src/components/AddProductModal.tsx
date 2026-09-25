@@ -21,6 +21,7 @@ import {
   isWalutaSelected,
   normalizeWalutaFaktury,
   roundMoney,
+  cenaPoRabacie,
   toStandardKursEurPln,
   toStandardKursFaktury,
   usesPrimaryKursFakturyState,
@@ -354,6 +355,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       return;
     }
 
+    const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
     const formattedProducts = productRows
       .filter(row => row.kod && row.nazwa && row.ilosc && row.cena)
       .map(row => ({
@@ -362,6 +364,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         kod_kreskowy: row.kod_kreskowy || '',
         ilosc: parseFloat(row.ilosc) || 0,
         cena: parseFloat(row.cena.replace(',', '.')) || 0,
+        cena_zakupu_po_rabacie: cenaPoRabacie(parseFloat(row.cena.replace(',', '.')) || 0, rabatValue),
         dataWaznosci: row.dataWaznosci ? row.dataWaznosci.toLocaleDateString('en-CA') : undefined,
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
@@ -374,7 +377,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       .reduce((sum, row) => sum + getRowLineValue(row), 0);
 
     const deliveryCost = parseFloat(kosztDostawy.replace(',', '.')) || 0;
-    const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
     
     // Применяем рабат к общей сумме
     const wartoscZRabatem = totalValue * (1 - rabatValue / 100);

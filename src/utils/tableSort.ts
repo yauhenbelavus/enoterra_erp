@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, type Dispatch, type SetStateAction } from 'react';
-import { cenaPoRabacie, getKosztWlasny } from './receiptCurrency';
+import { cenaZakupuNaStanie, getKosztWlasny } from './receiptCurrency';
 
 export type SortDirection = 'asc' | 'desc';
 export type SortValue = string | number | Date | null | undefined;
@@ -369,6 +369,7 @@ export function compareInventoryItems<TItem extends {
   kod: string;
   sprzedawca?: string;
   cena_zakupu_pln?: number;
+  cena_zakupu_po_rabacie?: number | null;
   rabat?: number;
   cena_sprzedazy_pln?: number;
   koszt_dostawy_per_unit?: number;
@@ -427,8 +428,8 @@ export function compareInventoryItems<TItem extends {
     case 'cena':
     case 'cena_zakupu_pln':
       return compareSortValues(
-        cenaPoRabacie(a.cena_zakupu_pln, a.rabat),
-        cenaPoRabacie(b.cena_zakupu_pln, b.rabat),
+        cenaZakupuNaStanie(a),
+        cenaZakupuNaStanie(b),
         direction
       );
     case 'cena_sprzedazy':

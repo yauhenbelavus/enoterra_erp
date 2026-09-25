@@ -342,7 +342,11 @@ function withCenaPln(products, walutaFaktury, kursFakturyToPln) {
   return products.map((p) => {
     const orig = roundMoney(p.cena);
     const cenaPln = waluta === 'PLN' ? orig : roundMoney(orig * rate);
-    return { ...p, cena: cenaPln, cenaOryginalna: orig };
+    const origPoRabacie = hasClientCenaPoRabacie(p) ? roundMoney(p.cena_zakupu_po_rabacie) : null;
+    const poRabaciePln = origPoRabacie == null
+      ? null
+      : (waluta === 'PLN' ? origPoRabacie : roundMoney(origPoRabacie * rate));
+    return { ...p, cena: cenaPln, cenaOryginalna: orig, cena_zakupu_po_rabacie: poRabaciePln };
   });
 }
 
@@ -411,7 +415,11 @@ function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
     const cenaEur = waluta === 'EUR'
       ? cenaOryginalna
       : convertCenaToEur(cenaOryginalna, waluta, aktualnyKurs, kursFaktury);
-    return { ...p, cena: cenaEur, cenaOryginalna };
+    const origPoRabacie = hasClientCenaPoRabacie(p) ? roundMoney(p.cena_zakupu_po_rabacie) : null;
+    const poRabacieEur = origPoRabacie == null
+      ? null
+      : (waluta === 'EUR' ? origPoRabacie : convertCenaToEur(origPoRabacie, waluta, aktualnyKurs, kursFaktury));
+    return { ...p, cena: cenaEur, cenaOryginalna, cena_zakupu_po_rabacie: poRabacieEur };
   });
 }
 
@@ -443,16 +451,53 @@ function roundMoney(value) {
   return Math.round(n * 100) / 100;
 }
 
+function parseRabatPercentValue(rabat) {
+  return parseFloat(String(rabat ?? '0').replace(',', '.')) || 0;
+}
+
+function cenaZakupuPoRabacieFromCena(cena, rabat) {
+  return roundMoney((parseFloat(String(cena ?? 0).replace(',', '.')) || 0) * (1 - parseRabatPercentValue(rabat) / 100));
+}
+
+function hasClientCenaPoRabacie(product) {
+  return product && product.cena_zakupu_po_rabacie != null && String(product.cena_zakupu_po_rabacie).trim() !== '';
+}
+
+function stampCenaZakupuPoRabacie(products, rabat) {
+  if (!Array.isArray(products)) return products;
+  for (const product of products) {
+    if (!hasClientCenaPoRabacie(product)) {
+      product.cena_zakupu_po_rabacie = cenaZakupuPoRabacieFromCena(product.cena, rabat);
+    } else {
+      product.cena_zakupu_po_rabacie = roundMoney(product.cena_zakupu_po_rabacie);
+    }
+  }
+  return products;
+}
+
+function latestPricedProductBatchFilterSql(kodExpr) {
+  return `p.kod = ${kodExpr}
+      AND COALESCE(p.cena_zakupu_pln, 0) > 0
+    ORDER BY COALESCE(pr.data_przyjecia, p.created_at) DESC, p.id DESC
+    LIMIT 1`;
+}
+
 /** Header rabat % from the latest priced batch's receipt (same batch as Stany cena). */
 function latestPricedReceiptRabatSql(kodExpr) {
   return `(
     SELECT COALESCE(pr.rabat, 0)
     FROM products p
     LEFT JOIN product_receipts pr ON pr.id = p.receipt_id
-    WHERE p.kod = ${kodExpr}
-      AND COALESCE(p.cena_zakupu_pln, 0) > 0
-    ORDER BY COALESCE(pr.data_przyjecia, p.created_at) DESC, p.id DESC
-    LIMIT 1
+    WHERE ${latestPricedProductBatchFilterSql(kodExpr)}
+  )`;
+}
+
+function latestPricedCenaPoRabacieSql(kodExpr) {
+  return `(
+    SELECT p.cena_zakupu_po_rabacie
+    FROM products p
+    LEFT JOIN product_receipts pr ON pr.id = p.receipt_id
+    WHERE ${latestPricedProductBatchFilterSql(kodExpr)}
   )`;
 }
 
@@ -461,6 +506,7 @@ function formatProductCenaZakupu(row) {
   return {
     ...row,
     cena_zakupu_pln: row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln),
+    cena_zakupu_po_rabacie: row.cena_zakupu_po_rabacie == null ? row.cena_zakupu_po_rabacie : roundMoney(row.cena_zakupu_po_rabacie),
     cena_zakupu_org: row.cena_zakupu_org == null ? row.cena_zakupu_org : roundMoney(row.cena_zakupu_org),
     rabat: roundMoney(row.rabat),
   };
@@ -596,7 +642,7 @@ function mapProductBatchToReceiptLine(row) {
 }
 
 function insertProductBatchSql() {
-  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, receipt_id, czy_probki, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org, koszt_dostawy_per_unit_srednie, koszt_dostawy_per_unit, podatek_akcyzowy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  return 'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, cena_zakupu_po_rabacie, ilosc_pierwotna, ilosc_aktualna, receipt_id, czy_probki, created_at, typ, objetosc, data_waznosci, vat, cena_zakupu_org, koszt_dostawy_per_unit_srednie, koszt_dostawy_per_unit, podatek_akcyzowy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 }
 
 function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
@@ -606,6 +652,7 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
     product.nazwa,
     product.kod_kreskowy || null,
     roundMoney(product.cena || 0),
+    roundMoney(product.cena_zakupu_po_rabacie != null ? product.cena_zakupu_po_rabacie : product.cena || 0),
     product.ilosc,
     iloscAktualna,
     receiptId,
@@ -624,8 +671,8 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
 
 function updateProductBatchByIdSql(withQty) {
   return withQty
-    ? `UPDATE products SET kod = ?, nazwa = ?, kod_kreskowy = ?, cena_zakupu_pln = ?, ilosc_pierwotna = ?, ilosc_aktualna = ?, czy_probki = ?, typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ?, koszt_dostawy_per_unit_srednie = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?`
-    : `UPDATE products SET kod = ?, nazwa = ?, kod_kreskowy = ?, cena_zakupu_pln = ?, czy_probki = ?, typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ?, koszt_dostawy_per_unit_srednie = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?`;
+    ? `UPDATE products SET kod = ?, nazwa = ?, kod_kreskowy = ?, cena_zakupu_pln = ?, cena_zakupu_po_rabacie = ?, ilosc_pierwotna = ?, ilosc_aktualna = ?, czy_probki = ?, typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ?, koszt_dostawy_per_unit_srednie = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?`
+    : `UPDATE products SET kod = ?, nazwa = ?, kod_kreskowy = ?, cena_zakupu_pln = ?, cena_zakupu_po_rabacie = ?, czy_probki = ?, typ = ?, objetosc = ?, data_waznosci = ?, vat = ?, cena_zakupu_org = ?, koszt_dostawy_per_unit_srednie = ?, koszt_dostawy_per_unit = ?, podatek_akcyzowy = ? WHERE id = ?`;
 }
 
 function updateProductBatchByIdParams(product, productId, withQty, iloscAktualna) {
@@ -635,6 +682,7 @@ function updateProductBatchByIdParams(product, productId, withQty, iloscAktualna
     product.nazwa,
     product.kod_kreskowy || null,
     roundMoney(product.cena || 0),
+    roundMoney(product.cena_zakupu_po_rabacie != null ? product.cena_zakupu_po_rabacie : product.cena || 0),
   ];
   if (withQty) {
     values.push(product.ilosc, iloscAktualna);
@@ -911,6 +959,7 @@ const PRODUCTS_RECEIPT_LINE_COLUMNS = [
   { name: 'data_waznosci', sql: 'DATE' },
   { name: 'vat', sql: 'REAL DEFAULT 0' },
   { name: 'cena_zakupu_org', sql: 'REAL' },
+  { name: 'cena_zakupu_po_rabacie', sql: 'REAL' },
   { name: 'koszt_dostawy_per_unit_srednie', sql: 'REAL DEFAULT 0' },
   { name: 'koszt_dostawy_per_unit', sql: 'REAL DEFAULT 0' },
   { name: 'podatek_akcyzowy', sql: 'REAL DEFAULT 0' },
@@ -1134,7 +1183,7 @@ function ensureProductsReceiptLineColumns(done) {
             const next = (i) => {
               if (i >= missing.length) {
                 ensureWorkingSheetsKosztDostawyPerUnitSrednie(() => {
-                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => realignFeralMuriLegacyRates(() => roundExistingCenaZakupu(() => syncWorkingSheetsCenaFromLatestReceipt(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(() => dropProductReceiptsProductsJsonColumn(done))))))));
+                  backfillProductsFromReceiptJson(() => convertProductsCenaToPln(() => realignFeralMuriLegacyRates(() => roundExistingCenaZakupu(() => backfillCenaZakupuPoRabacie(() => syncWorkingSheetsCenaFromLatestReceipt(() => backfillProductsKosztDostawyWithoutReceipt(() => backfillWorkingSheetsKosztDostawyPerUnit(() => dropProductReceiptsProductsJsonColumn(done)))))))));
                 });
                 return;
               }
@@ -1673,6 +1722,43 @@ function roundExistingCenaZakupu(done) {
               );
             }
           );
+        }
+      );
+    }
+  );
+}
+
+function backfillCenaZakupuPoRabacie(done) {
+  const finish = () => {
+    if (done) done();
+  };
+  db.run(
+    `UPDATE products
+     SET cena_zakupu_po_rabacie = ROUND(
+       COALESCE(cena_zakupu_pln, 0) * (1 - COALESCE((
+         SELECT pr.rabat FROM product_receipts pr WHERE pr.id = products.receipt_id
+       ), 0) / 100.0),
+       2
+     )
+     WHERE cena_zakupu_po_rabacie IS NULL`,
+    function (err) {
+      if (err) {
+        if (!String(err.message || '').includes('no such column')) {
+          console.error('❌ Error backfilling products.cena_zakupu_po_rabacie:', err.message);
+        }
+        finish();
+        return;
+      }
+      if (this.changes > 0) {
+        console.log(`✅ Backfilled products.cena_zakupu_po_rabacie on ${this.changes} rows`);
+      }
+      db.run(
+        'UPDATE products SET cena_zakupu_po_rabacie = ROUND(cena_zakupu_po_rabacie, 2) WHERE cena_zakupu_po_rabacie IS NOT NULL',
+        function (roundErr) {
+          if (roundErr && !String(roundErr.message || '').includes('no such column')) {
+            console.error('❌ Error rounding products.cena_zakupu_po_rabacie:', roundErr.message);
+          }
+          finish();
         }
       );
     }
@@ -2641,6 +2727,7 @@ db.serialize(() => {
     nazwa TEXT NOT NULL,
     kod_kreskowy TEXT,
     cena_zakupu_pln REAL DEFAULT 0,
+    cena_zakupu_po_rabacie REAL,
     ilosc_pierwotna INTEGER DEFAULT 0,
     ilosc_aktualna INTEGER DEFAULT 0,
     receipt_id INTEGER,
@@ -3756,9 +3843,10 @@ app.post('/api/products', (req, res) => {
     return res.status(400).json({ error: 'Kod and nazwa are required' });
   }
   
+  const cenaPln = roundMoney(cena_zakupu_pln || cena || 0);
   db.run(
-    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, ilosc_pierwotna, ilosc_aktualna, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [kod, nazwa, kod_kreskowy, roundMoney(cena_zakupu_pln || cena || 0), ilosc || 0, ilosc || 0, data_waznosci],
+    'INSERT INTO products (kod, nazwa, kod_kreskowy, cena_zakupu_pln, cena_zakupu_po_rabacie, ilosc_pierwotna, ilosc_aktualna, data_waznosci) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [kod, nazwa, kod_kreskowy, cenaPln, cenaPln, ilosc || 0, ilosc || 0, data_waznosci],
     function(err) {
       if (err) {
         console.error('❌ Database error:', err);
@@ -3880,8 +3968,11 @@ app.get('/api/products/wartosc-towaru', (req, res) => {
   db.all(
     `SELECT kod,
             ROUND(
-              ilosc * COALESCE(cena_zakupu_pln, 0)
-              * (1.0 - COALESCE(${latestPricedReceiptRabatSql('working_sheets.kod')}, 0) / 100.0),
+              ilosc * COALESCE(
+                ${latestPricedCenaPoRabacieSql('working_sheets.kod')},
+                COALESCE(cena_zakupu_pln, 0)
+                  * (1.0 - COALESCE(${latestPricedReceiptRabatSql('working_sheets.kod')}, 0) / 100.0)
+              ),
               2
             ) AS wartosc
      FROM working_sheets`,
@@ -9938,6 +10029,7 @@ function prepareReceiptWriteRequest(req, options = {}) {
   const productsInternal = kursMode === 'toPln'
     ? withCenaPln(products, walutaFaktury, receiptRates.kursFakturyToPln)
     : withCenaEur(products, walutaFaktury, aktualnyKursForDb, kursFaktury);
+  stampCenaZakupuPoRabacie(productsInternal, rabat);
 
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
   const productsTotalValue = productsForJson.reduce((sum, p) => {
@@ -10966,7 +11058,9 @@ app.get('/api/working-sheets', (req, res) => {
   }
   
   db.all(
-    `SELECT ws.*, COALESCE(${latestPricedReceiptRabatSql('ws.kod')}, 0) AS rabat
+    `SELECT ws.*,
+            COALESCE(${latestPricedReceiptRabatSql('ws.kod')}, 0) AS rabat,
+            ${latestPricedCenaPoRabacieSql('ws.kod')} AS cena_zakupu_po_rabacie
      FROM working_sheets ws
      ORDER BY ws.id DESC`,
     (err, rows) => {
@@ -10976,11 +11070,19 @@ app.get('/api/working-sheets', (req, res) => {
       return;
     }
     console.log(`✅ Found ${rows.length} working sheets`);
-    res.json((rows || []).map((row) => ({
-      ...row,
-      cena_zakupu_pln: row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln),
-      rabat: roundMoney(row.rabat),
-    })));
+    res.json((rows || []).map((row) => {
+      const rabat = roundMoney(row.rabat);
+      const cenaPln = row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln);
+      const storedPoRabacie = row.cena_zakupu_po_rabacie == null ? null : roundMoney(row.cena_zakupu_po_rabacie);
+      return {
+        ...row,
+        cena_zakupu_pln: cenaPln,
+        rabat,
+        cena_zakupu_po_rabacie: storedPoRabacie == null
+          ? roundMoney((cenaPln || 0) * (1 - rabat / 100))
+          : storedPoRabacie,
+      };
+    }));
   });
 });
 
@@ -11585,8 +11687,8 @@ app.put('/api/working-sheets/update', (req, res) => {
           console.log(`🔄 Updating price in products table for records with receipt_id = NULL`);
           
           db.run(
-            'UPDATE products SET cena_zakupu_pln = ? WHERE kod = ? AND receipt_id IS NULL',
-            [roundMoney(cena_zakupu_pln), productKod],
+            'UPDATE products SET cena_zakupu_pln = ?, cena_zakupu_po_rabacie = ? WHERE kod = ? AND receipt_id IS NULL',
+            [roundMoney(cena_zakupu_pln), roundMoney(cena_zakupu_pln), productKod],
             function(updateErr) {
               if (updateErr) {
                 console.error(`❌ Error updating products table:`, updateErr);

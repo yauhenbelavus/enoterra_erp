@@ -45,13 +45,25 @@ export function formatRabatPercent(rabat?: number | null): string {
   return n.toFixed(2).replace('.', ',');
 }
 
-/** Invoice unit price after the receipt header rabat. Does not change the stored cena. */
+/** Invoice unit price after the receipt header rabat. */
 export function cenaPoRabacie(cena?: number | null, rabat?: number | null): number {
   return roundMoney((cena || 0) * (1 - parseRabatPercent(rabat) / 100));
 }
 
+export function cenaZakupuNaStanie(item: {
+  cena_zakupu_pln?: number | null;
+  cena_zakupu_po_rabacie?: number | null;
+  rabat?: number | null;
+}): number {
+  if (item.cena_zakupu_po_rabacie != null && Number.isFinite(Number(item.cena_zakupu_po_rabacie))) {
+    return roundMoney(item.cena_zakupu_po_rabacie);
+  }
+  return cenaPoRabacie(item.cena_zakupu_pln, item.rabat);
+}
+
 export function getKosztWlasny(item: {
   cena_zakupu_pln?: number | null;
+  cena_zakupu_po_rabacie?: number | null;
   rabat?: number | null;
   koszt_dostawy_per_unit?: number | null;
   koszt_dostawy_per_unit_srednie?: number | null;
@@ -61,7 +73,7 @@ export function getKosztWlasny(item: {
     ? item.koszt_dostawy_per_unit
     : (item.koszt_dostawy_per_unit_srednie || 0);
   return roundMoney(
-    cenaPoRabacie(item.cena_zakupu_pln, item.rabat) + kosztDostawy + (item.podatek_akcyzowy || 0)
+    cenaZakupuNaStanie(item) + kosztDostawy + (item.podatek_akcyzowy || 0)
   );
 }
 
