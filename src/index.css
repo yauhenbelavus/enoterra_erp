@@ -31,6 +31,14 @@ body {
   container-type: inline-size;
 }
 
+.product-table-hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+}
+
 .product-rows-scroll {
   overflow-x: hidden;
   overflow-y: auto;
@@ -38,6 +46,10 @@ body {
 
 .product-rows-inner {
   width: calc(100cqw - 8px);
+}
+
+.product-rows-inner.is-wide {
+  width: max(calc(100cqw - 8px), 1320px);
 }
 
 .product-rows-scroll::-webkit-scrollbar-track {

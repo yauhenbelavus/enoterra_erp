@@ -432,12 +432,26 @@ function roundMoney(value) {
   return Math.round(n * 100) / 100;
 }
 
+/** Header rabat % from the latest priced batch's receipt (same batch as Stany cena). */
+function latestPricedReceiptRabatSql(kodExpr) {
+  return `(
+    SELECT COALESCE(pr.rabat, 0)
+    FROM products p
+    LEFT JOIN product_receipts pr ON pr.id = p.receipt_id
+    WHERE p.kod = ${kodExpr}
+      AND COALESCE(p.cena_zakupu_pln, 0) > 0
+    ORDER BY COALESCE(pr.data_przyjecia, p.created_at) DESC, p.id DESC
+    LIMIT 1
+  )`;
+}
+
 function formatProductCenaZakupu(row) {
   if (!row) return row;
   return {
     ...row,
     cena_zakupu_pln: row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln),
     cena_zakupu_org: row.cena_zakupu_org == null ? row.cena_zakupu_org : roundMoney(row.cena_zakupu_org),
+    rabat: roundMoney(row.rabat),
   };
 }
 
@@ -3706,7 +3720,12 @@ app.get('/api/check_file/:fileName', (req, res) => {
 // Products API
 app.get('/api/products', (req, res) => {
   console.log('📦 GET /api/products - Fetching all products');
-  db.all('SELECT * FROM products ORDER BY nazwa', (err, rows) => {
+  db.all(
+    `SELECT p.*, COALESCE(pr.rabat, 0) AS rabat
+     FROM products p
+     LEFT JOIN product_receipts pr ON pr.id = p.receipt_id
+     ORDER BY p.nazwa`,
+    (err, rows) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -3848,7 +3867,12 @@ app.get('/api/products/reservations-clients', (req, res) => {
 app.get('/api/products/wartosc-towaru', (req, res) => {
   console.log('📦 GET /api/products/wartosc-towaru - Fetching product values from working_sheets');
   db.all(
-    `SELECT kod, (ilosc * cena_zakupu_pln) as wartosc 
+    `SELECT kod,
+            ROUND(
+              ilosc * COALESCE(cena_zakupu_pln, 0)
+              * (1.0 - COALESCE(${latestPricedReceiptRabatSql('working_sheets.kod')}, 0) / 100.0),
+              2
+            ) AS wartosc
      FROM working_sheets`,
     [],
     (err, rows) => {
@@ -10841,7 +10865,11 @@ app.get('/api/working-sheets', (req, res) => {
     return res.status(500).json({ error: 'Database not available' });
   }
   
-  db.all('SELECT * FROM working_sheets ORDER BY id DESC', (err, rows) => {
+  db.all(
+    `SELECT ws.*, COALESCE(${latestPricedReceiptRabatSql('ws.kod')}, 0) AS rabat
+     FROM working_sheets ws
+     ORDER BY ws.id DESC`,
+    (err, rows) => {
     if (err) {
       console.error('❌ Database error:', err);
       res.status(500).json({ error: err.message });
@@ -10851,6 +10879,7 @@ app.get('/api/working-sheets', (req, res) => {
     res.json((rows || []).map((row) => ({
       ...row,
       cena_zakupu_pln: row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln),
+      rabat: roundMoney(row.rabat),
     })));
   });
 });

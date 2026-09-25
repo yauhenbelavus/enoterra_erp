@@ -33,8 +33,26 @@ export function formatPlMoney(value: number): string {
   return value.toFixed(2).replace('.', ',');
 }
 
+export function parseRabatPercent(rabat?: number | null): number {
+  const n = Number(rabat);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function formatRabatPercent(rabat?: number | null): string {
+  const n = parseRabatPercent(rabat);
+  if (n <= 0) return '0';
+  if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
+  return n.toFixed(2).replace('.', ',');
+}
+
+/** Invoice unit price after the receipt header rabat. Does not change the stored cena. */
+export function cenaPoRabacie(cena?: number | null, rabat?: number | null): number {
+  return roundMoney((cena || 0) * (1 - parseRabatPercent(rabat) / 100));
+}
+
 export function getKosztWlasny(item: {
   cena_zakupu_pln?: number | null;
+  rabat?: number | null;
   koszt_dostawy_per_unit?: number | null;
   koszt_dostawy_per_unit_srednie?: number | null;
   podatek_akcyzowy?: number | null;
@@ -43,7 +61,7 @@ export function getKosztWlasny(item: {
     ? item.koszt_dostawy_per_unit
     : (item.koszt_dostawy_per_unit_srednie || 0);
   return roundMoney(
-    (item.cena_zakupu_pln || 0) + kosztDostawy + (item.podatek_akcyzowy || 0)
+    cenaPoRabacie(item.cena_zakupu_pln, item.rabat) + kosztDostawy + (item.podatek_akcyzowy || 0)
   );
 }
 

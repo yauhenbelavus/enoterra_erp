@@ -19,6 +19,7 @@ import {
   normalizeWalutaFaktury,
   sharesKursToPlnPair,
   roundMoney,
+  cenaPoRabacie,
   toKursToPln,
   validatePurchaseKursPair,
   getPurchaseKursInvalidFields,
@@ -221,9 +222,9 @@ const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md fo
 const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
 const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
-const PRODUCT_ROW_GRID = 'grid gap-2 min-w-0 [grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_52px]';
-const PRODUCT_ROW_HEADER = `${PRODUCT_ROW_GRID} items-end justify-items-stretch`;
-const PRODUCT_ROW_FIELDS = `${PRODUCT_ROW_GRID} items-center`;
+const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
+const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_52px]';
+const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(180px,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px_52px]';
 
 const SelectChevron = () => (
   <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -719,6 +720,15 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   };
 
   const deliveryCostNumber = parsePlNumber(kosztDostawy);
+  const rabatPercent = parsePlNumber(rabat);
+  const showRabatCol = rabatPercent > 0;
+  const rabatKwota = roundMoney(
+    productRows.reduce((sum, row) => sum + getRowLineValue(row), 0) * rabatPercent / 100
+  );
+  const productRowGrid = `${PRODUCT_ROW_GRID_BASE} ${showRabatCol ? PRODUCT_ROW_COLS_RABAT : PRODUCT_ROW_COLS}`;
+  const productRowHeader = `${productRowGrid} items-end justify-items-stretch`;
+  const productRowFields = `${productRowGrid} items-center`;
+  const productRowsInnerClass = `product-rows-inner${showRabatCol ? ' is-wide' : ''}`;
 
   return (
     <div className="font-sora h-screen w-full bg-gray-200 overflow-hidden">
@@ -986,12 +996,16 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         <div className="border-t border-gray-200" />
 
         <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
-          <div className={`product-rows-inner shrink-0 mb-2 bg-white ${PRODUCT_ROW_HEADER}`}>
+          <div className="product-table-hscroll flex flex-col">
+          <div className={`${productRowsInnerClass} shrink-0 mb-2 bg-white ${productRowHeader}`}>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Ilość</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Cena</span>
+            {showRabatCol && (
+              <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora leading-tight">Cena<br/>po rabacie</span>
+            )}
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. netto</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">VAT</span>
             <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. brutto</span>
@@ -1002,14 +1016,14 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
           </div>
 
           <div className="product-rows-scroll flex-1 min-h-0">
-            <div className="product-rows-inner">
+            <div className={productRowsInnerClass}>
             <div className="space-y-2">
             {productRows.map((row, index) => {
               const rowInvalid = getRowInvalidFields(row);
               return (
               <div
                 key={index}
-                className={`${PRODUCT_ROW_FIELDS} relative`}
+                className={`${productRowFields} relative`}
               >
                 <input
                   type="text"
@@ -1045,6 +1059,14 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   className={withInvalid(`w-full min-w-0 ${ROW_INPUT}`, rowInvalid.cena)}
                   placeholder="0,00"
                 />
+                {showRabatCol && (
+                  <input
+                    type="text"
+                    value={formatPlMoney(cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), rabatPercent))}
+                    readOnly
+                    className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  />
+                )}
                 <input
                   type="text"
                   value={formatPlMoney(getRowLineValue(row))}
@@ -1176,6 +1198,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               </button>
             </div>
           </div>
+          </div>
         </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
@@ -1222,6 +1245,22 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 </span>
               </span>
             </span>
+            {showRabatCol && (
+            <span className="inline-flex items-center gap-2">
+              Rabat:
+              <span className="relative w-[148px]">
+                <input
+                  type="text"
+                  readOnly
+                  value={formatPlMoney(rabatKwota)}
+                  className="w-full h-[36px] box-border px-3 py-0 pr-12 border border-gray-300 rounded-md font-sora text-sm text-right font-bold bg-gray-50"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
+                  {getWalutaSymbol(walutaFaktury)}
+                </span>
+              </span>
+            </span>
+            )}
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <button
