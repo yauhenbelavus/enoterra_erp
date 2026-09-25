@@ -750,13 +750,17 @@ function uniqueReceiptKodsFromRows(rows) {
   return out;
 }
 
-function loadLatestProductBatchByKod(kod) {
+function loadLatestProductBatchByKod(kod, options = {}) {
+  const pricedOnly = options.pricedOnly === true;
+  const pricedFilter = pricedOnly
+    ? ' AND COALESCE(p.cena_zakupu_pln, 0) > 0'
+    : '';
   return new Promise((resolve, reject) => {
     db.get(
       `SELECT p.*, r.sprzedawca AS receipt_sprzedawca
        FROM products p
        LEFT JOIN product_receipts r ON r.id = p.receipt_id
-       WHERE p.kod = ?
+       WHERE p.kod = ?${pricedFilter}
        ORDER BY COALESCE(r.data_przyjecia, p.created_at) DESC, p.id DESC
        LIMIT 1`,
       [kod],
@@ -811,10 +815,11 @@ function applyWorkingSheetFromLatest(kod, options = {}) {
   return Promise.all([
     sumProductsIloscAktualnaByKod(kod),
     loadLatestProductBatchByKod(kod),
+    loadLatestProductBatchByKod(kod, { pricedOnly: true }),
     getWorkingSheetByKod(kod),
-  ]).then(([totalIlosc, latest, existing]) => {
+  ]).then(([totalIlosc, latest, priced, existing]) => {
     if (!latest) return null;
-    const fields = workingSheetFieldsFromLatestBatch(latest, totalIlosc, existing);
+    const fields = workingSheetFieldsFromLatestBatch(priced || latest, totalIlosc, existing);
     if (!existing) {
       if (!insertIfMissing) return null;
       return new Promise((resolve, reject) => {
@@ -1295,7 +1300,11 @@ function realignFeralMuriLegacyRates(done) {
         return;
       }
       const kod = kody[i];
-      loadLatestProductBatchByKod(kod).then((latest) => {
+      loadLatestProductBatchByKod(kod, { pricedOnly: true }).then((priced) => {
+        return priced
+          ? Promise.resolve(priced)
+          : loadLatestProductBatchByKod(kod);
+      }).then((latest) => {
         if (!latest) {
           syncNext(i + 1);
           return;
