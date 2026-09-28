@@ -15,13 +15,6 @@ export interface StorageAgeWorkingSheet {
   ilosc?: number;
 }
 
-export interface StorageAgeConsumption {
-  batch_id: number;
-  numer_zamowienia?: string;
-  data_utworzenia?: string;
-  created_at?: string;
-}
-
 export interface StorageAgeOrderWithProducts {
   typ?: string;
   numer_zamowienia?: string;
@@ -44,7 +37,6 @@ export interface StorageAgeRow {
 export interface StorageAgeInputs {
   productBatches: StorageAgeProductBatch[];
   workingSheets: StorageAgeWorkingSheet[];
-  consumptions: StorageAgeConsumption[];
   ordersWithProducts: StorageAgeOrderWithProducts[];
   productReceipts: StorageAgeReceipt[];
 }
@@ -82,12 +74,6 @@ const daysOnWarehouseEndDate = (remaining: number, lastIssueDate: Date | null): 
   return issueDay > today ? today : issueDay;
 };
 
-const laterDate = (a: Date | null, b: Date | null): Date | null => {
-  if (!a) return b;
-  if (!b) return a;
-  return a > b ? a : b;
-};
-
 const daysBetween = (fromValue?: string | null, toValue?: string | Date | null): number => {
   const from = parseLocalDate(fromValue);
   if (!from) return 0;
@@ -119,21 +105,7 @@ const getKodIssueDate = (
  * количество дней на складе. Логика полностью совпадает с вкладкой "Analiza magazynu".
  */
 export function computeStorageAgeByKod(inputs: StorageAgeInputs): Map<string, StorageAgeRow> {
-  const { productBatches, workingSheets, consumptions, ordersWithProducts, productReceipts } = inputs;
-
-  const lastIssueByBatch = new Map<number, Date>();
-  for (const consumption of consumptions) {
-    const issueDate = getKodIssueDate(
-      consumption.numer_zamowienia,
-      consumption.data_utworzenia,
-      consumption.created_at
-    );
-    if (!issueDate || consumption.batch_id == null) continue;
-    const previous = lastIssueByBatch.get(consumption.batch_id);
-    if (!previous || issueDate > previous) {
-      lastIssueByBatch.set(consumption.batch_id, issueDate);
-    }
-  }
+  const { productBatches, workingSheets, ordersWithProducts, productReceipts } = inputs;
 
   const lastSaleByKod = new Map<string, Date>();
   for (const order of ordersWithProducts) {
@@ -149,13 +121,9 @@ export function computeStorageAgeByKod(inputs: StorageAgeInputs): Map<string, St
     }
   }
 
-  const lastIssueByKod = new Map<string, Date>();
   const newestBatchDateByKod = new Map<string, string>();
   for (const product of productBatches) {
     if (!product.kod) continue;
-    const previousIssue = lastIssueByKod.get(product.kod) || null;
-    const batchIssue = laterDate(previousIssue, lastIssueByBatch.get(product.id) || null);
-    if (batchIssue) lastIssueByKod.set(product.kod, batchIssue);
     if (product.created_at) {
       const previous = newestBatchDateByKod.get(product.kod);
       const currentDate = parseLocalDate(product.created_at);
@@ -194,8 +162,7 @@ export function computeStorageAgeByKod(inputs: StorageAgeInputs): Map<string, St
     const remaining = Number(sheet.ilosc) || 0;
     const data_przyjecia =
       newestReceiptByKod.get(sheet.kod)?.data_przyjecia || newestBatchDateByKod.get(sheet.kod) || null;
-    const lastIssueDate =
-      lastIssueByKod.get(sheet.kod) || lastSaleByKod.get(sheet.kod) || null;
+    const lastIssueDate = lastSaleByKod.get(sheet.kod) || null;
     const dataOstatniegoWydania = lastIssueDate ? toDateKey(lastIssueDate) : null;
     const dni = daysBetween(data_przyjecia, daysOnWarehouseEndDate(remaining, lastIssueDate));
     result.set(sheet.kod, { data_przyjecia, dataOstatniegoWydania, dni });

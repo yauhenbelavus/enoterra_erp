@@ -689,7 +689,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
   const [orders, setOrders] = useState<Order[]>([]);
   // Сырые данные для расчёта "возраста на складе" (для Excel-рапорта)
   const [productBatches, setProductBatches] = useState<any[]>([]);
-  const [orderConsumptions, setOrderConsumptions] = useState<any[]>([]);
   const [ordersWithProductsRaw, setOrdersWithProductsRaw] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -823,11 +822,10 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
       computeStorageAgeByKod({
         productBatches,
         workingSheets: inventory,
-        consumptions: orderConsumptions,
         ordersWithProducts: ordersWithProductsRaw,
         productReceipts,
       }),
-    [productBatches, inventory, orderConsumptions, ordersWithProductsRaw, productReceipts]
+    [productBatches, inventory, ordersWithProductsRaw, productReceipts]
   );
 
   const loadAllPriceHistory = async () => {
@@ -904,19 +902,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
       console.log('Total order products:', allOrderProducts.length);
       setOrderProducts(allOrderProducts);
 
-      // Загружаем расходы по партиям (для расчёта "daty ostatniego wydania" / "dni na magazynie")
-      try {
-        const consumptionsResponse = await fetch('/api/order-consumptions');
-        if (consumptionsResponse.ok) {
-          const consumptionsData = await consumptionsResponse.json();
-          setOrderConsumptions(consumptionsData);
-        } else {
-          console.error('❌ Failed to load order consumptions:', consumptionsResponse.status);
-        }
-      } catch (error) {
-        console.error('❌ Error loading order consumptions:', error);
-      }
-      
       await loadAllPriceHistory();
       
       // Загружаем количество samples для каждого товара

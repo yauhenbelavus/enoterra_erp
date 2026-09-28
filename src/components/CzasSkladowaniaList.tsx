@@ -63,13 +63,6 @@ interface ProductReceipt {
   products?: Array<{ kod?: string }>;
 }
 
-interface OrderConsumption {
-  batch_id: number;
-  numer_zamowienia?: string;
-  data_utworzenia?: string;
-  created_at?: string;
-}
-
 interface StorageRow {
   id: number;
   kod: string;
@@ -129,10 +122,9 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       setIsLoading(true);
       setError(null);
 
-      const [productsRes, sheetsRes, consumptionsRes, ordersRes] = await Promise.all([
+      const [productsRes, sheetsRes, ordersRes] = await Promise.all([
         fetch('/api/products'),
         fetch('/api/working-sheets'),
-        fetch('/api/order-consumptions'),
         fetch('/api/orders-with-products'),
       ]);
 
@@ -142,22 +134,17 @@ export const CzasSkladowaniaList: React.FC<CzasSkladowaniaListProps> = ({
       if (!sheetsRes.ok) {
         throw new Error(`HTTP error! status: ${sheetsRes.status}`);
       }
-      if (!consumptionsRes.ok) {
-        throw new Error(`HTTP error! status: ${consumptionsRes.status}`);
-      }
       if (!ordersRes.ok) {
         throw new Error(`HTTP error! status: ${ordersRes.status}`);
       }
 
       const products: ProductBatch[] = await productsRes.json();
       const sheets: WorkingSheet[] = await sheetsRes.json();
-      const consumptions: OrderConsumption[] = await consumptionsRes.json();
       const ordersWithProducts: OrderWithProducts[] = await ordersRes.json();
 
       const ageByKod = computeStorageAgeByKod({
         productBatches: products,
         workingSheets: sheets,
-        consumptions,
         ordersWithProducts,
         productReceipts,
       });
