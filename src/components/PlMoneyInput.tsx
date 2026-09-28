@@ -5,6 +5,7 @@ import {
   applyPlMoneyDigit,
   applyPlMoneyPaste,
   PlMoneyEditResult,
+  sanitizeKursRateInput,
 } from '../utils/receiptCurrency';
 
 type PlMoneyInputProps = Omit<
@@ -80,6 +81,39 @@ export function PlMoneyInput({ value, onChange, onKeyDown, onPaste, readOnly, di
         commitEdit(applyPlMoneyPaste(value, text, selStart, selEnd));
       }}
       onChange={() => {}}
+    />
+  );
+}
+
+type KursRateInputProps = Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  'type' | 'value' | 'onChange' | 'inputMode'
+> & {
+  value: string;
+  onChange: (value: string) => void;
+};
+
+export function KursRateInput({ value, onChange, onKeyDown, onPaste, readOnly, disabled, ...props }: KursRateInputProps) {
+  const locked = Boolean(readOnly || disabled);
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="decimal"
+      readOnly={readOnly}
+      disabled={disabled}
+      value={value}
+      onChange={(e) => {
+        if (locked) return;
+        onChange(sanitizeKursRateInput(e.target.value));
+      }}
+      onKeyDown={onKeyDown}
+      onPaste={(e) => {
+        onPaste?.(e);
+        if (e.defaultPrevented || locked) return;
+        e.preventDefault();
+        onChange(sanitizeKursRateInput(e.clipboardData.getData('text')));
+      }}
     />
   );
 }

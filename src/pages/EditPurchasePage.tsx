@@ -20,6 +20,7 @@ import {
   sharesKursToPlnPair,
   roundMoney,
   cenaPoRabacie,
+  formatKursRate,
   toKursToPln,
   validatePurchaseKursPair,
   getPurchaseKursInvalidFields,
@@ -30,7 +31,7 @@ import {
   validatePurchaseReceipt,
   kosztButWgWartosci,
 } from '../../server/purchaseReceiptValidation.mjs';
-import { PlMoneyInput } from '../components/PlMoneyInput';
+import { PlMoneyInput, KursRateInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
@@ -209,7 +210,7 @@ const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => 
 const formatStoredKursToPln = (value?: number | null): string => {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0 || n === 1) return '';
-  return formatPlMoney(n);
+  return formatKursRate(n);
 };
 
 const parseReceiptDate = (raw?: string | null): Date | null => {
@@ -844,21 +845,21 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
           </div>
 
           <div className="flex gap-8 min-w-0 items-end w-full">
-            <div className="w-[96px] shrink-0">
+            <div className="w-[112px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
               {kurs1Active ? (
-                <div className="relative w-[96px]">
-                  <PlMoneyInput
+                <div className="relative w-[112px]">
+                  <KursRateInput
                     value={kursDostawy}
                     onChange={setKursDostawy}
                     readOnly
-                    placeholder="0,00"
-                    className={withInvalid(`w-[96px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)}
+                    placeholder="0,0000"
+                    className={withInvalid(`w-[112px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)}
                   />
                   <KursInputSpinner visible={isNbpLoadingDostawy} />
                 </div>
               ) : (
-                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
             <div className="ml-auto flex gap-2 shrink-0">
@@ -987,21 +988,21 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
           </div>
 
           <div className="flex gap-8 min-w-0 items-end">
-            <div className="w-[96px] shrink-0">
+            <div className="w-[112px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
-                <div className="relative w-[96px]">
-                  <PlMoneyInput
+                <div className="relative w-[112px]">
+                  <KursRateInput
                     value={kursFaktury}
                     onChange={setKursFaktury}
                     readOnly
-                    placeholder="0,00"
-                    className={withInvalid(`w-[96px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)}
+                    placeholder="0,0000"
+                    className={withInvalid(`w-[112px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)}
                   />
                   <KursInputSpinner visible={isNbpLoadingFaktury} />
                 </div>
               ) : (
-                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
             <div>

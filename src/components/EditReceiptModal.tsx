@@ -19,6 +19,7 @@ import {
   normalizeWalutaFaktury,
   parsePlNumber,
   roundMoney,
+  formatKursRate,
   cenaPoRabacie,
   sharesKursToPlnPair,
   toKursToPln,
@@ -30,7 +31,7 @@ import {
   getRowInvalidFields,
   validatePurchaseReceipt,
 } from '../../server/purchaseReceiptValidation.mjs';
-import { PlMoneyInput } from './PlMoneyInput';
+import { PlMoneyInput, KursRateInput } from './PlMoneyInput';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
 import { isPdfFile } from '../utils/receiptInvoice';
 import "react-datepicker/dist/react-datepicker.css";
@@ -87,7 +88,7 @@ const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => 
 const formatStoredKursToPln = (value?: number | null): string => {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0 || n === 1) return '';
-  return formatPlMoney(n);
+  return formatKursRate(n);
 };
 
 
@@ -833,12 +834,12 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   <SelectChevron />
                 </div>
               </div>
-              <div className="w-[96px]">
+              <div className="w-[112px]">
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
                 {kurs1Active ? (
-                  <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursDostawy)} />
+                  <KursRateInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} pr-6`, kursInvalid.kursDostawy)} />
                 ) : (
-                  <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                  <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
                 )}
               </div>
               <div className="flex items-center gap-2 ml-auto">
@@ -986,12 +987,12 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 <SelectChevron />
               </div>
             </div>
-            <div className="w-[96px] shrink-0">
+            <div className="w-[112px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
-                <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} pr-6`, kursInvalid.kursFaktury)} />
+                <KursRateInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} pr-6`, kursInvalid.kursFaktury)} />
               ) : (
-                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
             <div className="shrink-0">

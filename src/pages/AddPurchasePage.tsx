@@ -29,7 +29,7 @@ import {
   validatePurchaseReceipt,
   kosztButWgWartosci,
 } from '../../server/purchaseReceiptValidation.mjs';
-import { PlMoneyInput } from '../components/PlMoneyInput';
+import { PlMoneyInput, KursRateInput } from '../components/PlMoneyInput';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
@@ -703,15 +703,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div className="flex gap-8 min-w-0 items-end w-full">
-            <div className="w-[96px] shrink-0">
+            <div className="w-[112px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
               {kurs1Active ? (
-                <div className="relative w-[96px]">
-                  <PlMoneyInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
+                <div className="relative w-[112px]">
+                  <KursRateInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
                   <KursInputSpinner visible={isNbpLoadingDostawy} />
                 </div>
               ) : (
-                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
             <div className="ml-auto flex gap-2 shrink-0">
@@ -832,15 +832,15 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           </div>
 
           <div className="flex gap-8 min-w-0 items-end">
-            <div className="w-[96px] shrink-0">
+            <div className="w-[112px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
-                <div className="relative w-[96px]">
-                  <PlMoneyInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,00" className={withInvalid(`w-[96px] ${HEADER_FIELD} ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)} />
+                <div className="relative w-[112px]">
+                  <KursRateInput value={kursFaktury} onChange={setKursFaktury} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)} />
                   <KursInputSpinner visible={isNbpLoadingFaktury} />
                 </div>
               ) : (
-                <div className="w-[96px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
             <div>

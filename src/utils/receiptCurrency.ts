@@ -77,10 +77,31 @@ export function getKosztWlasny(item: {
   );
 }
 
-/** Zaokrąglenie kursu do 2 miejsc po przecinku przy zapisie. */
+/** Zaokrąglenie kursu NBP (tabela A, mid) do 4 miejsc. Kwoty po mnożeniu — roundMoney. */
+export const KURS_RATE_DECIMALS = 4;
+
 export function roundKursValue(rate: number, fallback = 1): number {
   if (!Number.isFinite(rate) || rate <= 0) return fallback;
-  return Math.round(rate * 100) / 100;
+  const factor = 10 ** KURS_RATE_DECIMALS;
+  return Math.round(rate * factor) / factor;
+}
+
+export function formatKursRate(value: number): string {
+  const rounded = roundKursValue(value);
+  const [whole, frac = ''] = rounded.toFixed(KURS_RATE_DECIMALS).split('.');
+  const trimmed = frac.replace(/0+$/, '');
+  const decimals = trimmed.length < 2 ? trimmed.padEnd(2, '0') : trimmed;
+  return `${whole},${decimals}`;
+}
+
+export function sanitizeKursRateInput(raw: string): string {
+  const s = String(raw || '').replace('.', ',').replace(/[^\d,]/g, '');
+  if (!s) return '';
+  const comma = s.indexOf(',');
+  if (comma === -1) return s;
+  const whole = s.slice(0, comma) || '0';
+  const dec = s.slice(comma + 1).replace(/,/g, '').slice(0, KURS_RATE_DECIMALS);
+  return `${whole},${dec}`;
 }
 
 export type PlMoneyEditResult = {
@@ -529,18 +550,18 @@ export function formatKursFakturyForDisplay(waluta: WalutaFaktury, standardRate:
   if (!isKursFakturyActive(waluta) || !standardRate || standardRate <= 0 || standardRate === 1) {
     return '';
   }
-  return formatPlMoney(standardRate);
+  return formatKursRate(standardRate);
 }
 
 export function formatKursEurPlnForDisplay(standardRate: number): string {
   if (!standardRate || standardRate <= 0) return '1,00';
-  return formatPlMoney(standardRate);
+  return formatKursRate(standardRate);
 }
 
 /** PLN/EUR do wyświetlenia w formularzu (tworzenie i edycja). */
 export function formatKursPlnEurForDisplay(standardRate: number): string {
   if (!standardRate || standardRate <= 0 || standardRate === 1) return '';
-  return formatPlMoney(standardRate);
+  return formatKursRate(standardRate);
 }
 
 /** Przy edycji przyjęcia PLN: kurs w standardzie 1 EUR = X PLN. */

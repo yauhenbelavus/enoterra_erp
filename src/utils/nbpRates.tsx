@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   WalutaFakturySelection,
-  formatPlMoney,
+  formatKursRate,
   isKursDostawyInputActive,
   isKursFakturyInputActive,
   needsKursToPln,
@@ -238,7 +238,7 @@ export function usePurchaseNbpRates(options: {
         const applied: NbpRate[] = [];
         if (fields.dostawy) {
           if (rates[walutaDostawy]) {
-            setKursDostawy(formatPlMoney(rates[walutaDostawy].mid));
+            setKursDostawy(formatKursRate(rates[walutaDostawy].mid));
             applied.push(rates[walutaDostawy]);
           } else {
             setKursDostawy('');
@@ -246,7 +246,7 @@ export function usePurchaseNbpRates(options: {
         }
         if (fields.faktury) {
           if (rates[walutaFaktury]) {
-            setKursFaktury(formatPlMoney(rates[walutaFaktury].mid));
+            setKursFaktury(formatKursRate(rates[walutaFaktury].mid));
             applied.push(rates[walutaFaktury]);
           } else {
             setKursFaktury('');

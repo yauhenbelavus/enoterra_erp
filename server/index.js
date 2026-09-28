@@ -322,12 +322,12 @@ function normalizeWalutaDostawy(waluta) {
   return null;
 }
 
-// Разбор курса (принимает запятую как десятичный разделитель). Курсы всегда
-// приходят в стандартном направлении "1 EUR = X валюты", > 0, округление до 2 знаков.
+// Разбор курса (запятая как десятичный разделитель). Mid NBP — 4 знака;
+// суммы после умножения округляются отдельно через roundMoney.
 function parseKursValue(value, fallback = 1) {
   const n = parseFloat(String(value == null ? '' : value).replace(',', '.'));
   if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.round(n * 100) / 100;
+  return Math.round(n * 10000) / 10000;
 }
 
 function parseKursToPln(waluta, value) {
