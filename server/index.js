@@ -2970,6 +2970,7 @@ db.serialize(() => {
     waluta_przyjecia TEXT DEFAULT 'EUR',
     waluta_dostawy TEXT,
     kurs_2 REAL DEFAULT 1,
+    numer_dokumentu_przyjecia TEXT,
     product_invoice TEXT,
     transport_invoice TEXT,
     version INTEGER NOT NULL DEFAULT 1,
@@ -3104,6 +3105,27 @@ db.serialize(() => {
         } else {
           console.log('✅ Column version added to product_receipts');
         }
+      });
+      db.run(`ALTER TABLE product_receipts ADD COLUMN numer_dokumentu_przyjecia TEXT`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column numer_dokumentu_przyjecia already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding numer_dokumentu_przyjecia column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column numer_dokumentu_przyjecia added to product_receipts');
+        }
+        db.run(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_receipts_numer_dokumentu_przyjecia ON product_receipts(numer_dokumentu_przyjecia)`,
+          (idxErr) => {
+            if (idxErr) {
+              console.error('❌ Error creating unique index numer_dokumentu_przyjecia:', idxErr);
+            } else {
+              console.log('✅ Unique index numer_dokumentu_przyjecia ready');
+            }
+          }
+        );
       });
     }
   });
@@ -9866,7 +9888,90 @@ app.delete('/api/clients/:id', (req, res) => {
   });
 });
 
+function parsePrzyjecieYearMonth(dateValue) {
+  const raw = String(dateValue || '').trim();
+  const iso = raw.match(/^(\d{4})-(\d{2})(?:-\d{2})?/);
+  if (iso) return { year: iso[1], month: iso[2] };
+  const dmy = raw.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+  if (dmy) return { year: dmy[3], month: String(dmy[2]).padStart(2, '0') };
+  return null;
+}
+
+function formatNumerDokumentuPrzyjecia(seq, month, year) {
+  return `DP/${String(seq).padStart(2, '0')}/${month}/${year}`;
+}
+
+function seqFromNumerDokumentuPrzyjecia(numer, month, year) {
+  const m = String(numer || '').trim().match(/^DP\/(\d+)\/(\d{1,2})\/(\d{4})$/i);
+  if (!m) return 0;
+  if (String(m[2]).padStart(2, '0') !== month || m[3] !== year) return 0;
+  return parseInt(m[1], 10) || 0;
+}
+
+function parseNumerDokumentuPrzyjeciaYearMonth(numer) {
+  const m = String(numer || '').trim().match(/^DP\/\d+\/(\d{1,2})\/(\d{4})$/i);
+  if (!m) return null;
+  return { month: String(m[1]).padStart(2, '0'), year: m[2] };
+}
+
+function samePrzyjecieYearMonth(a, b) {
+  return Boolean(a && b && a.year === b.year && a.month === b.month);
+}
+
+function allocateNextNumerDokumentuPrzyjecia(dateValue, options = {}) {
+  return new Promise((resolve, reject) => {
+    const parts = parsePrzyjecieYearMonth(dateValue);
+    if (!parts || parts.month < '01' || parts.month > '12') {
+      reject(Object.assign(new Error('Invalid receipt date for document number'), { statusCode: 400 }));
+      return;
+    }
+    const excludeId = Number.parseInt(String(options.excludeId ?? ''), 10);
+    const hasExclude = Number.isFinite(excludeId) && excludeId > 0;
+    const like = `DP/%/${parts.month}/${parts.year}`;
+    const sql = hasExclude
+      ? 'SELECT numer_dokumentu_przyjecia FROM product_receipts WHERE numer_dokumentu_przyjecia LIKE ? COLLATE NOCASE AND id != ?'
+      : 'SELECT numer_dokumentu_przyjecia FROM product_receipts WHERE numer_dokumentu_przyjecia LIKE ? COLLATE NOCASE';
+    const params = hasExclude ? [like, excludeId] : [like];
+    db.all(sql, params, (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      let maxSeq = 0;
+      for (const row of rows || []) {
+        const seq = seqFromNumerDokumentuPrzyjecia(row.numer_dokumentu_przyjecia, parts.month, parts.year);
+        if (seq > maxSeq) maxSeq = seq;
+      }
+      resolve(formatNumerDokumentuPrzyjecia(maxSeq + 1, parts.month, parts.year));
+    });
+  });
+}
+
+function resolveNumerDokumentuPrzyjeciaForDate(dateValue, existingNumer, excludeId, previousDateValue) {
+  const dateParts = parsePrzyjecieYearMonth(dateValue);
+  const numerParts = parseNumerDokumentuPrzyjeciaYearMonth(existingNumer);
+  if (existingNumer && dateParts && samePrzyjecieYearMonth(dateParts, numerParts)) {
+    return Promise.resolve(existingNumer);
+  }
+  const previousDateParts = parsePrzyjecieYearMonth(previousDateValue);
+  if (!existingNumer && dateParts && samePrzyjecieYearMonth(dateParts, previousDateParts)) {
+    return Promise.resolve(null);
+  }
+  return allocateNextNumerDokumentuPrzyjecia(dateValue, { excludeId });
+}
+
 // Product Receipts API
+app.get('/api/product-receipts/next-number', (req, res) => {
+  const date = req.query.date || getTodayDateString();
+  allocateNextNumerDokumentuPrzyjecia(date, { excludeId: req.query.excludeId })
+    .then((numer) => res.json({ numer_dokumentu_przyjecia: numer }))
+    .catch((err) => {
+      const status = err.statusCode || 500;
+      if (status >= 500) console.error('❌ GET /api/product-receipts/next-number:', err);
+      res.status(status).json({ error: err.message || 'Nie udało się wyznaczyć numeru dokumentu' });
+    });
+});
+
 app.get('/api/product-receipts', (req, res) => {
   console.log('📦 GET /api/product-receipts - Fetching all product receipts');
   db.all('SELECT * FROM product_receipts ORDER BY data_przyjecia DESC', (err, rows) => {
@@ -9953,6 +10058,7 @@ function readReceiptRequestPayload(req) {
       productInvoice: productFile ? productFile.filename : source.product_invoice,
       transportInvoice: transportFile ? transportFile.filename : source.transport_invoice,
       version: source.version,
+      numer_dokumentu_przyjecia: source.numer_dokumentu_przyjecia,
     };
   } catch (error) {
     console.error('❌ Error parsing JSON data from FormData:', error);
@@ -9969,7 +10075,7 @@ function prepareReceiptWriteRequest(req, options = {}) {
   let {
     date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products,
     productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury,
-    kursMode, walutaDostawy, version,
+    kursMode, walutaDostawy, version, numer_dokumentu_przyjecia,
   } = receiptPayload;
 
   const productFile = uploadedReceiptFile(req, 'product_invoice');
@@ -10078,6 +10184,7 @@ function prepareReceiptWriteRequest(req, options = {}) {
     kosztDostawyPerUnit,
     assigned,
     version,
+    numer_dokumentu_przyjecia: String(numer_dokumentu_przyjecia || '').trim() || null,
   };
 }
 
@@ -10138,7 +10245,7 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
     const startTime = Date.now();
 
     await new Promise((resolve, reject) => {
-      db.run('BEGIN TRANSACTION', (err) => {
+      db.run('BEGIN IMMEDIATE', (err) => {
         if (err) {
           console.error('❌ Error starting transaction:', err);
           reject(err);
@@ -10149,10 +10256,12 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
     });
 
     try {
+      const numerDokumentuPrzyjecia = await allocateNextNumerDokumentuPrzyjecia(date);
+      console.log(`📄 POST /api/product-receipts numer=${numerDokumentuPrzyjecia}`);
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, numer_dokumentu_przyjecia, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -10249,7 +10358,8 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
           const processingTime = endTime - startTime;
           console.log(`✅ POST /api/product-receipts id=${receiptId} done ${processingTime}ms ws+${workingSheetsUpdated}/${workingSheetsInserted} products=${productsInserted}`);
           res.json({ 
-            id: receiptId, 
+            id: receiptId,
+            numer_dokumentu_przyjecia: numerDokumentuPrzyjecia,
             message: 'Product receipt added successfully',
             workingSheetsUpdated: workingSheetsUpdated,
             workingSheetsInserted: workingSheetsInserted,
@@ -10391,7 +10501,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
   // рассинхронизироваться при частичном сбое на любом из шагов.
   const updateReceiptWithProducts = async () => {
     await new Promise((resolve, reject) => {
-      db.run('BEGIN TRANSACTION', (err) => {
+      db.run('BEGIN IMMEDIATE', (err) => {
         if (err) {
           console.error('❌ Error starting transaction (PUT):', err);
           reject(err);
@@ -10404,7 +10514,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
     try {
       // Сначала получаем старые данные для сравнения
       const oldReceipt = await new Promise((resolve, reject) => {
-        db.get('SELECT data_przyjecia, product_invoice, transport_invoice, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy, version FROM product_receipts WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT data_przyjecia, product_invoice, transport_invoice, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy, version, numer_dokumentu_przyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
           if (err) reject(err);
           else resolve(row);
         });
@@ -10486,11 +10596,17 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
       // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
       const podatekAkcyzowyParsed = roundMoney(podatekAkcyzowy);
       const rabatParsed = roundMoney(rabat);
+      const numerDokumentuPrzyjecia = await resolveNumerDokumentuPrzyjeciaForDate(
+        date,
+        oldReceipt.numer_dokumentu_przyjecia,
+        id,
+        oldReceipt.data_przyjecia
+      );
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, product_invoice = ?, transport_invoice = ?, created_at = ?, version = version + 1 WHERE id = ? AND version = ?',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, finalProductInvoice, finalTransportInvoice, date, id, expectedVersion],
+          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, numer_dokumentu_przyjecia = ?, product_invoice = ?, transport_invoice = ?, created_at = ?, version = version + 1 WHERE id = ? AND version = ?',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, finalProductInvoice, finalTransportInvoice, date, id, expectedVersion],
           function(err) {
             if (err) {
               reject(err);
@@ -10817,6 +10933,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
 
       res.json({
         message: 'Product receipt updated successfully',
+        numer_dokumentu_przyjecia: numerDokumentuPrzyjecia,
         workingSheetsUpdated: workingSheetsUpdated,
         productsUpdated: productsUpdated,
         productsCreated: productsInserted,
@@ -10876,7 +10993,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
   // выполняется в ОДНОЙ транзакции, чтобы при сбое на любом шаге склад не остался
   // в наполовину удалённом/пересчитанном состоянии.
   await new Promise((resolve, reject) => {
-    db.run('BEGIN TRANSACTION', (err) => {
+    db.run('BEGIN IMMEDIATE', (err) => {
       if (err) {
         console.error('❌ Error starting transaction (DELETE):', err);
         reject(err);
@@ -10890,7 +11007,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
   try {
     // 1) Считываем шапку приёмки и партии из таблицы products
     const receiptRow = await new Promise((resolve, reject) => {
-      db.get('SELECT data_przyjecia, product_invoice, transport_invoice FROM product_receipts WHERE id = ?', [id], (err, row) => {
+      db.get('SELECT data_przyjecia, product_invoice, transport_invoice, numer_dokumentu_przyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
         if (err) reject(err);
         else resolve(row);
       });
@@ -10905,7 +11022,8 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
     const products = uniqueReceiptKodsFromRows(productRows);
     const receiptDate = receiptRow.data_przyjecia;
     const receiptDateOnly = (receiptDate || '').toString().substring(0,10);
-    console.log(`🔍 ${products.length} product rows, date=${receiptDateOnly}`);
+    const numerDokumentuPrzyjecia = receiptRow.numer_dokumentu_przyjecia || null;
+    console.log(`🔍 ${products.length} product rows, date=${receiptDateOnly}, numer=${numerDokumentuPrzyjecia || '-'}`);
 
     const blockingDocuments = await findDocumentsBlockingReceiptDelete(id);
     if (blockingDocuments.length > 0) {
@@ -11006,6 +11124,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
 
     res.json({
       message: 'Product receipt deleted successfully',
+      numer_dokumentu_przyjecia: numerDokumentuPrzyjecia,
       workingSheetsDeleted: wsDeleted,
       workingSheetsUpdated: wsUpdated,
       priceHistoryDeleted: 0,

@@ -223,6 +223,15 @@ const parseReceiptDate = (raw?: string | null): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const yearMonthKeyFromDate = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+const yearMonthKeyFromNumer = (numer: string): string => {
+  const match = String(numer || '').trim().match(/^DP\/\d+\/(\d{1,2})\/(\d{4})$/i);
+  if (!match) return '';
+  return `${match[2]}-${String(match[1]).padStart(2, '0')}`;
+};
+
 const parseLineDate = (product: { dataWaznosci?: string | number; data_waznosci?: string | number }): Date | null => {
   const raw = String(receiptLineDataWaznosci(product) || '');
   if (!raw) return null;
@@ -333,6 +342,9 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const [qtyConflictMessage, setQtyConflictMessage] = useState<string | null>(null);
   const [versionConflict, setVersionConflict] = useState<string | null>(null);
   const [receiptVersion, setReceiptVersion] = useState<number>(1);
+  const [numerDokumentuPrzyjecia, setNumerDokumentuPrzyjecia] = useState('');
+  const [loadedNumerDokumentuPrzyjecia, setLoadedNumerDokumentuPrzyjecia] = useState('');
+  const [loadedDateYearMonth, setLoadedDateYearMonth] = useState('');
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const transportFileInputRef = useRef<HTMLInputElement>(null);
@@ -424,6 +436,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         setExistingProductInvoice(receipt.product_invoice || null);
         setExistingTransportInvoice(receipt.transport_invoice || null);
         setReceiptVersion(Number(receipt.version) || 1);
+        setNumerDokumentuPrzyjecia(receipt.numer_dokumentu_przyjecia || '');
+        setLoadedNumerDokumentuPrzyjecia(receipt.numer_dokumentu_przyjecia || '');
+        const loadedDate = parseReceiptDate(receipt.data_przyjecia);
+        setLoadedDateYearMonth(loadedDate ? yearMonthKeyFromDate(loadedDate) : '');
         setProductInvoice(null);
         setTransportInvoice(null);
         setProductRows(
@@ -455,6 +471,33 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     void loadReceipt();
     return () => { cancelled = true; };
   }, [receiptId, navigate]);
+
+  useEffect(() => {
+    if (isLoadingReceipt || !selectedDate) return;
+    const dateKey = yearMonthKeyFromDate(selectedDate);
+    const loadedKey = yearMonthKeyFromNumer(loadedNumerDokumentuPrzyjecia);
+    if (loadedKey && loadedKey === dateKey) {
+      setNumerDokumentuPrzyjecia(loadedNumerDokumentuPrzyjecia);
+      return;
+    }
+    if (!loadedKey && loadedDateYearMonth === dateKey) {
+      setNumerDokumentuPrzyjecia('');
+      return;
+    }
+    const date = selectedDate.toLocaleDateString('en-CA');
+    let cancelled = false;
+    fetch(`${API_URL}/api/product-receipts/next-number?date=${encodeURIComponent(date)}&excludeId=${encodeURIComponent(String(receiptId))}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.numer_dokumentu_przyjecia) {
+          setNumerDokumentuPrzyjecia(String(data.numer_dokumentu_przyjecia));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, isLoadingReceipt, loadedNumerDokumentuPrzyjecia, loadedDateYearMonth, receiptId]);
 
   const applyOcrResult = (payload: NonNullable<OcrPurchaseInvoiceResponse['data']>) => {
     skipBruttoSyncRef.current = true;
@@ -646,6 +689,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
       kurs_2: kursFakturyNumber,
       kursMode: 'toPln' as const,
       version: receiptVersion,
+      numer_dokumentu_przyjecia: numerDokumentuPrzyjecia || undefined,
       products: formattedProducts,
     };
 
@@ -761,6 +805,13 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               <ArrowLeft size={18} />
             </button>
             <span className="text-lg font-medium text-gray-800 select-none">Edycja przyjęcia</span>
+            <input
+              type="text"
+              readOnly
+              value={numerDokumentuPrzyjecia}
+              className={`${HEADER_H} ml-4 w-[124px] px-2 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-center bg-white text-gray-800 cursor-default`}
+              title="Numer dokumentu przyjęcia"
+            />
           </div>
 
           <div className="flex items-center gap-2">

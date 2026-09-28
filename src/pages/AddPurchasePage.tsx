@@ -263,6 +263,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showFieldErrors, setShowFieldErrors] = useState(false);
+  const [numerDokumentuPrzyjecia, setNumerDokumentuPrzyjecia] = useState('');
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const transportFileInputRef = useRef<HTMLInputElement>(null);
@@ -281,6 +282,28 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     setKursDostawy,
     setKursFaktury,
   });
+
+  useEffect(() => {
+    if (!selectedDate) {
+      setNumerDokumentuPrzyjecia('');
+      return;
+    }
+    const date = selectedDate.toLocaleDateString('en-CA');
+    let cancelled = false;
+    fetch(`${API_URL}/api/product-receipts/next-number?date=${encodeURIComponent(date)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.numer_dokumentu_przyjecia) {
+          setNumerDokumentuPrzyjecia(String(data.numer_dokumentu_przyjecia));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setNumerDokumentuPrzyjecia('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
 
   const invoiceButtonRefs = (file: File | null, input: HTMLInputElement | null) => ({
     file,
@@ -523,6 +546,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
       walutaDostawy: isWalutaSelected(walutaDostawy) ? walutaDostawy : undefined,
       kurs_2: kursFakturyNumber,
       kursMode: 'toPln' as const,
+      numer_dokumentu_przyjecia: numerDokumentuPrzyjecia || undefined,
       products: formattedProducts,
     };
 
@@ -619,6 +643,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               <ArrowLeft size={18} />
             </button>
             <span className="text-lg font-medium text-gray-800 select-none">Nowe przyjęcie</span>
+            <input
+              type="text"
+              readOnly
+              value={numerDokumentuPrzyjecia}
+              className={`${HEADER_H} ml-4 w-[124px] px-2 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-center bg-white text-gray-800 cursor-default`}
+              title="Numer dokumentu przyjęcia"
+            />
           </div>
 
           <div className="flex items-center gap-2">
