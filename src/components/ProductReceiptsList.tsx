@@ -227,11 +227,12 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
     maxWidth: '145px',
   };
   const wartoscHeadClass =
-    'px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 w-[122px] max-w-[122px]';
-  const wartoscCellClass = 'px-6 py-3 text-left text-sm text-gray-600 font-sora w-[122px] max-w-[122px]';
+    'px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap';
+  const wartoscCellClass = 'px-6 py-3 text-left text-sm text-gray-600 font-sora whitespace-nowrap';
   const fitHeadClass =
-    'px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 w-[1%]';
+    'px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap w-[1%]';
   const fitCellClass = 'px-8 py-3 text-left text-sm text-gray-600 font-sora whitespace-nowrap w-[1%]';
+  const headInnerClass = 'flex items-center gap-1 whitespace-nowrap';
 
   return (
     <div className="space-y-4">
@@ -305,7 +306,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 className={fitHeadClass}
                 onClick={() => handleSort('numer_dokumentu_przyjecia')}
               >
-                <div className="flex items-center gap-1">
+                <div className={headInnerClass}>
                   Numer dokumentu
                   <SortIndicator field="numer_dokumentu_przyjecia" sortField={sortField} sortDirection={sortDirection} />
                 </div>
@@ -314,16 +315,16 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 className={fitHeadClass}
                 onClick={() => handleSort('data_przyjecia')}
               >
-                <div className="flex items-center gap-1">
+                <div className={headInnerClass}>
                   Data zakupu
                   <SortIndicator field="data_przyjecia" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
               <th 
-                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap"
                 onClick={() => handleSort('sprzedawca')}
               >
-                <div className="flex items-center gap-1">
+                <div className={headInnerClass}>
                   Sprzedawca
                   <SortIndicator field="sprzedawca" sortField={sortField} sortDirection={sortDirection} />
                 </div>
@@ -332,7 +333,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 className={wartoscHeadClass}
                 onClick={() => handleSort('wartosc_przyjecia_netto')}
               >
-                <div className="flex items-center gap-1">
+                <div className={headInnerClass}>
                   Wartość netto
                   <SortIndicator field="wartosc_przyjecia_netto" sortField={sortField} sortDirection={sortDirection} />
                 </div>
@@ -341,7 +342,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 className={wartoscHeadClass}
                 onClick={() => handleSort('wartosc_przyjecia_brutto')}
               >
-                <div className="flex items-center gap-1">
+                <div className={headInnerClass}>
                   Wartość brutto
                   <SortIndicator field="wartosc_przyjecia_brutto" sortField={sortField} sortDirection={sortDirection} />
                 </div>
@@ -350,7 +351,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 className={wartoscHeadClass}
                 onClick={() => handleSort('wartosc_dostawy')}
               >
-                <div className="flex items-center gap-1">
+                <div className={headInnerClass}>
                   Wartość dostawy
                   <SortIndicator field="wartosc_dostawy" sortField={sortField} sortDirection={sortDirection} />
                 </div>
