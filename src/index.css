@@ -51,36 +51,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 6;
-}
-
-/* Sliding cells stay below the sticky pair so they clip behind it, like the left edge. */
-.product-rows-inner .grid > *:not(.product-col-koszt):not(.product-col-actions) {
-  z-index: 0;
-}
-
-.product-col-koszt,
-.product-col-actions {
-  position: sticky;
-  background-color: #fff;
-  /* Cover grid gap-2 (0.5rem) so the previous input cannot show through. */
-  box-shadow: -0.5rem 0 0 0 #fff, 0.5rem 0 0 0 #fff;
-}
-
-.product-col-koszt {
-  right: calc(52px + 0.5rem);
-  z-index: 5;
-}
-
-.product-col-actions {
-  right: 0;
-  z-index: 6;
-  box-shadow: -0.5rem 0 0 0 #fff;
-}
-
-.product-row-head .product-col-koszt,
-.product-row-head .product-col-actions {
-  z-index: 8;
-  background-color: #fff;
+  background: #fff;
 }
 
 .product-table-hscroll::-webkit-scrollbar-track {
