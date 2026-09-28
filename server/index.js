@@ -1765,6 +1765,84 @@ function backfillCenaZakupuPoRabacie(done) {
   );
 }
 
+function backfillNumerDokumentuPrzyjecia(done) {
+  const finish = () => {
+    if (done) done();
+  };
+  db.all(
+    'SELECT id, data_przyjecia, created_at, numer_dokumentu_przyjecia FROM product_receipts',
+    (err, rows) => {
+      if (err) {
+        if (!String(err.message || '').includes('no such column')) {
+          console.error('❌ Error reading receipts for numer_dokumentu_przyjecia backfill:', err.message);
+        }
+        finish();
+        return;
+      }
+      const list = rows || [];
+      const needsBackfill = list.some((row) => !String(row.numer_dokumentu_przyjecia || '').trim());
+      if (!needsBackfill) {
+        finish();
+        return;
+      }
+
+      const sorted = [...list].sort((a, b) => {
+        const ca = String(a.created_at || a.data_przyjecia || '');
+        const cb = String(b.created_at || b.data_przyjecia || '');
+        if (ca !== cb) return ca < cb ? -1 : 1;
+        return Number(a.id) - Number(b.id);
+      });
+
+      const seqByMonth = Object.create(null);
+      const updates = [];
+      for (const row of sorted) {
+        const parts = parsePrzyjecieYearMonth(row.data_przyjecia) || parsePrzyjecieYearMonth(row.created_at);
+        if (!parts) continue;
+        const key = `${parts.year}-${parts.month}`;
+        seqByMonth[key] = (seqByMonth[key] || 0) + 1;
+        updates.push({
+          id: row.id,
+          numer: formatNumerDokumentuPrzyjecia(seqByMonth[key], parts.month, parts.year),
+        });
+      }
+
+      const applyUpdates = async () => {
+        try {
+          await new Promise((resolve, reject) => {
+            db.run('BEGIN IMMEDIATE', (beginErr) => (beginErr ? reject(beginErr) : resolve()));
+          });
+          await new Promise((resolve, reject) => {
+            db.run('UPDATE product_receipts SET numer_dokumentu_przyjecia = NULL', (clearErr) => (
+              clearErr ? reject(clearErr) : resolve()
+            ));
+          });
+          for (const item of updates) {
+            await new Promise((resolve, reject) => {
+              db.run(
+                'UPDATE product_receipts SET numer_dokumentu_przyjecia = ? WHERE id = ?',
+                [item.numer, item.id],
+                (updErr) => (updErr ? reject(updErr) : resolve())
+              );
+            });
+          }
+          await new Promise((resolve, reject) => {
+            db.run('COMMIT', (commitErr) => (commitErr ? reject(commitErr) : resolve()));
+          });
+          console.log(`✅ Backfilled numer_dokumentu_przyjecia on ${updates.length} receipts`);
+        } catch (txErr) {
+          console.error('❌ Error backfilling numer_dokumentu_przyjecia:', txErr.message || txErr);
+          await new Promise((resolve) => {
+            db.run('ROLLBACK', () => resolve());
+          });
+        }
+        finish();
+      };
+
+      applyUpdates();
+    }
+  );
+}
+
 function syncWorkingSheetsCenaFromLatestReceipt(done) {
   const finish = () => {
     if (done) done();
@@ -3121,8 +3199,10 @@ db.serialize(() => {
           (idxErr) => {
             if (idxErr) {
               console.error('❌ Error creating unique index numer_dokumentu_przyjecia:', idxErr);
+              backfillNumerDokumentuPrzyjecia();
             } else {
               console.log('✅ Unique index numer_dokumentu_przyjecia ready');
+              backfillNumerDokumentuPrzyjecia();
             }
           }
         );
