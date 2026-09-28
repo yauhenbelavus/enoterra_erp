@@ -49,6 +49,7 @@ interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
   sprzedawca: string;
+  numer_dokumentu_przyjecia?: string;
   wartosc_przyjecia_netto: number;
   vat?: number;
   wartosc_przyjecia_brutto?: number;
@@ -465,6 +466,7 @@ function App() {
         id: receipt.id,
         data_przyjecia: receipt.data_przyjecia,
         sprzedawca: receipt.sprzedawca || '',
+        numer_dokumentu_przyjecia: receipt.numer_dokumentu_przyjecia || '',
         wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
         vat: receipt.vat ?? 0,
         wartosc_przyjecia_brutto: receipt.wartosc_przyjecia_brutto ?? 0,

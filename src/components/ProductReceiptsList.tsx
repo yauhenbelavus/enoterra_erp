@@ -14,6 +14,7 @@ interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
   sprzedawca: string;
+  numer_dokumentu_przyjecia?: string;
   wartosc_przyjecia_netto: number;
   vat?: number;
   wartosc_przyjecia_brutto?: number;
@@ -225,6 +226,9 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
     minWidth: '145px',
     maxWidth: '145px',
   };
+  const wartoscHeadClass =
+    'px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 w-[122px] max-w-[122px]';
+  const wartoscCellClass = 'px-6 py-3 text-left text-sm text-gray-600 font-sora w-[122px] max-w-[122px]';
 
   return (
     <div className="space-y-4">
@@ -295,6 +299,15 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
           <thead className="sticky top-0 z-10">
             <tr>
               <th 
+                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap min-w-[12rem]"
+                onClick={() => handleSort('numer_dokumentu_przyjecia')}
+              >
+                <div className="flex items-center gap-1">
+                  Numer dokumentu
+                  <SortIndicator field="numer_dokumentu_przyjecia" sortField={sortField} sortDirection={sortDirection} />
+                </div>
+              </th>
+              <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
                 onClick={() => handleSort('data_przyjecia')}
               >
@@ -313,7 +326,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 </div>
               </th>
               <th 
-                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                className={wartoscHeadClass}
                 onClick={() => handleSort('wartosc_przyjecia_netto')}
               >
                 <div className="flex items-center gap-1">
@@ -322,7 +335,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 </div>
               </th>
               <th 
-                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                className={wartoscHeadClass}
                 onClick={() => handleSort('wartosc_przyjecia_brutto')}
               >
                 <div className="flex items-center gap-1">
@@ -331,7 +344,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 </div>
               </th>
               <th 
-                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                className={wartoscHeadClass}
                 onClick={() => handleSort('wartosc_dostawy')}
               >
                 <div className="flex items-center gap-1">
@@ -345,19 +358,22 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
           <tbody className="bg-white divide-y divide-gray-200">
             {sortedReceipts.map((receipt) => (
               <tr key={receipt.id} className="hover:bg-gray-50">
+                <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora whitespace-nowrap min-w-[12rem]">
+                  {receipt.numer_dokumentu_przyjecia || '—'}
+                </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   {receipt.data_przyjecia}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   {receipt.sprzedawca}
                 </td>
-                <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
+                <td className={wartoscCellClass}>
                   {formatPlMoney(getReceiptDisplayWartosc(receipt))} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
                 </td>
-                <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
+                <td className={wartoscCellClass}>
                   {formatPlMoney(Number(receipt.wartosc_przyjecia_brutto) || 0)} {getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_przyjecia))}
                 </td>
-                <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
+                <td className={wartoscCellClass}>
                   {formatPlMoney(Number(receipt.wartosc_dostawy) || 0)}
                   {(Number(receipt.wartosc_dostawy) || 0) !== 0
                     ? ` ${getWalutaSymbol(normalizeWalutaFaktury(receipt.waluta_dostawy))}`

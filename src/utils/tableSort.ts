@@ -35,6 +35,16 @@ export function parseSortDate(value: unknown): Date {
   return Number.isNaN(date.getTime()) ? new Date(0) : date;
 }
 
+export function parseNumerDokumentuPrzyjeciaSortKey(numer: string): number | null {
+  const match = String(numer || '').trim().match(/^DP\/(\d+)\/(\d{1,2})\/(\d{4})$/i);
+  if (!match) return null;
+  const seq = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const year = parseInt(match[3], 10);
+  if (!Number.isFinite(seq) || !Number.isFinite(month) || !Number.isFinite(year)) return null;
+  return year * 1000000 + month * 1000 + seq;
+}
+
 export function extractDateFromOrderNumber(orderNumber: string): Date | null {
   try {
     const datePattern = /(\d{1,2})_(\d{1,2})_(\d{4})$/;
@@ -200,7 +210,7 @@ export function compareClientSales<
   }
 }
 
-export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; wartosc_dostawy?: number; kosztDostawy?: number; wartosc_przyjecia_brutto?: number }>(
+export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; wartosc_dostawy?: number; kosztDostawy?: number; wartosc_przyjecia_brutto?: number; numer_dokumentu_przyjecia?: string }>(
   a: T,
   b: T,
   field: string,
@@ -211,6 +221,12 @@ export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?
     case 'dataPrzyjecia':
     case 'data_przyjecia':
       return compareSortValues(parseSortDate(a.data_przyjecia), parseSortDate(b.data_przyjecia), direction);
+    case 'numer_dokumentu_przyjecia':
+      return compareSortValues(
+        parseNumerDokumentuPrzyjeciaSortKey(a.numer_dokumentu_przyjecia || ''),
+        parseNumerDokumentuPrzyjeciaSortKey(b.numer_dokumentu_przyjecia || ''),
+        direction
+      );
     case 'sprzedawca':
       return compareSortValues(lowerCase(a.sprzedawca), lowerCase(b.sprzedawca), direction);
     case 'wartosc':
