@@ -9,7 +9,7 @@ import { OrderDetailsModal } from './OrderDetailsModal';
 import { SortIndicator } from './SortIndicator';
 import { compareInventoryItems, useTableSort } from '../utils/tableSort';
 import { computeStorageAgeByKod, formatDate as formatStorageDate } from '../utils/storageAge';
-import { getKosztWlasny, parseRabatPercent } from '../utils/receiptCurrency';
+import { getKosztWlasny } from '../utils/receiptCurrency';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
 
 // Глобальные стили для тултипов и таблицы
@@ -92,14 +92,12 @@ const EXCEL_COLUMN = {
   KOSZT_WLASNY: 8,
   CENA_SPRZEDAZY: 9,
   STATUS: 17,
-  CENA_Z_FAKTURY: 18,
 } as const;
 
 const EXCEL_MONEY_COLUMNS = new Set<number>([
   EXCEL_COLUMN.CENA_FAKTUROWA,
   EXCEL_COLUMN.KOSZT_WLASNY,
   EXCEL_COLUMN.CENA_SPRZEDAZY,
-  EXCEL_COLUMN.CENA_Z_FAKTURY,
 ]);
 
 const EXCEL_MONEY_CELL_STYLE = {
@@ -1317,8 +1315,6 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           averageSalesCache
         ),
         Status: getInventoryStatus(item, orderProducts, averageSalesCache),
-        'Cena z faktury': toExcelMoney(item.cena_zakupu_pln),
-        'Rabat %': parseRabatPercent(item.rabat) || null,
       }));
 
       const worksheet = XLSX.utils.json_to_sheet(rows);
