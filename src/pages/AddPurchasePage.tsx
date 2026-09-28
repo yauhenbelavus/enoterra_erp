@@ -1012,12 +1012,14 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                     </div>
                   )}
                 </div>
-                <input
-                  type="text"
-                  value={formatPlMoney(kosztButWgWartosci(row, productRows, deliveryCostNumber))}
-                  readOnly
-                  className="product-col-koszt w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
-                />
+                <div className="product-col-koszt min-w-0 w-full">
+                  <input
+                    type="text"
+                    value={formatPlMoney(kosztButWgWartosci(row, productRows, deliveryCostNumber))}
+                    readOnly
+                    className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
+                  />
+                </div>
                 <div className="product-col-actions flex items-center justify-start gap-1">
                   {row.typ === 'ferment' && (
                     <button
