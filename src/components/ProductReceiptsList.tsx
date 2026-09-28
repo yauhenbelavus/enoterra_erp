@@ -229,6 +229,9 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   const wartoscHeadClass =
     'px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 w-[122px] max-w-[122px]';
   const wartoscCellClass = 'px-6 py-3 text-left text-sm text-gray-600 font-sora w-[122px] max-w-[122px]';
+  const fitHeadClass =
+    'px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 w-[1%]';
+  const fitCellClass = 'px-8 py-3 text-left text-sm text-gray-600 font-sora whitespace-nowrap w-[1%]';
 
   return (
     <div className="space-y-4">
@@ -294,12 +297,12 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
         </div>
       </div>
 
-      <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
+      <div className="w-full overflow-x-auto overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
         <table className="w-full">
           <thead className="sticky top-0 z-10">
             <tr>
               <th 
-                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap min-w-[12rem]"
+                className={fitHeadClass}
                 onClick={() => handleSort('numer_dokumentu_przyjecia')}
               >
                 <div className="flex items-center gap-1">
@@ -308,7 +311,7 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 </div>
               </th>
               <th 
-                className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+                className={fitHeadClass}
                 onClick={() => handleSort('data_przyjecia')}
               >
                 <div className="flex items-center gap-1">
@@ -358,10 +361,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
           <tbody className="bg-white divide-y divide-gray-200">
             {sortedReceipts.map((receipt) => (
               <tr key={receipt.id} className="hover:bg-gray-50">
-                <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora whitespace-nowrap min-w-[12rem]">
+                <td className={fitCellClass}>
                   {receipt.numer_dokumentu_przyjecia || '—'}
                 </td>
-                <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
+                <td className={fitCellClass}>
                   {receipt.data_przyjecia}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
