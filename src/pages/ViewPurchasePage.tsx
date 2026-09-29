@@ -65,9 +65,10 @@ const OBJETOSCI_WINA = [
 ];
 
 const SLOT =
-  'box-border px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight';
-const HEADER_SLOT = `min-h-[30px] ${SLOT}`;
+  'box-border px-3 py-1.5 font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight';
+const HEADER_SLOT = `min-h-[30px] flex items-center ${SLOT}`;
 const ROW_SLOT = `w-full min-w-0 ${SLOT}`;
+const FOOTER_SLOT = 'w-full min-h-[36px] box-border px-3 py-1.5 pr-12 flex items-center justify-end font-sora text-sm text-right font-bold whitespace-normal break-words leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
 const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_52px]';
 const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px_52px]';
@@ -276,7 +277,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             </button>
             <span className="text-lg font-medium text-gray-800 select-none">Szczegóły przyjęcia</span>
             <DisplaySlot
-              className="min-h-[30px] ml-4 w-[124px] px-2 py-1.5 border border-gray-300 rounded-md font-sora text-xs text-center text-gray-800 whitespace-normal break-words leading-tight"
+              className="min-h-[30px] ml-4 w-[124px] px-2 py-1.5 flex items-center justify-center font-sora text-xs text-center text-gray-800 whitespace-normal break-words leading-tight"
             >
               {numerDokumentuPrzyjecia}
             </DisplaySlot>
@@ -306,7 +307,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta dostawy</label>
-            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 border border-gray-300 rounded-md font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
+            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
               {walutaDostawy || '—'}
             </DisplaySlot>
           </div>
@@ -319,7 +320,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                   {kursDostawy}
                 </DisplaySlot>
               ) : (
-                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                <div className="w-[112px] h-[30px]" />
               )}
             </div>
             <div className="ml-auto flex gap-2 shrink-0">
@@ -377,7 +378,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
-            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 border border-gray-300 rounded-md font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
+            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
               {walutaFaktury || '—'}
             </DisplaySlot>
           </div>
@@ -390,7 +391,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                   {kursFaktury}
                 </DisplaySlot>
               ) : (
-                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+                <div className="w-[112px] h-[30px]" />
               )}
             </div>
             <div>
@@ -463,10 +464,10 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                 <DisplaySlot className={ROW_SLOT}>
                   {formatPlMoney(getRowLineBruttoPoRabacie(row, rabatPercent))}
                 </DisplaySlot>
-                <DisplaySlot className={`${ROW_SLOT} ${typMeta ? typMeta.color : ''}`}>
+                <DisplaySlot className={ROW_SLOT}>
                   {typMeta?.label || row.typ}
                 </DisplaySlot>
-                <DisplaySlot className={`${ROW_SLOT} ${row.objetosc ? 'bg-blue-50 border-blue-300' : ''}`}>
+                <DisplaySlot className={ROW_SLOT}>
                   {objetoscLabel(row.objetosc)}
                 </DisplaySlot>
                 <div className="product-col-koszt min-w-0 w-full">
@@ -492,7 +493,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             <span className="inline-flex items-center gap-2 shrink-0">
               Netto:
               <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className="w-full min-h-[36px] box-border px-3 py-1.5 pr-12 border border-gray-300 rounded-md font-sora text-sm text-right font-bold whitespace-normal break-words leading-tight">
+                <DisplaySlot className={FOOTER_SLOT}>
                   {kwotaNetto}
                 </DisplaySlot>
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
@@ -503,7 +504,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             <span className="inline-flex items-center gap-2 shrink-0">
               Brutto:
               <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className="w-full min-h-[36px] box-border px-3 py-1.5 pr-12 border border-gray-300 rounded-md font-sora text-sm text-right font-bold whitespace-normal break-words leading-tight">
+                <DisplaySlot className={FOOTER_SLOT}>
                   {sumaBrutto}
                 </DisplaySlot>
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
@@ -514,7 +515,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             <span className="inline-flex items-center gap-2 shrink-0">
               VAT:
               <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className="w-full min-h-[36px] box-border px-3 py-1.5 pr-12 border border-gray-300 rounded-md font-sora text-sm text-right font-bold whitespace-normal break-words leading-tight">
+                <DisplaySlot className={FOOTER_SLOT}>
                   {kwotaVat}
                 </DisplaySlot>
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
@@ -526,7 +527,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             <span className="inline-flex items-center gap-2 shrink-0">
               Rabat:
               <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className="w-full min-h-[36px] box-border px-3 py-1.5 pr-12 border border-gray-300 rounded-md font-sora text-sm text-right font-bold whitespace-normal break-words leading-tight">
+                <DisplaySlot className={FOOTER_SLOT}>
                   {formatPlMoney(rabatKwota)}
                 </DisplaySlot>
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
