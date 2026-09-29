@@ -26,6 +26,13 @@ export const getZakupEdycjaId = (pathname: string): number | null => {
   const id = Number(match[1]);
   return Number.isFinite(id) ? id : null;
 };
+export const getZakupPodgladPath = (id: number | string) => `/zakup/${id}/podglad`;
+export const getZakupPodgladId = (pathname: string): number | null => {
+  const match = pathname.match(/^\/zakup\/(\d+)\/podglad$/);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : null;
+};
 export const KLIENCI_PATH = '/klienci';
 export const STANY_PATH = '/stany';
 export const PRE_ROUTED_TAB_KEY = 'preRoutedTab';

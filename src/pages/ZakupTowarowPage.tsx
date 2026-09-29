@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { FileSpreadsheet, Plus } from 'lucide-react';
 import { ExcelFileUploadModal } from '../components/ExcelFileUploadModal';
 import { ReplaceFileModal } from '../components/ReplaceFileModal';
-import { ReceiptDetailsModal } from '../components/ReceiptDetailsModal';
 import { ProductReceiptsList } from '../components/ProductReceiptsList';
 import { AnalizaZakupowList } from '../components/AnalizaZakupowList';
 import { DataTable } from '../components/DataTable';
@@ -134,8 +133,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
   const navigate = useNavigate();
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
-  const [isReceiptDetailsModalOpen, setIsReceiptDetailsModalOpen] = useState(false);
-  const [selectedReceipt, setSelectedReceipt] = useState<ProductReceipt | null>(null);
 
   const handleAddProduct = async (data: {
     date: string;
@@ -299,13 +296,6 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         onClose={() => setIsReplaceModalOpen(false)}
         fileName=""
         onConfirm={handleReplaceConfirm}
-      />
-
-
-      <ReceiptDetailsModal
-        isOpen={isReceiptDetailsModalOpen}
-        onClose={() => setIsReceiptDetailsModalOpen(false)}
-        receipt={selectedReceipt}
       />
 
       <div className="flex flex-col gap-4 mt-4 w-full relative">

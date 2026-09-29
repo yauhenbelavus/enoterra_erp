@@ -1,14 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, X, Edit } from 'lucide-react';
-import { ReceiptDetailsModal } from './ReceiptDetailsModal';
 import toast from 'react-hot-toast';
 import Modal from 'react-modal';
 import { formatPlMoney, getWalutaSymbol, normalizeWalutaFaktury } from '../utils/receiptCurrency';
 import { SortIndicator } from './SortIndicator';
 import { compareReceipts, useTableSort } from '../utils/tableSort';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
-import { getZakupEdycjaPath } from '../routes';
+import { getZakupEdycjaPath, getZakupPodgladPath } from '../routes';
 
 interface ProductReceipt {
   id?: number;
@@ -53,8 +52,6 @@ const getReceiptDisplayWartosc = (receipt: ProductReceipt) => {
 
 export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receipts, onDelete, selectedCategory = '' }) => {
   const navigate = useNavigate();
-  const [selectedReceipt, setSelectedReceipt] = useState<ProductReceipt | null>(null);
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [receiptToDelete, setReceiptToDelete] = useState<ProductReceipt | null>(null);
   const [password, setPassword] = useState('');
@@ -66,8 +63,8 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
   const [selectedSprzedawca, setSelectedSprzedawca] = useState<string>('');
 
   const handleViewDetails = (receipt: ProductReceipt) => {
-    setSelectedReceipt(receipt);
-    setIsDetailsModalOpen(true);
+    if (receipt.id == null) return;
+    navigate(getZakupPodgladPath(receipt.id));
   };
 
   const handleEdit = (receipt: ProductReceipt) => {
@@ -499,12 +496,6 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
           </div>
         </div>
       </Modal>
-
-      <ReceiptDetailsModal
-        isOpen={isDetailsModalOpen}
-        onClose={() => setIsDetailsModalOpen(false)}
-        receipt={selectedReceipt}
-      />
     </div>
   );
 }; 
