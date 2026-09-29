@@ -6976,6 +6976,33 @@ app.get('/api/invoices/:id', (req, res) => {
   );
 });
 
+function parseOrderProductId(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return id;
+}
+
+function loadOrderProductIdSet(orderId, callback) {
+  if (!orderId) {
+    callback(null, new Set());
+    return;
+  }
+  db.all('SELECT id FROM order_products WHERE orderId = ?', [orderId], (err, rows) => {
+    if (err) {
+      callback(err);
+      return;
+    }
+    callback(null, new Set((rows || []).map((row) => row.id)));
+  });
+}
+
+function resolveInvoiceLineOrderProductId(rawId, allowedIds) {
+  const id = parseOrderProductId(rawId);
+  if (!id || !allowedIds.has(id)) return null;
+  return id;
+}
+
 // Создание фактуры и позиций
 app.post('/api/invoices', (req, res) => {
   const {
@@ -7053,6 +7080,12 @@ app.post('/api/invoices', (req, res) => {
           return res.json({ id: invoiceId, numer_faktury });
         }
 
+        loadOrderProductIdSet(order_id, (idsErr, allowedOrderProductIds) => {
+          if (idsErr) {
+            console.error('❌ Error loading order product ids for invoice:', idsErr);
+            return res.status(500).json({ error: idsErr.message });
+          }
+
         let pending = products.length;
         let hasError = false;
 
@@ -7064,6 +7097,7 @@ app.post('/api/invoices', (req, res) => {
           const wartosc_netto = ilosc * cena_netto * (1 - rabat / 100);
           const wartosc_vat = wartosc_netto * (vat / 100);
           const wartosc_brutto = wartosc_netto + wartosc_vat;
+          const orderProductId = resolveInvoiceLineOrderProductId(p.order_product_id, allowedOrderProductIds);
 
           db.run(
             `INSERT INTO invoice_products (
@@ -7081,7 +7115,7 @@ app.post('/api/invoices', (req, res) => {
               Math.round(wartosc_netto * 100) / 100,
               Math.round(wartosc_vat * 100) / 100,
               Math.round(wartosc_brutto * 100) / 100,
-              null
+              orderProductId
             ],
             (prodErr) => {
               if (hasError) return;
@@ -7097,6 +7131,7 @@ app.post('/api/invoices', (req, res) => {
               }
             }
           );
+        });
         });
       }
     );
@@ -7308,6 +7343,12 @@ app.put('/api/invoices/:id', (req, res) => {
           return res.status(500).json({ error: updateErr.message });
         }
 
+        loadOrderProductIdSet(invoiceRow.order_id, (idsErr, allowedOrderProductIds) => {
+          if (idsErr) {
+            console.error('❌ Error loading order product ids for invoice update:', idsErr);
+            return res.status(500).json({ error: idsErr.message });
+          }
+
         // Удаляем старые продукты
         db.run('DELETE FROM invoice_products WHERE invoice_id = ?', [id], (delErr) => {
           if (delErr) {
@@ -7327,6 +7368,7 @@ app.put('/api/invoices/:id', (req, res) => {
             const wartosc_netto = ilosc * cena_netto * (1 - rabat / 100);
             const wartosc_vat = wartosc_netto * (vat / 100);
             const wartosc_brutto = wartosc_netto + wartosc_vat;
+            const orderProductId = resolveInvoiceLineOrderProductId(p.order_product_id, allowedOrderProductIds);
 
             db.run(
               `INSERT INTO invoice_products (
@@ -7344,7 +7386,7 @@ app.put('/api/invoices/:id', (req, res) => {
                 Math.round(wartosc_netto * 100) / 100,
                 Math.round(wartosc_vat * 100) / 100,
                 Math.round(wartosc_brutto * 100) / 100,
-                null
+                orderProductId
               ],
               (prodErr) => {
                 if (hasError) return;
@@ -7361,6 +7403,7 @@ app.put('/api/invoices/:id', (req, res) => {
               }
             );
           });
+        });
         });
       }
     );

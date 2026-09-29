@@ -44,6 +44,7 @@ interface ProductRow {
   searchQuery?: string;
   isFromKomis?: boolean;
   maxIlosc?: number;
+  orderProductId?: number | null;
 }
 
 interface SearchProduct {
@@ -74,6 +75,7 @@ interface InvoiceModalProps {
     klient: string;
     numer_zamowienia: string;
     products?: Array<{
+      id?: number;
       kod: string;
       nazwa: string;
       ilosc: number;
@@ -181,7 +183,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, onS
               ilosc: p.ilosc.toString(),
               cena_netto: '',
               rabat: p.typ === 'probka' ? '30' : '',
-              vat: 23
+              vat: 23,
+              orderProductId: p.id ?? null
             }));
             setProductRows(initialProducts);
             setInitialProductCount(initialProducts.length);
@@ -497,7 +500,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ isOpen, onClose, onS
           ilosc: parseFloat(row.ilosc) || 0,
           cena_netto: parseFloat(row.cena_netto.replace(',', '.')) || 0,
           rabat: parseFloat(row.rabat.replace(',', '.')) || 0,
-          vat: row.vat
+          vat: row.vat,
+          order_product_id: row.orderProductId ?? null
         }));
 
       const isPrzesuniecieRow = (row: ProductRow) =>

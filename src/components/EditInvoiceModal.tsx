@@ -21,6 +21,7 @@ interface ProductRow {
   isFromKomis?: boolean;
   maxIlosc?: number;
   originalKomisIlosc?: number;
+  order_product_id?: number | null;
 }
 
 interface DeletedKomisRow {
@@ -280,7 +281,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                 vat: p.vat_stawka || 23,
                 isFromKomis,
                 originalKomisIlosc: isFromKomis ? Math.round(p.ilosc) : undefined,
-                searchQuery: isFromKomis ? p.nazwa : undefined
+                searchQuery: isFromKomis ? p.nazwa : undefined,
+                order_product_id: p.order_product_id ?? null
               };
             });
             setProductRows(products);
@@ -590,7 +592,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           ilosc: parseFloat(row.ilosc) || 0,
           cena_netto: parseFloat(row.cena_netto.replace(',', '.')) || 0,
           rabat: parseFloat(row.rabat.replace(',', '.')) || 0,
-          vat: row.vat
+          vat: row.vat,
+          order_product_id: row.order_product_id ?? null
         }));
 
       const komisSync = readOnlyExisting
