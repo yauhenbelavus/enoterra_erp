@@ -759,16 +759,23 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
           color: inherit;
         }
         .analiza-zakres-menu .react-datepicker__day--in-range,
-        .analiza-zakres-menu .react-datepicker__day--in-selecting-range {
-          background-color: #dbeafe;
-          color: #1e3a8a;
-          border-radius: 50%;
-        }
+        .analiza-zakres-menu .react-datepicker__day--in-selecting-range,
         .analiza-zakres-menu .react-datepicker__day--range-start,
         .analiza-zakres-menu .react-datepicker__day--range-end,
         .analiza-zakres-menu .react-datepicker__day--selected {
+          background-color: transparent !important;
+          color: inherit !important;
+        }
+        .analiza-zakres-menu .react-datepicker__day.rdp-single,
+        .analiza-zakres-menu .react-datepicker__day.rdp-range-start,
+        .analiza-zakres-menu .react-datepicker__day.rdp-range-end {
           background-color: #2563eb;
           color: white;
+          border-radius: 50%;
+        }
+        .analiza-zakres-menu .react-datepicker__day.rdp-in-range {
+          background-color: #dbeafe;
+          color: #1e3a8a;
           border-radius: 50%;
         }
         .analiza-zakres-menu .react-datepicker__day:hover {
@@ -907,13 +914,22 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               >
                 <DatePicker
                   inline
-                  startDate={dateFrom ?? undefined}
-                  endDate={dateTo ?? undefined}
+                  selected={null}
                   filterDate={(date) => {
                     if (!firstEverWydanieDate) return true;
                     return date >= firstEverWydanieDate;
                   }}
-                  selected={null}
+                  dayClassName={(date) => {
+                    const key = toDateKey(date);
+                    const fromKey = dateFrom ? toDateKey(dateFrom) : null;
+                    const toKey = dateTo ? toDateKey(dateTo) : null;
+                    if (!fromKey) return '';
+                    if (key === fromKey && toKey && key !== toKey) return 'rdp-range-start';
+                    if (key === fromKey && (!toKey || key === toKey)) return 'rdp-single';
+                    if (toKey && key === toKey) return 'rdp-range-end';
+                    if (toKey && key > fromKey && key < toKey) return 'rdp-in-range';
+                    return '';
+                  }}
                   renderDayContents={(day, date) => (
                     <span
                       onClick={(e) => {
