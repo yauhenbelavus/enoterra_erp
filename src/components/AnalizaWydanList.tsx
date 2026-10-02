@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SortIndicator } from './SortIndicator';
 import { compareAnalizaWydanProducts, extractDateFromOrderNumber, useTableSort } from '../utils/tableSort';
 
@@ -24,7 +24,7 @@ interface AnalizaWydanListProps {
   apiUrl?: string;
 }
 
-const TYP_LABELS: Record<string, { label: string; color: string }> = {
+const TYP_WYDANIA_LABELS: Record<string, { label: string; color: string }> = {
   sprzedaz: { label: 'Sprzedaż', color: 'bg-blue-100 text-blue-800 border-blue-200' },
   probka: { label: 'Próbka', color: 'bg-green-100 text-green-800 border-green-200' },
   degustacja: { label: 'Degustacja', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
@@ -37,6 +37,19 @@ const TYP_LABELS: Record<string, { label: string; color: string }> = {
   Przeterminowanie: { label: 'Przeterminowanie', color: 'bg-orange-100 text-orange-800 border-orange-200' },
   Utrata: { label: 'Utrata', color: 'bg-gray-100 text-gray-800 border-gray-200' },
   Inwentaryzacja: { label: 'Inwentaryzacja', color: 'bg-blue-100 text-blue-800 border-blue-200' },
+  brak: { label: 'Brak typu', color: 'bg-gray-100 text-gray-800 border-gray-200' },
+};
+
+const TYPY_WINA: Record<string, { label: string; color: string }> = {
+  czerwone: { label: 'Czerwone', color: 'bg-red-100 text-red-800 border-red-200' },
+  biale: { label: 'Białe', color: 'bg-gray-100 text-gray-800 border-gray-200' },
+  musujace: { label: 'Musujące', color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
+  bezalkoholowe: { label: 'Bezalkoholowe', color: 'bg-green-100 text-green-800 border-green-200' },
+  ferment: { label: 'Ferment', color: 'bg-orange-100 text-orange-800 border-orange-200' },
+  rozowe: { label: 'Różowe', color: 'bg-pink-100 text-pink-800 border-pink-200' },
+  slodkie: { label: 'Słodkie', color: 'bg-purple-100 text-purple-800 border-purple-200' },
+  aksesoria: { label: 'Aksesoria', color: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+  amber: { label: 'Amber', color: 'bg-amber-100 text-amber-800 border-amber-200' },
   brak: { label: 'Brak typu', color: 'bg-gray-100 text-gray-800 border-gray-200' },
 };
 
@@ -55,21 +68,24 @@ const ALL_MONTHS = [
   { value: '12', label: 'Grudzień' },
 ];
 
-const getTypMeta = (typ: string) =>
-  TYP_LABELS[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
+const getTypWydaniaMeta = (typ: string) =>
+  TYP_WYDANIA_LABELS[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
+
+const getTypWinaMeta = (typ: string) =>
+  TYPY_WINA[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
 
 const formatBottles = (value: number) =>
   new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 }).format(value);
 
 const buildFilterQuery = (filters: {
   klient: string;
-  typ: string;
+  typy: string[];
   year: string;
   month: string;
 }) => {
   const params = new URLSearchParams();
   if (filters.klient) params.set('klient', filters.klient);
-  if (filters.typ) params.set('typ', filters.typ);
+  filters.typy.forEach((typ) => params.append('typ', typ));
   if (filters.year) params.set('year', filters.year);
   if (filters.month) params.set('month', filters.month);
   const query = params.toString();
@@ -89,9 +105,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [detailsLoadingKod, setDetailsLoadingKod] = useState<string | null>(null);
   const [detailsErrorByKod, setDetailsErrorByKod] = useState<Record<string, string>>({});
   const [selectedKlient, setSelectedKlient] = useState('');
-  const [selectedTyp, setSelectedTyp] = useState('');
+  const [selectedTypy, setSelectedTypy] = useState<string[]>([]);
+  const [isTypOpen, setIsTypOpen] = useState(false);
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
+  const typFilterRef = useRef<HTMLDivElement>(null);
 
   const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(products, {
     defaultField: 'nazwa',
@@ -103,22 +121,22 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const activeFilters = useMemo(
     () => ({
       klient: selectedKlient,
-      typ: selectedTyp,
+      typy: selectedTypy,
       year: selectedYear,
       month: selectedMonth,
     }),
-    [selectedKlient, selectedTyp, selectedYear, selectedMonth]
+    [selectedKlient, selectedTypy, selectedYear, selectedMonth]
   );
 
   const filterRowsBy = (opts: {
     klient?: string;
-    typ?: string;
+    typy?: string[];
     year?: string;
     month?: string;
   }) => {
     return filterRows.filter((row) => {
       if (opts.klient && row.klient !== opts.klient) return false;
-      if (opts.typ && row.typ !== opts.typ) return false;
+      if (opts.typy && opts.typy.length > 0 && !opts.typy.includes(row.typ)) return false;
       const date = extractDateFromOrderNumber(row.numer_zamowienia);
       if (!date) {
         return !opts.year && !opts.month;
@@ -132,7 +150,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   };
 
   const rowsForKlient = filterRowsBy({
-    typ: selectedTyp || undefined,
+    typy: selectedTypy,
     year: selectedYear || undefined,
     month: selectedMonth || undefined,
   });
@@ -154,18 +172,19 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const typOptions = useMemo(() => {
     const set = new Set(rowsForTyp.map((row) => row.typ).filter(Boolean));
     const list = Array.from(set)
-      .map((value) => ({ value, label: getTypMeta(value).label }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-    if (selectedTyp && !set.has(selectedTyp)) {
-      list.push({ value: selectedTyp, label: getTypMeta(selectedTyp).label });
-      list.sort((a, b) => a.label.localeCompare(b.label));
-    }
+      .map((value) => ({ value, label: getTypWinaMeta(value).label }));
+    selectedTypy.forEach((value) => {
+      if (!set.has(value)) {
+        list.push({ value, label: getTypWinaMeta(value).label });
+      }
+    });
+    list.sort((a, b) => a.label.localeCompare(b.label, 'pl'));
     return list;
-  }, [rowsForTyp, selectedTyp]);
+  }, [rowsForTyp, selectedTypy]);
 
   const rowsForYear = filterRowsBy({
     klient: selectedKlient || undefined,
-    typ: selectedTyp || undefined,
+    typy: selectedTypy,
     month: selectedMonth || undefined,
   });
   const years = useMemo(() => {
@@ -185,7 +204,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   const rowsForMonth = filterRowsBy({
     klient: selectedKlient || undefined,
-    typ: selectedTyp || undefined,
+    typy: selectedTypy,
     year: selectedYear || undefined,
   });
   const months = useMemo(() => {
@@ -272,7 +291,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     setDetailsByKod({});
     setDetailsErrorByKod({});
     loadProducts(activeFilters);
-  }, [selectedKlient, selectedTyp, selectedYear, selectedMonth]);
+  }, [selectedKlient, selectedTypy, selectedYear, selectedMonth]);
 
   useEffect(() => {
     if (refreshTrigger == null) return;
@@ -304,12 +323,45 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     await loadDetails(kod);
   };
 
+  useEffect(() => {
+    if (!isTypOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (typFilterRef.current && !typFilterRef.current.contains(event.target as Node)) {
+        setIsTypOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsTypOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isTypOpen]);
+
+  const toggleTyp = (value: string) => {
+    setSelectedTypy((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
+    );
+  };
+
   const totalButelki = products.reduce((sum, product) => sum + (product.ilosc || 0), 0);
-  const hasActiveFilters = selectedKlient || selectedTyp || selectedYear || selectedMonth;
+  const hasActiveFilters = Boolean(selectedKlient || selectedTypy.length || selectedYear || selectedMonth);
+  const typButtonLabel = selectedTypy.length === 0
+    ? 'Typ'
+    : typOptions
+        .filter((opt) => selectedTypy.includes(opt.value))
+        .map((opt) => opt.label)
+        .join(', ');
 
   const clearFilters = () => {
     setSelectedKlient('');
-    setSelectedTyp('');
+    setSelectedTypy([]);
+    setIsTypOpen(false);
     setSelectedYear('');
     setSelectedMonth('');
   };
@@ -353,20 +405,40 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             </select>
           </div>
 
-          <div className="relative">
-            <select
-              value={selectedTyp}
-              onChange={(e) => setSelectedTyp(e.target.value)}
-              className={filterSelectClass}
+          <div className="relative" ref={typFilterRef}>
+            <button
+              type="button"
+              onClick={() => setIsTypOpen((open) => !open)}
+              className={`${filterSelectClass} text-left flex items-center justify-between gap-1`}
               style={filterSelectStyle}
             >
-              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ</option>
-              {typOptions.map((opt) => (
-                <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              <span className="truncate min-w-0">{typButtonLabel}</span>
+              <svg className="w-3 h-3 shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {isTypOpen && (
+              <div className="absolute top-full right-0 mt-1 z-50 w-[180px] max-h-52 overflow-y-auto bg-white border border-gray-300 rounded shadow-sm py-1">
+                {typOptions.length === 0 ? (
+                  <div className="px-2 py-1 text-xs text-gray-500 font-sora">Brak typów</div>
+                ) : (
+                  typOptions.map((opt) => (
+                    <label
+                      key={opt.value}
+                      className="flex items-center gap-2 px-2 py-1 text-xs font-sora text-gray-900 cursor-pointer hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTypy.includes(opt.value)}
+                        onChange={() => toggleTyp(opt.value)}
+                        className="cursor-pointer"
+                      />
+                      <span className="truncate">{opt.label}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           <div className="relative">
@@ -525,7 +597,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     !isDetailsLoading &&
                     !detailsError &&
                     typRows.map((row) => {
-                      const meta = getTypMeta(row.typ);
+                      const meta = getTypWydaniaMeta(row.typ);
                       return (
                         <tr key={`${product.kod}-${row.typ}`} className="bg-gray-50">
                           <td className="px-8 py-2 pl-12 text-sm font-sora" />

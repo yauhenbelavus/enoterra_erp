@@ -9440,10 +9440,26 @@ const ANALIZA_WYDAN_BASE_WHERE = `
   AND TRIM(COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)) != ''
 `;
 
+function parseAnalizaWydanTypList(value) {
+  if (value == null || value === '') return [];
+  const raw = Array.isArray(value) ? value : [value];
+  const typy = [];
+  raw.forEach((item) => {
+    String(item)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((part) => {
+        if (!typy.includes(part)) typy.push(part);
+      });
+  });
+  return typy;
+}
+
 function parseAnalizaWydanFilters(query) {
   return {
     klient: (query.klient || '').trim(),
-    typ: (query.typ || '').trim(),
+    typy: parseAnalizaWydanTypList(query.typ),
     year: (query.year || '').trim(),
     month: (query.month || '').trim()
   };
@@ -9493,9 +9509,11 @@ function buildAnalizaWydanWhere(filters, kod, orderIdsForDate) {
     params.push(filters.klient);
   }
 
-  if (filters.typ) {
-    conditions.push("COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') = ?");
-    params.push(filters.typ);
+  if (filters.typy.length > 0) {
+    conditions.push(
+      `COALESCE(NULLIF(TRIM(ws.typ), ''), 'brak') IN (${filters.typy.map(() => '?').join(', ')})`
+    );
+    params.push(...filters.typy);
   }
 
   if (kod) {
@@ -9520,7 +9538,7 @@ app.get('/api/analiza-wydan/filters', (req, res) => {
   db.all(
     `SELECT DISTINCT
       o.klient AS klient,
-      COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ,
+      COALESCE(NULLIF(TRIM(ws.typ), ''), 'brak') AS typ,
       o.numer_zamowienia AS numer_zamowienia
     ${ANALIZA_WYDAN_BASE_JOIN}
     WHERE ${ANALIZA_WYDAN_BASE_WHERE}
