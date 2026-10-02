@@ -189,6 +189,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const typSelectRef = useRef<HTMLSelectElement>(null);
   const dateFilterRef = useRef<HTMLDivElement>(null);
   const dateSelectRef = useRef<HTMLSelectElement>(null);
+  const calendarViewRef = useRef<Date | null>(null);
   const [typMenuRect, setTypMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [dateMenuRect, setDateMenuRect] = useState<{ top: number; left: number } | null>(null);
 
@@ -739,18 +740,27 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         .analiza-zakres-menu .react-datepicker {
           position: relative;
         }
+        .analiza-zakres-menu .react-datepicker__day {
+          border-radius: 50%;
+        }
+        .analiza-zakres-menu .react-datepicker__day--weekend {
+          color: inherit;
+        }
         .analiza-zakres-menu .react-datepicker__day--in-range,
         .analiza-zakres-menu .react-datepicker__day--in-selecting-range {
           background-color: #dbeafe;
           color: #1e3a8a;
-          border-radius: 0.375rem;
+          border-radius: 50%;
         }
         .analiza-zakres-menu .react-datepicker__day--range-start,
         .analiza-zakres-menu .react-datepicker__day--range-end,
         .analiza-zakres-menu .react-datepicker__day--selected {
           background-color: #2563eb;
           color: white;
-          border-radius: 9999px;
+          border-radius: 50%;
+        }
+        .analiza-zakres-menu .react-datepicker__day:hover {
+          border-radius: 50%;
         }
       `}</style>
       <div className="relative w-full">
@@ -772,9 +782,10 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
           <div className="relative" ref={typFilterRef}>
             <select
               ref={typSelectRef}
-              value=""
+              value={selectedTypy.length > 0 ? '__typ__' : ''}
               onMouseDown={(e) => {
                 e.preventDefault();
+                typSelectRef.current?.focus();
                 setIsDateOpen(false);
                 setIsTypOpen((open) => !open);
               }}
@@ -788,12 +799,12 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               onChange={() => undefined}
               className={filterSelectClass}
               style={filterSelectStyle}
-              aria-label="Typ towaru"
-              aria-expanded={isTypOpen}
             >
-              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>
-                {typButtonLabel}
-              </option>
+              {selectedTypy.length === 0 ? (
+                <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ towaru</option>
+              ) : (
+                <option value="__typ__" style={{ fontFamily: 'Sora, sans-serif' }}>{typButtonLabel}</option>
+              )}
               {typOptions.map((opt) => (
                 <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
                   {opt.label}
@@ -834,12 +845,18 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               onMouseDown={(e) => {
                 e.preventDefault();
                 setIsTypOpen(false);
+                if (!isDateOpen) {
+                  calendarViewRef.current = dateFrom || availableCalendarDates[availableCalendarDates.length - 1] || new Date();
+                }
                 setIsDateOpen((open) => !open);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
                   e.preventDefault();
                   setIsTypOpen(false);
+                  if (!isDateOpen) {
+                    calendarViewRef.current = dateFrom || availableCalendarDates[availableCalendarDates.length - 1] || new Date();
+                  }
                   setIsDateOpen((open) => !open);
                 }
               }}
@@ -863,15 +880,14 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               >
                 <DatePicker
                   inline
-                  selected={dateFrom}
-                  startDate={dateFrom}
-                  endDate={dateTo || dateFrom}
+                  startDate={dateFrom ?? undefined}
+                  endDate={dateTo ?? undefined}
                   onSelect={(date: Date | null) => {
                     if (date) applyDateClick(date);
                   }}
+                  onMonthChange={(date) => { calendarViewRef.current = date; }}
                   onChange={() => undefined}
-                  filterDate={(date) => availableDateKeySet.has(toDateKey(date))}
-                  openToDate={calendarOpenToDate}
+                  openToDate={calendarViewRef.current ?? calendarOpenToDate}
                   locale="pl"
                   calendarStartDay={1}
                   shouldCloseOnSelect={false}
