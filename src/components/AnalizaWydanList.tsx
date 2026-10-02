@@ -409,11 +409,14 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const columnWidths = useMemo(() => {
     const currentTable = `70% + 0.3 * (${kodColumnWidth}) + 4.95rem`;
     const share = (part: string) => `calc(100% * (${part}) / (${currentTable}))`;
+    const kod = share(kodColumnWidth);
+    const sprzedaz = share('9.5rem');
+    const ilosc = '5.75rem';
     return {
-      kod: share(kodColumnWidth),
-      nazwa: share(`70% - 0.7 * (${kodColumnWidth}) - 11.55rem`),
-      ilosc: share('7rem'),
-      sprzedaz: share('9.5rem'),
+      kod,
+      ilosc,
+      sprzedaz,
+      nazwa: `calc(100% - (${kod}) - (${sprzedaz}) - ${ilosc})`,
     };
   }, [kodColumnWidth]);
 
@@ -590,7 +593,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               </div>
             </th>
             <th
-              className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              className="px-2 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
               onClick={() => handleSort('ilosc')}
             >
               <div className="flex items-center gap-1">
@@ -647,7 +650,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     <td className="px-8 py-3 text-sm text-gray-900 font-sora">
                       {product.nazwa}
                     </td>
-                    <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-600 font-sora">
+                    <td className="px-2 py-3 whitespace-nowrap text-sm text-gray-600 font-sora">
                       {product.ilosc}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 font-sora text-right">
@@ -695,7 +698,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                         <td className="px-8 py-2 text-sm text-gray-700 font-sora">
                           {row.klient}
                         </td>
-                        <td className="px-8 py-2 whitespace-nowrap text-sm text-gray-600 font-sora">
+                        <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-600 font-sora">
                           {row.ilosc}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-600 font-sora text-right">
