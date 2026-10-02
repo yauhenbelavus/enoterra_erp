@@ -406,6 +406,17 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     return `calc(${chars}ch + 1rem)`;
   }, [products]);
 
+  const columnWidths = useMemo(() => {
+    const currentTable = `70% + 0.3 * (${kodColumnWidth}) + 4.95rem`;
+    const share = (part: string) => `calc(100% * (${part}) / (${currentTable}))`;
+    return {
+      kod: share(kodColumnWidth),
+      nazwa: share(`70% - 0.7 * (${kodColumnWidth}) - 11.55rem`),
+      ilosc: share('7rem'),
+      sprzedaz: share('9.5rem'),
+    };
+  }, [kodColumnWidth]);
+
   const totalButelki = products.reduce((sum, product) => sum + (product.ilosc || 0), 0);
   const hasActiveFilters = Boolean(selectedKlient || selectedTypy.length || selectedYear || selectedMonth);
   const typButtonLabel = selectedTypy.length === 0
@@ -551,15 +562,12 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       </div>
 
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
-        <table
-          className="table-fixed"
-          style={{ width: `calc(70% + 0.3 * (${kodColumnWidth}) + 4.95rem)` }}
-        >
+        <table className="w-full table-fixed">
           <colgroup>
-            <col style={{ width: kodColumnWidth }} />
-            <col />
-            <col style={{ width: '7rem' }} />
-            <col style={{ width: '9.5rem' }} />
+            <col style={{ width: columnWidths.kod }} />
+            <col style={{ width: columnWidths.nazwa }} />
+            <col style={{ width: columnWidths.ilosc }} />
+            <col style={{ width: columnWidths.sprzedaz }} />
           </colgroup>
           <thead className="sticky top-0 z-10">
             <tr>
