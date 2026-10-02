@@ -524,13 +524,15 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         fill: { fgColor: { rgb: 'F3F4F6' } },
       };
       const filterLabelStyle = {
-        font: { bold: true, name: 'Calibri', sz: 11, color: { rgb: '111827' } },
+        font: { name: 'Calibri', sz: 11, color: { rgb: '111827' } },
+        alignment: { vertical: 'center', wrapText: true },
       };
       const moneyFmt = '#,##0.00';
       const qtyFmt = '#,##0';
 
+      const filterTexts = filterLines.map(([label, value]) => `${label}: ${value}`);
       const aoa: Array<Array<string | number>> = [
-        ...filterLines.map(([label, value]) => [label, value]),
+        ...filterTexts.map((text) => [text]),
         [''],
         ['Nazwa', 'Klient', 'Ilość', 'Sprzedaż netto'],
       ];
@@ -551,16 +553,26 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
       const worksheet = XLSX.utils.aoa_to_sheet(aoa);
       worksheet['!cols'] = [{ wch: 42 }, { wch: 28 }, { wch: 12 }, { wch: 18 }];
+      worksheet['!merges'] = filterTexts.map((_, row) => ({
+        s: { r: row, c: 0 },
+        e: { r: row, c: 3 },
+      }));
 
       const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-      filterLines.forEach((_, row) => {
-        const labelCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
-        if (labelCell) labelCell.s = filterLabelStyle;
+      filterTexts.forEach((_, row) => {
+        const cell = worksheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
+        if (cell) cell.s = filterLabelStyle;
       });
       for (let col = range.s.c; col <= range.e.c; col++) {
         const headerCell = worksheet[XLSX.utils.encode_cell({ r: headerRow, c: col })];
         if (headerCell) headerCell.s = headerStyle;
       }
+      worksheet['!autofilter'] = {
+        ref: XLSX.utils.encode_range({
+          s: { r: headerRow, c: 0 },
+          e: { r: range.e.r, c: 3 },
+        }),
+      };
       for (let row = headerRow + 1; row <= range.e.r; row++) {
         const qtyCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 2 })];
         const moneyCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 3 })];
