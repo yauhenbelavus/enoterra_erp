@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from 'react-modal';
-import { X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
 import { formatPlMoney } from '../utils/receiptCurrency';
 import { compareAnalizaWydanProducts, useTableSort } from '../utils/tableSort';
@@ -129,18 +129,26 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [detailsLoadingKod, setDetailsLoadingKod] = useState<string | null>(null);
   const [detailsErrorByKod, setDetailsErrorByKod] = useState<Record<string, string>>({});
   const [selectedKlient, setSelectedKlient] = useState('');
-  const [selectedTypy, setSelectedTypy] = useState<string[]>([]);
-  const [isTypOpen, setIsTypOpen] = useState(false);
+  const [selectedTyp, setSelectedTyp] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [typModal, setTypModal] = useState<KlientTypModalState | null>(null);
   const [typModalRows, setTypModalRows] = useState<WydaniaTypRow[]>([]);
   const [typModalLoading, setTypModalLoading] = useState(false);
   const [typModalError, setTypModalError] = useState<string | null>(null);
   const typRequestRef = useRef(0);
-  const typFilterRef = useRef<HTMLDivElement>(null);
 
-  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(products, {
+  const filteredProducts = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return products;
+    return products.filter((product) =>
+      (product.kod || '').toLowerCase().includes(query) ||
+      (product.nazwa || '').toLowerCase().includes(query)
+    );
+  }, [products, searchTerm]);
+
+  const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(filteredProducts, {
     defaultField: 'nazwa',
     defaultDirection: 'asc',
     directionForField: (field) => (field === 'ilosc' || field === 'sprzedaz_netto' ? 'desc' : 'asc'),
@@ -150,22 +158,22 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const activeFilters = useMemo(
     () => ({
       klient: selectedKlient,
-      typy: selectedTypy,
+      typy: selectedTyp ? [selectedTyp] : [],
       year: selectedYear,
       month: selectedMonth,
     }),
-    [selectedKlient, selectedTypy, selectedYear, selectedMonth]
+    [selectedKlient, selectedTyp, selectedYear, selectedMonth]
   );
 
   const filterRowsBy = (opts: {
     klient?: string;
-    typy?: string[];
+    typ?: string;
     year?: string;
     month?: string;
   }) => {
     return filterRows.filter((row) => {
       if (opts.klient && row.klient !== opts.klient) return false;
-      if (opts.typy && opts.typy.length > 0 && !opts.typy.includes(row.typ)) return false;
+      if (opts.typ && row.typ !== opts.typ) return false;
       const date = parseInvoiceDate(row.data_faktury);
       if (!date) {
         return !opts.year && !opts.month;
@@ -179,7 +187,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   };
 
   const rowsForKlient = filterRowsBy({
-    typy: selectedTypy,
+    typ: selectedTyp || undefined,
     year: selectedYear || undefined,
     month: selectedMonth || undefined,
   });
@@ -202,18 +210,16 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     const set = new Set(rowsForTyp.map((row) => row.typ).filter(Boolean));
     const list = Array.from(set)
       .map((value) => ({ value, label: getTypWinaMeta(value).label }));
-    selectedTypy.forEach((value) => {
-      if (!set.has(value)) {
-        list.push({ value, label: getTypWinaMeta(value).label });
-      }
-    });
+    if (selectedTyp && !set.has(selectedTyp)) {
+      list.push({ value: selectedTyp, label: getTypWinaMeta(selectedTyp).label });
+    }
     list.sort((a, b) => a.label.localeCompare(b.label, 'pl'));
     return list;
-  }, [rowsForTyp, selectedTypy]);
+  }, [rowsForTyp, selectedTyp]);
 
   const rowsForYear = filterRowsBy({
     klient: selectedKlient || undefined,
-    typy: selectedTypy,
+    typ: selectedTyp || undefined,
     month: selectedMonth || undefined,
   });
   const years = useMemo(() => {
@@ -233,7 +239,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   const rowsForMonth = filterRowsBy({
     klient: selectedKlient || undefined,
-    typy: selectedTypy,
+    typ: selectedTyp || undefined,
     year: selectedYear || undefined,
   });
   const months = useMemo(() => {
@@ -321,7 +327,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     setDetailsErrorByKod({});
     setTypModal(null);
     loadProducts(activeFilters);
-  }, [selectedKlient, selectedTypy, selectedYear, selectedMonth]);
+  }, [selectedKlient, selectedTyp, selectedYear, selectedMonth]);
 
   useEffect(() => {
     if (refreshTrigger == null) return;
@@ -380,32 +386,6 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     await loadDetails(kod);
   };
 
-  useEffect(() => {
-    if (!isTypOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (typFilterRef.current && !typFilterRef.current.contains(event.target as Node)) {
-        setIsTypOpen(false);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsTypOpen(false);
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [isTypOpen]);
-
-  const toggleTyp = (value: string) => {
-    setSelectedTypy((prev) =>
-      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
-    );
-  };
-
   const kodColumnWidth = useMemo(() => {
     const longest = products.reduce((max, product) => Math.max(max, product.kod?.length || 0), 0);
     const chars = Math.max(6, Math.ceil(longest / 2));
@@ -428,20 +408,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     };
   }, [kodColumnWidth]);
 
-  const totalButelki = products.reduce((sum, product) => sum + (product.ilosc || 0), 0);
-  const totalNetto = products.reduce((sum, product) => sum + (Number(product.sprzedaz_netto) || 0), 0);
-  const hasActiveFilters = Boolean(selectedKlient || selectedTypy.length || selectedYear || selectedMonth);
-  const typButtonLabel = selectedTypy.length === 0
-    ? 'Typ'
-    : typOptions
-        .filter((opt) => selectedTypy.includes(opt.value))
-        .map((opt) => opt.label)
-        .join(', ');
+  const totalButelki = filteredProducts.reduce((sum, product) => sum + (product.ilosc || 0), 0);
+  const totalNetto = filteredProducts.reduce((sum, product) => sum + (Number(product.sprzedaz_netto) || 0), 0);
+  const hasActiveFilters = Boolean(selectedKlient || selectedTyp || selectedYear || selectedMonth);
 
   const clearFilters = () => {
     setSelectedKlient('');
-    setSelectedTypy([]);
-    setIsTypOpen(false);
+    setSelectedTyp('');
     setSelectedYear('');
     setSelectedMonth('');
   };
@@ -466,6 +439,19 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   return (
     <div className="space-y-4">
+      <div className="relative w-full">
+        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <Search className="h-5 w-5 text-gray-400" />
+        </div>
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Szukaj produktów..."
+          className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none sm:text-sm font-sora shadow-none"
+        />
+      </div>
+
       <div className="flex justify-end">
         <div className="flex flex-col gap-1">
         <div className="grid grid-cols-2 gap-1">
@@ -485,40 +471,20 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             </select>
           </div>
 
-          <div className="relative" ref={typFilterRef}>
-            <button
-              type="button"
-              onClick={() => setIsTypOpen((open) => !open)}
-              className={`${filterSelectClass} text-left flex items-center justify-between gap-1`}
+          <div className="relative">
+            <select
+              value={selectedTyp}
+              onChange={(e) => setSelectedTyp(e.target.value)}
+              className={filterSelectClass}
               style={filterSelectStyle}
             >
-              <span className="truncate min-w-0">{typButtonLabel}</span>
-              <svg className="w-3 h-3 shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {isTypOpen && (
-              <div className="absolute top-full right-0 mt-1 z-50 w-[180px] max-h-52 overflow-y-auto bg-white border border-gray-300 rounded shadow-sm py-1">
-                {typOptions.length === 0 ? (
-                  <div className="px-2 py-1 text-xs text-gray-500 font-sora">Brak typów</div>
-                ) : (
-                  typOptions.map((opt) => (
-                    <label
-                      key={opt.value}
-                      className="flex items-center gap-2 px-2 py-1 text-xs font-sora text-gray-900 cursor-pointer hover:bg-gray-50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedTypy.includes(opt.value)}
-                        onChange={() => toggleTyp(opt.value)}
-                        className="cursor-pointer"
-                      />
-                      <span className="truncate">{opt.label}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-            )}
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ towaru</option>
+              {typOptions.map((opt) => (
+                <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="relative">
@@ -642,6 +608,12 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             <tr>
               <td colSpan={4} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                 Brak danych o wydaniach
+              </td>
+            </tr>
+          ) : sortedProducts.length === 0 ? (
+            <tr>
+              <td colSpan={4} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+                Brak wyników
               </td>
             </tr>
           ) : (
