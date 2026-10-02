@@ -9838,14 +9838,19 @@ app.get('/api/analiza-wydan/:kod/typy', (req, res) => {
     db.all(
       `SELECT
         CASE
+          WHEN ip.order_product_id IS NOT NULL
+            THEN COALESCE(NULLIF(TRIM(op_inv.typ), ''), 'sprzedaz')
           WHEN ROUND(COALESCE(ip.rabat, 0), 2) = 30 THEN 'probka'
           ELSE 'sprzedaz'
         END AS typ,
         SUM(COALESCE(ip.ilosc, 0)) AS ilosc
       ${ANALIZA_FAKTUR_JOIN}
+      LEFT JOIN order_products op_inv ON op_inv.id = ip.order_product_id
       WHERE ${invoiceBuilt.where}
       GROUP BY
         CASE
+          WHEN ip.order_product_id IS NOT NULL
+            THEN COALESCE(NULLIF(TRIM(op_inv.typ), ''), 'sprzedaz')
           WHEN ROUND(COALESCE(ip.rabat, 0), 2) = 30 THEN 'probka'
           ELSE 'sprzedaz'
         END
