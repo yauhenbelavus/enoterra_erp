@@ -484,6 +484,36 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         return;
       }
 
+      const filterLines: Array<[string, string]> = [];
+      if (selectedTypy.length > 0) {
+        filterLines.push([
+          'Typ towaru',
+          selectedTypy.map((typ) => getTypWinaMeta(typ).label).join(', '),
+        ]);
+      }
+      if (dateFrom) {
+        filterLines.push(['Zakres dat', formatRangeLabel(dateFrom, dateTo)]);
+      }
+      if (selectedKlient) {
+        filterLines.push(['Klient', selectedKlient]);
+      }
+      if (selectedTypWydania) {
+        filterLines.push(['Typ wydania', getTypWydaniaMeta(selectedTypWydania).label]);
+      }
+      if (selectedYear) {
+        filterLines.push(['Rok', selectedYear]);
+      }
+      if (selectedMonth) {
+        const monthLabel = ALL_MONTHS.find((month) => month.value === selectedMonth)?.label || selectedMonth;
+        filterLines.push(['Miesiąc', monthLabel]);
+      }
+      if (searchTerm.trim()) {
+        filterLines.push(['Szukaj', searchTerm.trim()]);
+      }
+      if (filterLines.length === 0) {
+        filterLines.push(['Filtry', 'wszystkie']);
+      }
+
       const headerStyle = {
         font: { bold: true, name: 'Calibri', sz: 11, color: { rgb: '111827' } },
         fill: { fgColor: { rgb: 'F3F4F6' } },
@@ -493,10 +523,18 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         font: { bold: true, name: 'Calibri', sz: 11, color: { rgb: '111827' } },
         fill: { fgColor: { rgb: 'F3F4F6' } },
       };
+      const filterLabelStyle = {
+        font: { bold: true, name: 'Calibri', sz: 11, color: { rgb: '111827' } },
+      };
       const moneyFmt = '#,##0.00';
       const qtyFmt = '#,##0';
 
-      const aoa: Array<Array<string | number>> = [['Nazwa', 'Klient', 'Ilość', 'Sprzedaż netto']];
+      const aoa: Array<Array<string | number>> = [
+        ...filterLines.map(([label, value]) => [label, value]),
+        [''],
+        ['Nazwa', 'Klient', 'Ilość', 'Sprzedaż netto'],
+      ];
+      const headerRow = aoa.length - 1;
       const totalRowIndexes: number[] = [];
       products.forEach((product) => {
         product.klienci.forEach((row, index) => {
@@ -515,11 +553,15 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       worksheet['!cols'] = [{ wch: 42 }, { wch: 28 }, { wch: 12 }, { wch: 18 }];
 
       const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      filterLines.forEach((_, row) => {
+        const labelCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
+        if (labelCell) labelCell.s = filterLabelStyle;
+      });
       for (let col = range.s.c; col <= range.e.c; col++) {
-        const headerCell = worksheet[XLSX.utils.encode_cell({ r: 0, c: col })];
+        const headerCell = worksheet[XLSX.utils.encode_cell({ r: headerRow, c: col })];
         if (headerCell) headerCell.s = headerStyle;
       }
-      for (let row = 1; row <= range.e.r; row++) {
+      for (let row = headerRow + 1; row <= range.e.r; row++) {
         const qtyCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 2 })];
         const moneyCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 3 })];
         if (qtyCell) {
