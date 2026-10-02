@@ -605,16 +605,8 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   return (
     <div className="space-y-4">
       <style>{`
-        .analiza-zakres-menu {
-          background: Canvas;
-          color: CanvasText;
-          border: 1px solid rgba(0, 0, 0, 0.2);
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-        }
-        .analiza-zakres-menu .react-datepicker,
-        .analiza-zakres-calendar {
-          position: static !important;
-          box-shadow: none;
+        .analiza-zakres-menu .react-datepicker {
+          position: relative;
         }
       `}</style>
       <div className="relative w-full">
@@ -679,8 +671,6 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                 style={{
                   top: dateMenuRect.top,
                   left: dateMenuRect.left,
-                  borderRadius: 4,
-                  padding: 4,
                 }}
               >
                 <DatePicker
@@ -698,7 +688,6 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                   openToDate={calendarOpenToDate}
                   locale="pl"
                   calendarStartDay={1}
-                  calendarClassName="analiza-zakres-calendar"
                 />
               </div>
             )}
