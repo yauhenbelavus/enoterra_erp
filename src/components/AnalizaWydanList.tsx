@@ -913,13 +913,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     if (!firstEverWydanieDate) return true;
                     return date >= firstEverWydanieDate;
                   }}
+                  selected={null}
                   renderDayContents={(day, date) => (
                     <span
-                      onMouseDown={(e) => {
-                        if (!date) return;
-                        e.preventDefault();
+                      onClick={(e) => {
                         e.stopPropagation();
-                        applyDateClick(date);
+                        e.preventDefault();
+                        if (date) applyDateClick(date);
                       }}
                       style={{ display: 'block', width: '100%', height: '100%', lineHeight: 'inherit' }}
                     >
