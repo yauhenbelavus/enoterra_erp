@@ -395,6 +395,12 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     );
   };
 
+  const kodColumnWidth = useMemo(() => {
+    const longest = products.reduce((max, product) => Math.max(max, product.kod?.length || 0), 0);
+    const chars = Math.max(6, Math.ceil(longest / 2));
+    return `calc(${chars}ch + 1rem)`;
+  }, [products]);
+
   const totalButelki = products.reduce((sum, product) => sum + (product.ilosc || 0), 0);
   const hasActiveFilters = Boolean(selectedKlient || selectedTypy.length || selectedYear || selectedMonth);
   const typButtonLabel = selectedTypy.length === 0
@@ -540,11 +546,19 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       </div>
 
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
-        <table className="w-full">
+        <table
+          className="table-fixed"
+          style={{ width: `calc(70% + 0.3 * (${kodColumnWidth}) + 2.1rem)` }}
+        >
+          <colgroup>
+            <col style={{ width: kodColumnWidth }} />
+            <col />
+            <col style={{ width: '7rem' }} />
+          </colgroup>
           <thead className="sticky top-0 z-10">
             <tr>
             <th
-              className="w-px whitespace-nowrap px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              className="px-2 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
               onClick={() => handleSort('kod')}
             >
               <div className="flex items-center gap-1">
@@ -604,8 +618,8 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => toggleProductDetails(product.kod)}
                   >
-                    <td className="w-px whitespace-nowrap px-4 py-3 text-sm text-gray-900 font-sora">
-                      {product.kod}
+                    <td className="px-2 py-3 text-sm text-gray-900 font-sora align-top">
+                      <div className="break-all line-clamp-2 leading-snug">{product.kod}</div>
                     </td>
                     <td className="px-8 py-3 text-sm text-gray-900 font-sora">
                       {product.nazwa}
@@ -651,7 +665,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                           openKlientTypModal(product, row.klient);
                         }}
                       >
-                        <td className="w-px whitespace-nowrap px-4 py-2 text-sm font-sora" />
+                        <td className="px-2 py-2 text-sm font-sora" />
                         <td className="px-8 py-2 text-sm text-gray-700 font-sora">
                           {row.klient}
                         </td>
