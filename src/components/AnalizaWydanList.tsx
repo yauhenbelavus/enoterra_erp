@@ -334,8 +334,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     () => new Set(availableCalendarDates.map(toDateKey)),
     [availableCalendarDates]
   );
-  const calendarOpenToDate =
-    dateFrom || availableCalendarDates[availableCalendarDates.length - 1] || new Date();
+  const calendarOpenToDate = dateFrom || new Date();
 
   const rowsForYear = filterRowsBy({
     klient: selectedKlient || undefined,
@@ -716,26 +715,29 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     <div className="space-y-4">
       <style>{`
         .analiza-typ-menu {
-          background: Field;
-          color: FieldText;
-          border: 1px solid rgba(0, 0, 0, 0.2);
+          background-color: white;
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
         }
         .analiza-typ-option {
           display: flex;
           align-items: center;
           gap: 6px;
-          padding: 1px 6px;
-          min-height: 18px;
+          padding: 4px 8px;
           cursor: default;
           font-family: Sora, sans-serif;
           font-size: 12px;
+          color: #111827;
+          white-space: nowrap;
         }
         .analiza-typ-option:hover {
-          background: Highlight;
-          color: HighlightText;
+          background-color: #f3f4f6;
         }
-        .analiza-typ-option input {
+        .analiza-typ-option input[type="checkbox"] {
           margin: 0;
+          cursor: pointer;
+          accent-color: #2563eb;
         }
         .analiza-zakres-menu .react-datepicker {
           position: relative;
@@ -761,6 +763,21 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         }
         .analiza-zakres-menu .react-datepicker__day:hover {
           border-radius: 50%;
+        }
+        .analiza-zakres-menu .react-datepicker__day--disabled {
+          visibility: hidden;
+          pointer-events: none;
+        }
+        .analiza-zakres-menu .react-datepicker__day--today {
+          background: transparent;
+          border: 1px solid #9ca3af;
+          border-radius: 50%;
+          font-weight: normal;
+          color: inherit;
+        }
+        .analiza-zakres-menu .react-datepicker__day--today:hover {
+          background-color: #f3f4f6;
+          border-color: #6b7280;
         }
       `}</style>
       <div className="relative w-full">
@@ -813,7 +830,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             </select>
             {isTypOpen && typMenuRect && (
               <div
-                className="analiza-typ-menu fixed z-[100] max-h-52 overflow-y-auto py-0.5"
+                className="analiza-typ-menu fixed z-[100] max-h-52 overflow-y-auto py-1"
                 style={{
                   top: typMenuRect.top,
                   left: typMenuRect.left,
@@ -846,7 +863,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                 e.preventDefault();
                 setIsTypOpen(false);
                 if (!isDateOpen) {
-                  calendarViewRef.current = dateFrom || availableCalendarDates[availableCalendarDates.length - 1] || new Date();
+                  calendarViewRef.current = dateFrom || new Date();
                 }
                 setIsDateOpen((open) => !open);
               }}
@@ -855,7 +872,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                   e.preventDefault();
                   setIsTypOpen(false);
                   if (!isDateOpen) {
-                    calendarViewRef.current = dateFrom || availableCalendarDates[availableCalendarDates.length - 1] || new Date();
+                    calendarViewRef.current = dateFrom || new Date();
                   }
                   setIsDateOpen((open) => !open);
                 }
@@ -882,10 +899,22 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                   inline
                   startDate={dateFrom ?? undefined}
                   endDate={dateTo ?? undefined}
-                  onSelect={(date: Date | null) => {
-                    if (date) applyDateClick(date);
-                  }}
+                  filterDate={(date) => availableDateKeySet.has(toDateKey(date))}
+                  renderDayContents={(day, date) => (
+                    <span
+                      onMouseDown={(e) => {
+                        if (!date) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        applyDateClick(date);
+                      }}
+                      style={{ display: 'block', width: '100%', height: '100%', lineHeight: 'inherit' }}
+                    >
+                      {day}
+                    </span>
+                  )}
                   onMonthChange={(date) => { calendarViewRef.current = date; }}
+                  onSelect={() => undefined}
                   onChange={() => undefined}
                   openToDate={calendarViewRef.current ?? calendarOpenToDate}
                   locale="pl"
