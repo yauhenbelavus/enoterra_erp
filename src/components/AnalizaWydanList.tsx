@@ -168,8 +168,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [detailsLoadingKod, setDetailsLoadingKod] = useState<string | null>(null);
   const [detailsErrorByKod, setDetailsErrorByKod] = useState<Record<string, string>>({});
   const [selectedKlient, setSelectedKlient] = useState('');
-  const [selectedTypy, setSelectedTypy] = useState<string[]>([]);
-  const [isTypOpen, setIsTypOpen] = useState(false);
+  const [selectedTyp, setSelectedTyp] = useState('');
   const [isDateOpen, setIsDateOpen] = useState(false);
   const [selectedTypWydania, setSelectedTypWydania] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
@@ -182,13 +181,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [typModalLoading, setTypModalLoading] = useState(false);
   const [typModalError, setTypModalError] = useState<string | null>(null);
   const typRequestRef = useRef(0);
-  const typFilterRef = useRef<HTMLDivElement>(null);
-  const typSelectRef = useRef<HTMLSelectElement>(null);
   const dateFilterRef = useRef<HTMLDivElement>(null);
   const dateSelectRef = useRef<HTMLSelectElement>(null);
-  const [typMenuRect, setTypMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [dateMenuRect, setDateMenuRect] = useState<{ top: number; left: number } | null>(null);
 
+  const selectedTypy = selectedTyp ? [selectedTyp] : [];
   const dateFromKey = dateFrom ? toDateKey(dateFrom) : '';
   const dateToKey = dateFrom ? toDateKey(dateTo || dateFrom) : '';
 
@@ -279,14 +276,12 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     const set = new Set(rowsForTyp.map((row) => row.typ).filter(Boolean));
     const list = Array.from(set)
       .map((value) => ({ value, label: getTypWinaMeta(value).label }));
-    selectedTypy.forEach((value) => {
-      if (!set.has(value)) {
-        list.push({ value, label: getTypWinaMeta(value).label });
-      }
-    });
+    if (selectedTyp && !set.has(selectedTyp)) {
+      list.push({ value: selectedTyp, label: getTypWinaMeta(selectedTyp).label });
+    }
     list.sort((a, b) => a.label.localeCompare(b.label, 'pl'));
     return list;
-  }, [rowsForTyp, selectedTypy]);
+  }, [rowsForTyp, selectedTyp]);
 
   const rowsForTypWydania = filterRowsBy({
     klient: selectedKlient || undefined,
@@ -508,41 +503,6 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   };
 
   useEffect(() => {
-    if (!isTypOpen) {
-      setTypMenuRect(null);
-      return;
-    }
-
-    const updateMenuRect = () => {
-      const el = typSelectRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      setTypMenuRect({ top: rect.bottom + 2, left: rect.left, width: rect.width });
-    };
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (typFilterRef.current && !typFilterRef.current.contains(event.target as Node)) {
-        setIsTypOpen(false);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsTypOpen(false);
-    };
-
-    updateMenuRect();
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    window.addEventListener('resize', updateMenuRect);
-    window.addEventListener('scroll', updateMenuRect, true);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-      window.removeEventListener('resize', updateMenuRect);
-      window.removeEventListener('scroll', updateMenuRect, true);
-    };
-  }, [isTypOpen]);
-
-  useEffect(() => {
     if (!isDateOpen) {
       setDateMenuRect(null);
       return;
@@ -585,12 +545,6 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     };
   }, [isDateOpen]);
 
-  const toggleTyp = (value: string) => {
-    setSelectedTypy((prev) =>
-      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
-    );
-  };
-
   const kodColumnWidth = useMemo(() => {
     const longest = products.reduce((max, product) => Math.max(max, product.kod?.length || 0), 0);
     const chars = Math.max(6, Math.ceil(longest / 2));
@@ -618,18 +572,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const hasActiveFilters = Boolean(
     selectedKlient || selectedTypy.length || selectedTypWydania || selectedYear || selectedMonth || dateFrom
   );
-  const typButtonLabel = selectedTypy.length === 0
-    ? 'Typ towaru'
-    : typOptions
-        .filter((opt) => selectedTypy.includes(opt.value))
-        .map((opt) => opt.label)
-        .join(', ');
   const zakresLabel = formatRangeLabel(dateFrom, dateTo);
 
   const clearFilters = () => {
     setSelectedKlient('');
-    setSelectedTypy([]);
-    setIsTypOpen(false);
+    setSelectedTyp('');
     setSelectedTypWydania('');
     setSelectedYear('');
     setSelectedMonth('');
@@ -658,22 +605,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   return (
     <div className="space-y-4">
       <style>{`
-        .analiza-typ-menu {
+        .analiza-zakres-menu {
           background: Canvas;
           color: CanvasText;
           border: 1px solid rgba(0, 0, 0, 0.2);
           box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-        }
-        .analiza-typ-option {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 3px 8px;
-          cursor: pointer;
-        }
-        .analiza-typ-option:hover {
-          background: Highlight;
-          color: HighlightText;
         }
         .analiza-zakres-menu .react-datepicker,
         .analiza-zakres-calendar {
@@ -697,68 +633,20 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       <div className="flex justify-end overflow-visible">
         <div className="flex flex-col gap-1 overflow-visible">
         <div className="grid grid-cols-2 gap-1 overflow-visible">
-          <div className="relative" ref={typFilterRef}>
+          <div className="relative">
             <select
-              ref={typSelectRef}
-              value=""
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setIsDateOpen(false);
-                setIsTypOpen((open) => !open);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  setIsTypOpen((open) => !open);
-                }
-              }}
-              onChange={() => undefined}
+              value={selectedTyp}
+              onChange={(e) => setSelectedTyp(e.target.value)}
               className={filterSelectClass}
               style={filterSelectStyle}
-              aria-label="Typ towaru"
-              aria-expanded={isTypOpen}
             >
-              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>
-                {typButtonLabel}
-              </option>
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ towaru</option>
               {typOptions.map((opt) => (
                 <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
                   {opt.label}
                 </option>
               ))}
             </select>
-            {isTypOpen && typMenuRect && (
-              <div
-                className="analiza-typ-menu fixed z-[100] max-h-52 overflow-y-auto py-0.5"
-                style={{
-                  top: typMenuRect.top,
-                  left: typMenuRect.left,
-                  minWidth: typMenuRect.width,
-                  borderRadius: 4,
-                  fontFamily: 'Sora, sans-serif',
-                  fontSize: 12,
-                }}
-              >
-                {typOptions.length === 0 ? (
-                  <div className="px-2 py-1 text-xs text-gray-500 font-sora">Brak typów</div>
-                ) : (
-                  typOptions.map((opt) => (
-                    <label
-                      key={opt.value}
-                      className="analiza-typ-option"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedTypy.includes(opt.value)}
-                        onChange={() => toggleTyp(opt.value)}
-                        className="cursor-pointer"
-                      />
-                      <span className="truncate">{opt.label}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-            )}
           </div>
 
           <div className="relative" ref={dateFilterRef}>
@@ -767,13 +655,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               value=""
               onMouseDown={(e) => {
                 e.preventDefault();
-                setIsTypOpen(false);
                 setIsDateOpen((open) => !open);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
                   e.preventDefault();
-                  setIsTypOpen(false);
                   setIsDateOpen((open) => !open);
                 }
               }}
@@ -789,7 +675,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             </select>
             {isDateOpen && dateMenuRect && (
               <div
-                className="analiza-zakres-menu analiza-typ-menu fixed z-[200]"
+                className="analiza-zakres-menu fixed z-[200]"
                 style={{
                   top: dateMenuRect.top,
                   left: dateMenuRect.left,
