@@ -9462,7 +9462,14 @@ const ANALIZA_FAKTUR_TYP_WYDANIA = `
 `;
 
 const ANALIZA_WYDAN_OTHER_TYP = `
-  AND LOWER(TRIM(COALESCE(op.typ, ''))) NOT IN ('sprzedaz', 'probka')
+  AND (
+    LOWER(TRIM(COALESCE(op.typ, ''))) NOT IN ('sprzedaz', 'probka')
+    OR (
+      LOWER(TRIM(COALESCE(op.typ, ''))) = 'sprzedaz'
+      AND NOT EXISTS (SELECT 1 FROM invoices inv WHERE inv.order_id = o.id)
+      AND NOT EXISTS (SELECT 1 FROM invoice_products ipx WHERE ipx.order_product_id = op.id)
+    )
+  )
 `;
 
 function toAnalizaDateKey(date) {
@@ -9633,17 +9640,31 @@ function buildAnalizaFakturWhere(filters, kod) {
 
 function queryInvoiceAnalizaRows(filters, kod, groupBy, callback) {
   const built = buildAnalizaFakturWhere(filters, kod);
-  const sql = groupBy === 'klient'
-    ? `SELECT
+  let sql;
+  if (groupBy === 'klient') {
+    sql = `SELECT
         COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') AS klucz,
         TRIM(MAX(ip.kod)) AS kod,
+        COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') AS klient,
         COALESCE(MAX(ws.nazwa), MAX(ip.nazwa)) AS nazwa,
         SUM(COALESCE(ip.ilosc, 0)) AS ilosc,
         ROUND(SUM(COALESCE(ip.wartosc_netto, 0)), 2) AS sprzedaz_netto
       ${ANALIZA_FAKTUR_JOIN}
       WHERE ${built.where}
-      GROUP BY COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta')`
-    : `SELECT
+      GROUP BY COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta')`;
+  } else if (groupBy === 'kod_klient') {
+    sql = `SELECT
+        TRIM(ip.kod) || char(31) || COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') AS klucz,
+        TRIM(ip.kod) AS kod,
+        COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') AS klient,
+        COALESCE(MAX(ws.nazwa), MAX(ip.nazwa)) AS nazwa,
+        SUM(COALESCE(ip.ilosc, 0)) AS ilosc,
+        ROUND(SUM(COALESCE(ip.wartosc_netto, 0)), 2) AS sprzedaz_netto
+      ${ANALIZA_FAKTUR_JOIN}
+      WHERE ${built.where}
+      GROUP BY TRIM(ip.kod), COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta')`;
+  } else {
+    sql = `SELECT
         TRIM(ip.kod) AS klucz,
         TRIM(ip.kod) AS kod,
         COALESCE(MAX(ws.nazwa), MAX(ip.nazwa)) AS nazwa,
@@ -9652,6 +9673,7 @@ function queryInvoiceAnalizaRows(filters, kod, groupBy, callback) {
       ${ANALIZA_FAKTUR_JOIN}
       WHERE ${built.where}
       GROUP BY TRIM(ip.kod)`;
+  }
 
   db.all(sql, built.params, callback);
 }
@@ -9663,18 +9685,33 @@ function queryOrderOtherAnalizaRows(filters, kod, orderIdsForDate, groupBy, call
     return;
   }
 
-  const sql = groupBy === 'klient'
-    ? `SELECT
+  let sql;
+  if (groupBy === 'klient') {
+    sql = `SELECT
         COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klucz,
         COALESCE(NULLIF(TRIM(MAX(op.kod)), ''), MAX(ws.kod)) AS kod,
+        COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klient,
         COALESCE(MAX(ws.nazwa), MAX(op.nazwa)) AS nazwa,
         SUM(op.ilosc) AS ilosc,
         0 AS sprzedaz_netto
       ${ANALIZA_WYDAN_BASE_JOIN}
       WHERE ${built.where}
         ${ANALIZA_WYDAN_OTHER_TYP}
-      GROUP BY COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta')`
-    : `SELECT
+      GROUP BY COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta')`;
+  } else if (groupBy === 'kod_klient') {
+    sql = `SELECT
+        COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) || char(31) || COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klucz,
+        COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS kod,
+        COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klient,
+        COALESCE(MAX(ws.nazwa), MAX(op.nazwa)) AS nazwa,
+        SUM(op.ilosc) AS ilosc,
+        0 AS sprzedaz_netto
+      ${ANALIZA_WYDAN_BASE_JOIN}
+      WHERE ${built.where}
+        ${ANALIZA_WYDAN_OTHER_TYP}
+      GROUP BY COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod), COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta')`;
+  } else {
+    sql = `SELECT
         COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS klucz,
         COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS kod,
         COALESCE(MAX(ws.nazwa), MAX(op.nazwa)) AS nazwa,
@@ -9684,6 +9721,7 @@ function queryOrderOtherAnalizaRows(filters, kod, orderIdsForDate, groupBy, call
       WHERE ${built.where}
         ${ANALIZA_WYDAN_OTHER_TYP}
       GROUP BY COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)`;
+  }
 
   db.all(sql, built.params, callback);
 }
@@ -9696,6 +9734,7 @@ function mergeAnalizaRows(invoiceRows, orderRows) {
     const current = map.get(key) || {
       klucz: key,
       kod: row.kod || key,
+      klient: row.klient || '',
       nazwa: '',
       ilosc: 0,
       sprzedaz_netto: 0,
@@ -9704,6 +9743,7 @@ function mergeAnalizaRows(invoiceRows, orderRows) {
     current.sprzedaz_netto += Number(row.sprzedaz_netto) || 0;
     if (row.nazwa && !current.nazwa) current.nazwa = row.nazwa;
     if (row.kod) current.kod = row.kod;
+    if (row.klient && !current.klient) current.klient = row.klient;
     map.set(key, current);
   };
   (invoiceRows || []).forEach(add);
@@ -9736,6 +9776,42 @@ function loadMergedAnalizaRows(filters, kod, groupBy, callback) {
       });
     });
   });
+}
+
+function groupAnalizaWydanReportProducts(rows, search) {
+  const query = String(search || '').trim().toLowerCase();
+  const byKod = new Map();
+  (rows || []).forEach((row) => {
+    const kod = String(row.kod || '').trim();
+    if (!kod) return;
+    const nazwa = row.nazwa || kod;
+    if (query) {
+      const hay = `${kod} ${nazwa}`.toLowerCase();
+      if (!hay.includes(query)) return;
+    }
+    if (!byKod.has(kod)) {
+      byKod.set(kod, { kod, nazwa, klienci: [] });
+    }
+    const group = byKod.get(kod);
+    if (row.nazwa && group.nazwa === kod) group.nazwa = row.nazwa;
+    group.klienci.push({
+      klient: row.klient || 'Brak klienta',
+      ilosc: Number(row.ilosc) || 0,
+      sprzedaz_netto: Number(row.sprzedaz_netto) || 0,
+    });
+  });
+
+  return Array.from(byKod.values())
+    .map((group) => {
+      group.klienci.sort((a, b) => a.klient.localeCompare(b.klient, 'pl'));
+      group.ilosc = group.klienci.reduce((sum, row) => sum + row.ilosc, 0);
+      group.sprzedaz_netto = Math.round(
+        group.klienci.reduce((sum, row) => sum + row.sprzedaz_netto, 0) * 100
+      ) / 100;
+      return group;
+    })
+    .filter((group) => group.klienci.length > 0)
+    .sort((a, b) => (a.nazwa || '').localeCompare(b.nazwa || '', 'pl', { sensitivity: 'base' }));
 }
 
 app.get('/api/analiza-wydan/filters', (req, res) => {
@@ -9794,6 +9870,28 @@ app.get('/api/analiza-wydan/filters', (req, res) => {
       );
     }
   );
+});
+
+app.get('/api/analiza-wydan/report', (req, res) => {
+  const filters = parseAnalizaWydanFilters(req.query);
+  const search = String(req.query.q || '').trim();
+  console.log('📊 GET /api/analiza-wydan/report - Analiza wydan excel data', filters, search);
+
+  loadMergedAnalizaRows(filters, null, 'kod_klient', (err, rows) => {
+    if (err) {
+      console.error('❌ Database error fetching analiza wydan report:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+
+    const products = groupAnalizaWydanReportProducts(rows, search);
+    if (products.length === 0) {
+      res.status(400).json({ error: 'Brak danych do raportu przy wybranych filtrach' });
+      return;
+    }
+
+    res.json({ products });
+  });
 });
 
 app.get('/api/analiza-wydan', (req, res) => {

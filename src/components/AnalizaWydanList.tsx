@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from 'react-modal';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { pl } from 'date-fns/locale';
-import { Search, X } from 'lucide-react';
+import { Search, X, FileSpreadsheet } from 'lucide-react';
+import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx-js-style';
 import { SortIndicator } from './SortIndicator';
 import { formatPlMoney } from '../utils/receiptCurrency';
 import { compareAnalizaWydanProducts, useTableSort } from '../utils/tableSort';
@@ -184,6 +186,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [typModalRows, setTypModalRows] = useState<WydaniaTypRow[]>([]);
   const [typModalLoading, setTypModalLoading] = useState(false);
   const [typModalError, setTypModalError] = useState<string | null>(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const typRequestRef = useRef(0);
   const typFilterRef = useRef<HTMLDivElement>(null);
   const typSelectRef = useRef<HTMLSelectElement>(null);
@@ -445,6 +448,110 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       }));
     } finally {
       setDetailsLoadingKod(null);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    if (filteredProducts.length === 0 || isGeneratingReport) return;
+    try {
+      setIsGeneratingReport(true);
+      const params = new URLSearchParams(buildFilterQuery(activeFilters).replace(/^\?/, ''));
+      if (searchTerm.trim()) params.set('q', searchTerm.trim());
+      const query = params.toString();
+      const response = await fetch(`${apiUrl}/api/analiza-wydan/report${query ? `?${query}` : ''}`);
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        let msg = 'Błąd generowania raportu';
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed?.error) msg = parsed.error;
+        } catch {
+          /* keep default */
+        }
+        throw new Error(msg);
+      }
+
+      const data = await response.json();
+      const products: Array<{
+        nazwa: string;
+        kod: string;
+        ilosc: number;
+        sprzedaz_netto: number;
+        klienci: Array<{ klient: string; ilosc: number; sprzedaz_netto: number }>;
+      }> = data.products || [];
+      if (products.length === 0) {
+        toast.error('Brak danych do raportu przy wybranych filtrach');
+        return;
+      }
+
+      const headerStyle = {
+        font: { bold: true, name: 'Calibri', sz: 11, color: { rgb: '111827' } },
+        fill: { fgColor: { rgb: 'F3F4F6' } },
+        alignment: { vertical: 'center' },
+      };
+      const totalStyle = {
+        font: { bold: true, name: 'Calibri', sz: 11, color: { rgb: '111827' } },
+        fill: { fgColor: { rgb: 'F3F4F6' } },
+      };
+      const moneyFmt = '#,##0.00';
+      const qtyFmt = '#,##0';
+
+      const aoa: Array<Array<string | number>> = [['Nazwa', 'Klient', 'Ilość', 'Sprzedaż netto']];
+      const totalRowIndexes: number[] = [];
+      products.forEach((product) => {
+        product.klienci.forEach((row, index) => {
+          aoa.push([
+            index === 0 ? (product.nazwa || product.kod) : '',
+            row.klient,
+            row.ilosc,
+            row.sprzedaz_netto,
+          ]);
+        });
+        aoa.push(['', 'Razem', product.ilosc, product.sprzedaz_netto]);
+        totalRowIndexes.push(aoa.length - 1);
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+      worksheet['!cols'] = [{ wch: 42 }, { wch: 28 }, { wch: 12 }, { wch: 18 }];
+
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const headerCell = worksheet[XLSX.utils.encode_cell({ r: 0, c: col })];
+        if (headerCell) headerCell.s = headerStyle;
+      }
+      for (let row = 1; row <= range.e.r; row++) {
+        const qtyCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 2 })];
+        const moneyCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 3 })];
+        if (qtyCell) {
+          qtyCell.t = 'n';
+          qtyCell.z = qtyFmt;
+        }
+        if (moneyCell) {
+          moneyCell.t = 'n';
+          moneyCell.z = moneyFmt;
+        }
+      }
+      totalRowIndexes.forEach((row) => {
+        for (let col = 0; col <= 3; col++) {
+          const cell = worksheet[XLSX.utils.encode_cell({ r: row, c: col })];
+          if (!cell) continue;
+          cell.s = {
+            ...totalStyle,
+            ...(col >= 2 ? { alignment: { horizontal: 'right' } } : {}),
+          };
+        }
+      });
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Analiza wydań');
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      XLSX.writeFile(workbook, `raport_analizy_wydan_${dateStr}.xlsx`);
+    } catch (error) {
+      console.error('Error generating analiza wydan report:', error);
+      toast.error(error instanceof Error ? error.message : 'Błąd generowania raportu');
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
 
@@ -1081,9 +1188,18 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
             Butelki:{' '}
             <span className="font-bold">{formatBottles(totalButelki)}</span>
           </span>
-          <span className="text-sm text-gray-600 font-sora">
+          <span className="text-sm text-gray-600 font-sora inline-flex items-center gap-2">
             Sprzedaż netto:{' '}
             <span className="font-bold">{formatNetto(totalNetto)}</span>
+            <button
+              type="button"
+              onClick={handleGenerateReport}
+              disabled={filteredProducts.length === 0 || isGeneratingReport}
+              className="text-green-600 hover:text-green-800 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Eksport odfiltrowanych pozycji do Excel"
+            >
+              <FileSpreadsheet size={16} />
+            </button>
           </span>
         </div>
       </div>
