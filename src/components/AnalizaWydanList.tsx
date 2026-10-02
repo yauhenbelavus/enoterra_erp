@@ -790,13 +790,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         .analiza-zakres-menu .react-datepicker__day.rdp-single,
         .analiza-zakres-menu .react-datepicker__day.rdp-range-start,
         .analiza-zakres-menu .react-datepicker__day.rdp-range-end {
-          background-color: #2563eb;
-          color: white;
+          background-color: #2563eb !important;
+          color: white !important;
           border-radius: 50%;
         }
         .analiza-zakres-menu .react-datepicker__day.rdp-in-range {
-          background-color: #dbeafe;
-          color: #1e3a8a;
+          background-color: #dbeafe !important;
+          color: #1e3a8a !important;
           border-radius: 50%;
         }
         .analiza-zakres-menu .react-datepicker__day:hover {
