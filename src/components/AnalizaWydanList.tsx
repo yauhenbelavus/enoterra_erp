@@ -3,7 +3,7 @@ import Modal from 'react-modal';
 import { X } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
 import { formatPlMoney } from '../utils/receiptCurrency';
-import { compareAnalizaWydanProducts, extractDateFromOrderNumber, useTableSort } from '../utils/tableSort';
+import { compareAnalizaWydanProducts, useTableSort } from '../utils/tableSort';
 
 interface WydaniaProduct {
   kod: string;
@@ -32,7 +32,7 @@ interface KlientTypModalState {
 interface FilterRow {
   klient: string;
   typ: string;
-  numer_zamowienia: string;
+  data_faktury: string;
 }
 
 interface AnalizaWydanListProps {
@@ -94,6 +94,12 @@ const formatBottles = (value: number) =>
   new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 }).format(value);
 
 const formatNetto = (value: number) => `${formatPlMoney(Number(value) || 0)} zł`;
+
+const parseInvoiceDate = (value?: string) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
 
 const buildFilterQuery = (filters: {
   klient: string;
@@ -160,7 +166,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     return filterRows.filter((row) => {
       if (opts.klient && row.klient !== opts.klient) return false;
       if (opts.typy && opts.typy.length > 0 && !opts.typy.includes(row.typ)) return false;
-      const date = extractDateFromOrderNumber(row.numer_zamowienia);
+      const date = parseInvoiceDate(row.data_faktury);
       if (!date) {
         return !opts.year && !opts.month;
       }
@@ -213,7 +219,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const years = useMemo(() => {
     const set = new Set(
       rowsForYear
-        .map((row) => extractDateFromOrderNumber(row.numer_zamowienia))
+        .map((row) => parseInvoiceDate(row.data_faktury))
         .filter((date): date is Date => date !== null)
         .map((date) => date.getFullYear().toString())
     );
@@ -233,7 +239,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const months = useMemo(() => {
     const set = new Set(
       rowsForMonth
-        .map((row) => extractDateFromOrderNumber(row.numer_zamowienia))
+        .map((row) => parseInvoiceDate(row.data_faktury))
         .filter((date): date is Date => date !== null)
         .map((date) => (date.getMonth() + 1).toString().padStart(2, '0'))
     );
@@ -421,6 +427,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   }, [kodColumnWidth]);
 
   const totalButelki = products.reduce((sum, product) => sum + (product.ilosc || 0), 0);
+  const totalNetto = products.reduce((sum, product) => sum + (Number(product.sprzedaz_netto) || 0), 0);
   const hasActiveFilters = Boolean(selectedKlient || selectedTypy.length || selectedYear || selectedMonth);
   const typButtonLabel = selectedTypy.length === 0
     ? 'Typ'
@@ -557,10 +564,14 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         </div>
       </div>
 
-      <div className="flex w-full justify-center items-center px-4">
+      <div className="flex w-full justify-center items-center gap-6 px-4">
         <span className="text-sm text-gray-600 font-sora">
           Butelki:{' '}
           <span className="font-bold">{formatBottles(totalButelki)}</span>
+        </span>
+        <span className="text-sm text-gray-600 font-sora">
+          Sprzedaż netto:{' '}
+          <span className="font-bold">{formatNetto(totalNetto)}</span>
         </span>
       </div>
 

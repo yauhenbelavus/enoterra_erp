@@ -9440,16 +9440,16 @@ const ANALIZA_WYDAN_BASE_WHERE = `
   AND TRIM(COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)) != ''
 `;
 
-const ANALIZA_WYDAN_INVOICE_JOIN = `
-  LEFT JOIN (
-    SELECT order_product_id, SUM(COALESCE(wartosc_netto, 0)) AS wartosc_netto
-    FROM invoice_products
-    WHERE order_product_id IS NOT NULL
-    GROUP BY order_product_id
-  ) ip_sum ON ip_sum.order_product_id = op.id
+const ANALIZA_FAKTUR_JOIN = `
+  FROM invoice_products ip
+  JOIN invoices i ON i.id = ip.invoice_id
+  LEFT JOIN working_sheets ws ON
+    TRIM(COALESCE(ip.kod, '')) != '' AND ws.kod = TRIM(ip.kod)
 `;
 
-const ANALIZA_WYDAN_SPRZEDAZ_NETTO = `COALESCE(ip_sum.wartosc_netto, 0)`;
+const ANALIZA_FAKTUR_WHERE = `
+  TRIM(COALESCE(ip.kod, '')) != ''
+`;
 
 function parseAnalizaWydanTypList(value) {
   if (value == null || value === '') return [];
@@ -9543,18 +9543,52 @@ function buildAnalizaWydanWhere(filters, kod, orderIdsForDate) {
   return { empty: false, where: conditions.join(' AND '), params };
 }
 
+function buildAnalizaFakturWhere(filters, kod) {
+  const conditions = [ANALIZA_FAKTUR_WHERE.trim()];
+  const params = [];
+
+  if (filters.klient) {
+    conditions.push("COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') = ?");
+    params.push(filters.klient);
+  }
+
+  if (filters.typy.length > 0) {
+    conditions.push(
+      `COALESCE(NULLIF(TRIM(ws.typ), ''), 'brak') IN (${filters.typy.map(() => '?').join(', ')})`
+    );
+    params.push(...filters.typy);
+  }
+
+  if (kod) {
+    conditions.push('TRIM(ip.kod) = ?');
+    params.push(kod);
+  }
+
+  if (filters.year) {
+    conditions.push('substr(TRIM(i.data_faktury), 1, 4) = ?');
+    params.push(filters.year);
+  }
+
+  if (filters.month) {
+    conditions.push('substr(TRIM(i.data_faktury), 6, 2) = ?');
+    params.push(filters.month.padStart(2, '0'));
+  }
+
+  return { where: conditions.join(' AND '), params };
+}
+
 app.get('/api/analiza-wydan/filters', (req, res) => {
   console.log('📊 GET /api/analiza-wydan/filters - Fetching filter options');
 
   db.all(
     `SELECT DISTINCT
-      o.klient AS klient,
+      COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') AS klient,
       COALESCE(NULLIF(TRIM(ws.typ), ''), 'brak') AS typ,
-      o.numer_zamowienia AS numer_zamowienia
-    ${ANALIZA_WYDAN_BASE_JOIN}
-    WHERE ${ANALIZA_WYDAN_BASE_WHERE}
-      AND o.klient IS NOT NULL
-      AND TRIM(o.klient) != ''`,
+      i.data_faktury AS data_faktury
+    ${ANALIZA_FAKTUR_JOIN}
+    WHERE ${ANALIZA_FAKTUR_WHERE}
+      AND i.klient_nazwa IS NOT NULL
+      AND TRIM(i.klient_nazwa) != ''`,
     [],
     (err, rows) => {
       if (err) {
@@ -9570,102 +9604,76 @@ app.get('/api/analiza-wydan/filters', (req, res) => {
 
 app.get('/api/analiza-wydan', (req, res) => {
   const filters = parseAnalizaWydanFilters(req.query);
-  console.log('📊 GET /api/analiza-wydan - Fetching order products grouped by kod', filters);
+  console.log('📊 GET /api/analiza-wydan - Fetching invoice products grouped by kod', filters);
+  const built = buildAnalizaFakturWhere(filters, null);
 
-  getAnalizaWydanOrderIdsForDateFilters(filters, (dateErr, orderIdsForDate) => {
-    if (dateErr) {
-      console.error('❌ Database error resolving analiza wydan date filters:', dateErr);
-      res.status(500).json({ error: dateErr.message });
-      return;
-    }
-
-    const built = buildAnalizaWydanWhere(filters, null, orderIdsForDate);
-    if (built.empty) {
-      res.json([]);
-      return;
-    }
-
-    db.all(
-      `SELECT
-        COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS kod,
-        COALESCE(ws.nazwa, MAX(op.nazwa)) AS nazwa,
-        SUM(op.ilosc) AS ilosc,
-        ROUND(SUM(${ANALIZA_WYDAN_SPRZEDAZ_NETTO}), 2) AS sprzedaz_netto
-      ${ANALIZA_WYDAN_BASE_JOIN}
-      ${ANALIZA_WYDAN_INVOICE_JOIN}
-      WHERE ${built.where}
-      GROUP BY COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)
-      ORDER BY nazwa COLLATE NOCASE`,
-      built.params,
-      (err, rows) => {
-        if (err) {
-          console.error('❌ Database error fetching analiza wydan:', err);
-          res.status(500).json({ error: err.message });
-          return;
-        }
-
-        console.log(`✅ Found ${rows.length} grouped products for analiza wydan`);
-        res.json(rows || []);
+  db.all(
+    `SELECT
+      TRIM(ip.kod) AS kod,
+      COALESCE(MAX(ws.nazwa), MAX(ip.nazwa)) AS nazwa,
+      SUM(COALESCE(ip.ilosc, 0)) AS ilosc,
+      ROUND(SUM(COALESCE(ip.wartosc_netto, 0)), 2) AS sprzedaz_netto
+    ${ANALIZA_FAKTUR_JOIN}
+    WHERE ${built.where}
+    GROUP BY TRIM(ip.kod)
+    ORDER BY nazwa COLLATE NOCASE`,
+    built.params,
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza wydan:', err);
+        res.status(500).json({ error: err.message });
+        return;
       }
-    );
-  });
+
+      console.log(`✅ Found ${rows.length} grouped products for analiza wydan`);
+      res.json(rows || []);
+    }
+  );
 });
 
 app.get('/api/analiza-wydan/:kod', (req, res) => {
   const { kod } = req.params;
   const filters = parseAnalizaWydanFilters(req.query);
-  console.log(`📊 GET /api/analiza-wydan/${kod} - Fetching client breakdown`, filters);
+  console.log(`📊 GET /api/analiza-wydan/${kod} - Fetching client breakdown from invoices`, filters);
+  const built = buildAnalizaFakturWhere(filters, kod);
 
-  getAnalizaWydanOrderIdsForDateFilters(filters, (dateErr, orderIdsForDate) => {
-    if (dateErr) {
-      console.error('❌ Database error resolving analiza wydan date filters:', dateErr);
-      res.status(500).json({ error: dateErr.message });
-      return;
-    }
-
-    const built = buildAnalizaWydanWhere(filters, kod, orderIdsForDate);
-    if (built.empty) {
-      res.json({ kod, nazwa: '', ilosc: 0, sprzedaz_netto: 0, by_klient: [] });
-      return;
-    }
-
-    db.all(
-      `WITH filtered AS (
-        SELECT
-          op.ilosc,
-          COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klient,
-          COALESCE(ws.nazwa, op.nazwa) AS nazwa,
-          ${ANALIZA_WYDAN_SPRZEDAZ_NETTO} AS sprzedaz_netto
-        ${ANALIZA_WYDAN_BASE_JOIN}
-        ${ANALIZA_WYDAN_INVOICE_JOIN}
-        WHERE ${built.where}
-      )
-      SELECT klient, SUM(ilosc) AS ilosc, ROUND(SUM(sprzedaz_netto), 2) AS sprzedaz_netto, MAX(nazwa) AS nazwa
-      FROM filtered
-      GROUP BY klient
-      ORDER BY ilosc DESC, klient COLLATE NOCASE`,
-      built.params,
-      (err, rows) => {
-        if (err) {
-          console.error('❌ Database error fetching analiza wydan details:', err);
-          res.status(500).json({ error: err.message });
-          return;
-        }
-
-        const byKlient = (rows || []).map((row) => ({
-          klient: row.klient,
-          ilosc: row.ilosc,
-          sprzedaz_netto: row.sprzedaz_netto,
-        }));
-        const nazwa = rows?.[0]?.nazwa || '';
-        const totalIlosc = byKlient.reduce((sum, row) => sum + (row.ilosc || 0), 0);
-        const totalNetto = byKlient.reduce((sum, row) => sum + (row.sprzedaz_netto || 0), 0);
-
-        console.log(`✅ Found ${byKlient.length} client rows for kod ${kod}`);
-        res.json({ kod, nazwa, ilosc: totalIlosc, sprzedaz_netto: Math.round(totalNetto * 100) / 100, by_klient: byKlient });
+  db.all(
+    `SELECT
+      COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') AS klient,
+      SUM(COALESCE(ip.ilosc, 0)) AS ilosc,
+      ROUND(SUM(COALESCE(ip.wartosc_netto, 0)), 2) AS sprzedaz_netto,
+      COALESCE(MAX(ws.nazwa), MAX(ip.nazwa)) AS nazwa
+    ${ANALIZA_FAKTUR_JOIN}
+    WHERE ${built.where}
+    GROUP BY COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta')
+    ORDER BY ilosc DESC, klient COLLATE NOCASE`,
+    built.params,
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error fetching analiza wydan details:', err);
+        res.status(500).json({ error: err.message });
+        return;
       }
-    );
-  });
+
+      const byKlient = (rows || []).map((row) => ({
+        klient: row.klient,
+        ilosc: row.ilosc,
+        sprzedaz_netto: row.sprzedaz_netto,
+      }));
+      const nazwa = rows?.[0]?.nazwa || '';
+      const totalIlosc = byKlient.reduce((sum, row) => sum + (row.ilosc || 0), 0);
+      const totalNetto = byKlient.reduce((sum, row) => sum + (row.sprzedaz_netto || 0), 0);
+
+      console.log(`✅ Found ${byKlient.length} client rows for kod ${kod}`);
+      res.json({
+        kod,
+        nazwa,
+        ilosc: totalIlosc,
+        sprzedaz_netto: Math.round(totalNetto * 100) / 100,
+        by_klient: byKlient,
+      });
+    }
+  );
 });
 
 app.get('/api/analiza-wydan/:kod/typy', (req, res) => {
