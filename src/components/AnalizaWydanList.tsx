@@ -752,6 +752,25 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         .analiza-zakres-menu .react-datepicker {
           position: relative;
         }
+        .analiza-zakres-menu .react-datepicker__navigation {
+          background: transparent !important;
+          outline: none !important;
+          box-shadow: none !important;
+          border: none !important;
+        }
+        .analiza-zakres-menu .react-datepicker__navigation:focus,
+        .analiza-zakres-menu .react-datepicker__navigation:active,
+        .analiza-zakres-menu .react-datepicker__navigation:hover {
+          background: transparent !important;
+          outline: none !important;
+          box-shadow: none !important;
+        }
+        .analiza-zakres-menu .react-datepicker__navigation-icon::before {
+          border-color: #6b7280 !important;
+        }
+        .analiza-zakres-menu .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
+          border-color: #111827 !important;
+        }
         .analiza-zakres-menu .react-datepicker__day {
           border-radius: 50%;
         }
@@ -762,9 +781,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         .analiza-zakres-menu .react-datepicker__day--in-selecting-range,
         .analiza-zakres-menu .react-datepicker__day--range-start,
         .analiza-zakres-menu .react-datepicker__day--range-end,
-        .analiza-zakres-menu .react-datepicker__day--selected {
+        .analiza-zakres-menu .react-datepicker__day--selected,
+        .analiza-zakres-menu .react-datepicker__day--keyboard-selected {
           background-color: transparent !important;
           color: inherit !important;
+          outline: none !important;
         }
         .analiza-zakres-menu .react-datepicker__day.rdp-single,
         .analiza-zakres-menu .react-datepicker__day.rdp-range-start,
@@ -914,7 +935,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               >
                 <DatePicker
                   inline
-                  selected={null}
+                  selected={dateFrom ?? null}
                   filterDate={(date) => {
                     if (!firstEverWydanieDate) return true;
                     return date >= firstEverWydanieDate;
