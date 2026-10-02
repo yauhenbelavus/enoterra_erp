@@ -9445,15 +9445,35 @@ const ANALIZA_FAKTUR_JOIN = `
   JOIN invoices i ON i.id = ip.invoice_id
   LEFT JOIN working_sheets ws ON
     TRIM(COALESCE(ip.kod, '')) != '' AND ws.kod = TRIM(ip.kod)
+  LEFT JOIN order_products op_inv ON op_inv.id = ip.order_product_id
 `;
 
 const ANALIZA_FAKTUR_WHERE = `
   TRIM(COALESCE(ip.kod, '')) != ''
 `;
 
+const ANALIZA_FAKTUR_TYP_WYDANIA = `
+  CASE
+    WHEN ip.order_product_id IS NOT NULL
+      THEN COALESCE(NULLIF(TRIM(op_inv.typ), ''), 'sprzedaz')
+    WHEN ROUND(COALESCE(ip.rabat, 0), 2) = 30 THEN 'probka'
+    ELSE 'sprzedaz'
+  END
+`;
+
 const ANALIZA_WYDAN_OTHER_TYP = `
   AND LOWER(TRIM(COALESCE(op.typ, ''))) NOT IN ('sprzedaz', 'probka')
 `;
+
+function toAnalizaDateKey(date) {
+  if (!date || Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function parseAnalizaDateKey(value) {
+  const key = String(value || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : '';
+}
 
 function parseAnalizaWydanTypList(value) {
   if (value == null || value === '') return [];
@@ -9475,24 +9495,34 @@ function parseAnalizaWydanFilters(query) {
   return {
     klient: (query.klient || '').trim(),
     typy: parseAnalizaWydanTypList(query.typ),
+    typWydania: (query.typ_wydania || '').trim(),
     year: (query.year || '').trim(),
-    month: (query.month || '').trim()
+    month: (query.month || '').trim(),
+    dateFrom: parseAnalizaDateKey(query.date_from),
+    dateTo: parseAnalizaDateKey(query.date_to) || parseAnalizaDateKey(query.date_from)
   };
 }
 
-function orderMatchesAnalizaWydanDate(numerZamowienia, year, month) {
-  if (!year && !month) return true;
+function hasAnalizaWydanDateFilters(filters) {
+  return Boolean(filters.year || filters.month || filters.dateFrom || filters.dateTo);
+}
+
+function orderMatchesAnalizaWydanDate(numerZamowienia, filters) {
+  if (!hasAnalizaWydanDateFilters(filters)) return true;
   const date = extractDateFromOrderNumber(numerZamowienia);
   if (!date) return false;
-  if (year && date.getFullYear().toString() !== year) return false;
-  if (month && (date.getMonth() + 1).toString().padStart(2, '0') !== month.padStart(2, '0')) {
+  if (filters.year && date.getFullYear().toString() !== filters.year) return false;
+  if (filters.month && (date.getMonth() + 1).toString().padStart(2, '0') !== filters.month.padStart(2, '0')) {
     return false;
   }
+  const key = toAnalizaDateKey(date);
+  if (filters.dateFrom && key < filters.dateFrom) return false;
+  if (filters.dateTo && key > filters.dateTo) return false;
   return true;
 }
 
 function getAnalizaWydanOrderIdsForDateFilters(filters, callback) {
-  if (!filters.year && !filters.month) {
+  if (!hasAnalizaWydanDateFilters(filters)) {
     callback(null, null);
     return;
   }
@@ -9507,7 +9537,7 @@ function getAnalizaWydanOrderIdsForDateFilters(filters, callback) {
       }
 
       const ids = (rows || [])
-        .filter((row) => orderMatchesAnalizaWydanDate(row.numer_zamowienia, filters.year, filters.month))
+        .filter((row) => orderMatchesAnalizaWydanDate(row.numer_zamowienia, filters))
         .map((row) => row.id);
 
       callback(null, ids);
@@ -9529,6 +9559,11 @@ function buildAnalizaWydanWhere(filters, kod, orderIdsForDate) {
       `COALESCE(NULLIF(TRIM(ws.typ), ''), 'brak') IN (${filters.typy.map(() => '?').join(', ')})`
     );
     params.push(...filters.typy);
+  }
+
+  if (filters.typWydania) {
+    conditions.push("COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') = ?");
+    params.push(filters.typWydania);
   }
 
   if (kod) {
@@ -9563,6 +9598,11 @@ function buildAnalizaFakturWhere(filters, kod) {
     params.push(...filters.typy);
   }
 
+  if (filters.typWydania) {
+    conditions.push(`(${ANALIZA_FAKTUR_TYP_WYDANIA.trim()}) = ?`);
+    params.push(filters.typWydania);
+  }
+
   if (kod) {
     conditions.push('TRIM(ip.kod) = ?');
     params.push(kod);
@@ -9576,6 +9616,16 @@ function buildAnalizaFakturWhere(filters, kod) {
   if (filters.month) {
     conditions.push('substr(TRIM(i.data_faktury), 6, 2) = ?');
     params.push(filters.month.padStart(2, '0'));
+  }
+
+  if (filters.dateFrom) {
+    conditions.push('substr(TRIM(i.data_faktury), 1, 10) >= ?');
+    params.push(filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    conditions.push('substr(TRIM(i.data_faktury), 1, 10) <= ?');
+    params.push(filters.dateTo);
   }
 
   return { where: conditions.join(' AND '), params };
@@ -9695,6 +9745,7 @@ app.get('/api/analiza-wydan/filters', (req, res) => {
     `SELECT DISTINCT
       COALESCE(NULLIF(TRIM(i.klient_nazwa), ''), 'Brak klienta') AS klient,
       COALESCE(NULLIF(TRIM(ws.typ), ''), 'brak') AS typ,
+      (${ANALIZA_FAKTUR_TYP_WYDANIA.trim()}) AS typ_wydania,
       i.data_faktury AS data_faktury
     ${ANALIZA_FAKTUR_JOIN}
     WHERE ${ANALIZA_FAKTUR_WHERE}
@@ -9712,6 +9763,7 @@ app.get('/api/analiza-wydan/filters', (req, res) => {
         `SELECT DISTINCT
           COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klient,
           COALESCE(NULLIF(TRIM(ws.typ), ''), 'brak') AS typ,
+          COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ_wydania,
           o.numer_zamowienia AS numer_zamowienia
         ${ANALIZA_WYDAN_BASE_JOIN}
         WHERE ${ANALIZA_WYDAN_BASE_WHERE}
@@ -9728,12 +9780,11 @@ app.get('/api/analiza-wydan/filters', (req, res) => {
 
           const fromOrders = (orderRows || []).map((row) => {
             const date = extractDateFromOrderNumber(row.numer_zamowienia);
-            const dataFaktury = date
-              ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-              : '';
+            const dataFaktury = date ? toAnalizaDateKey(date) : '';
             return {
               klient: row.klient,
               typ: row.typ,
+              typ_wydania: row.typ_wydania,
               data_faktury: dataFaktury,
             };
           });
@@ -9845,7 +9896,6 @@ app.get('/api/analiza-wydan/:kod/typy', (req, res) => {
         END AS typ,
         SUM(COALESCE(ip.ilosc, 0)) AS ilosc
       ${ANALIZA_FAKTUR_JOIN}
-      LEFT JOIN order_products op_inv ON op_inv.id = ip.order_product_id
       WHERE ${invoiceBuilt.where}
       GROUP BY
         CASE

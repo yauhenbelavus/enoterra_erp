@@ -1,9 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from 'react-modal';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import { pl } from 'date-fns/locale';
 import { Search, X } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
 import { formatPlMoney } from '../utils/receiptCurrency';
 import { compareAnalizaWydanProducts, useTableSort } from '../utils/tableSort';
+import 'react-datepicker/dist/react-datepicker.css';
+import './DatePicker.css';
+
+registerLocale('pl', pl);
 
 interface WydaniaProduct {
   kod: string;
@@ -32,6 +38,7 @@ interface KlientTypModalState {
 interface FilterRow {
   klient: string;
   typ: string;
+  typ_wydania: string;
   data_faktury: string;
 }
 
@@ -101,17 +108,49 @@ const parseInvoiceDate = (value?: string) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const toDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const dateKeyFromValue = (value?: string) => {
+  const iso = String(value || '').trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const date = parseInvoiceDate(value);
+  return date ? toDateKey(date) : '';
+};
+
+const parseDateKey = (key: string) => {
+  const [year, month, day] = key.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day, 12, 0, 0);
+};
+
+const formatDayLabel = (date: Date) =>
+  date.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+const formatRangeLabel = (from: Date | null, to: Date | null) => {
+  if (!from) return 'Zakres dat';
+  if (!to || toDateKey(from) === toDateKey(to)) return formatDayLabel(from);
+  const short = { day: '2-digit' as const, month: '2-digit' as const };
+  return `${from.toLocaleDateString('pl-PL', short)}–${to.toLocaleDateString('pl-PL', short)}`;
+};
+
 const buildFilterQuery = (filters: {
   klient: string;
   typy: string[];
+  typWydania: string;
   year: string;
   month: string;
+  dateFrom: string;
+  dateTo: string;
 }) => {
   const params = new URLSearchParams();
   if (filters.klient) params.set('klient', filters.klient);
   filters.typy.forEach((typ) => params.append('typ', typ));
+  if (filters.typWydania) params.set('typ_wydania', filters.typWydania);
   if (filters.year) params.set('year', filters.year);
   if (filters.month) params.set('month', filters.month);
+  if (filters.dateFrom) params.set('date_from', filters.dateFrom);
+  if (filters.dateTo) params.set('date_to', filters.dateTo);
   const query = params.toString();
   return query ? `?${query}` : '';
 };
@@ -129,15 +168,29 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [detailsLoadingKod, setDetailsLoadingKod] = useState<string | null>(null);
   const [detailsErrorByKod, setDetailsErrorByKod] = useState<Record<string, string>>({});
   const [selectedKlient, setSelectedKlient] = useState('');
-  const [selectedTyp, setSelectedTyp] = useState('');
+  const [selectedTypy, setSelectedTypy] = useState<string[]>([]);
+  const [isTypOpen, setIsTypOpen] = useState(false);
+  const [isDateOpen, setIsDateOpen] = useState(false);
+  const [selectedTypWydania, setSelectedTypWydania] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [dateFrom, setDateFrom] = useState<Date | null>(null);
+  const [dateTo, setDateTo] = useState<Date | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [typModal, setTypModal] = useState<KlientTypModalState | null>(null);
   const [typModalRows, setTypModalRows] = useState<WydaniaTypRow[]>([]);
   const [typModalLoading, setTypModalLoading] = useState(false);
   const [typModalError, setTypModalError] = useState<string | null>(null);
   const typRequestRef = useRef(0);
+  const typFilterRef = useRef<HTMLDivElement>(null);
+  const typSelectRef = useRef<HTMLSelectElement>(null);
+  const dateFilterRef = useRef<HTMLDivElement>(null);
+  const dateSelectRef = useRef<HTMLSelectElement>(null);
+  const [typMenuRect, setTypMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [dateMenuRect, setDateMenuRect] = useState<{ top: number; left: number } | null>(null);
+
+  const dateFromKey = dateFrom ? toDateKey(dateFrom) : '';
+  const dateToKey = dateFrom ? toDateKey(dateTo || dateFrom) : '';
 
   const filteredProducts = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -158,38 +211,51 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const activeFilters = useMemo(
     () => ({
       klient: selectedKlient,
-      typy: selectedTyp ? [selectedTyp] : [],
+      typy: selectedTypy,
+      typWydania: selectedTypWydania,
       year: selectedYear,
       month: selectedMonth,
+      dateFrom: dateFromKey,
+      dateTo: dateToKey,
     }),
-    [selectedKlient, selectedTyp, selectedYear, selectedMonth]
+    [selectedKlient, selectedTypy, selectedTypWydania, selectedYear, selectedMonth, dateFromKey, dateToKey]
   );
 
   const filterRowsBy = (opts: {
     klient?: string;
-    typ?: string;
+    typy?: string[];
+    typWydania?: string;
     year?: string;
     month?: string;
+    dateFrom?: string;
+    dateTo?: string;
   }) => {
     return filterRows.filter((row) => {
       if (opts.klient && row.klient !== opts.klient) return false;
-      if (opts.typ && row.typ !== opts.typ) return false;
+      if (opts.typy && opts.typy.length > 0 && !opts.typy.includes(row.typ)) return false;
+      if (opts.typWydania && (row.typ_wydania || 'brak') !== opts.typWydania) return false;
       const date = parseInvoiceDate(row.data_faktury);
-      if (!date) {
-        return !opts.year && !opts.month;
+      const key = dateKeyFromValue(row.data_faktury);
+      if (!date || !key) {
+        return !opts.year && !opts.month && !opts.dateFrom && !opts.dateTo;
       }
       if (opts.year && date.getFullYear().toString() !== opts.year) return false;
       if (opts.month && (date.getMonth() + 1).toString().padStart(2, '0') !== opts.month) {
         return false;
       }
+      if (opts.dateFrom && key < opts.dateFrom) return false;
+      if (opts.dateTo && key > opts.dateTo) return false;
       return true;
     });
   };
 
   const rowsForKlient = filterRowsBy({
-    typ: selectedTyp || undefined,
+    typy: selectedTypy,
+    typWydania: selectedTypWydania || undefined,
     year: selectedYear || undefined,
     month: selectedMonth || undefined,
+    dateFrom: dateFromKey || undefined,
+    dateTo: dateToKey || undefined,
   });
   const clients = useMemo(() => {
     const set = new Set(rowsForKlient.map((row) => row.klient).filter(Boolean));
@@ -203,24 +269,76 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   const rowsForTyp = filterRowsBy({
     klient: selectedKlient || undefined,
+    typWydania: selectedTypWydania || undefined,
     year: selectedYear || undefined,
     month: selectedMonth || undefined,
+    dateFrom: dateFromKey || undefined,
+    dateTo: dateToKey || undefined,
   });
   const typOptions = useMemo(() => {
     const set = new Set(rowsForTyp.map((row) => row.typ).filter(Boolean));
     const list = Array.from(set)
       .map((value) => ({ value, label: getTypWinaMeta(value).label }));
-    if (selectedTyp && !set.has(selectedTyp)) {
-      list.push({ value: selectedTyp, label: getTypWinaMeta(selectedTyp).label });
+    selectedTypy.forEach((value) => {
+      if (!set.has(value)) {
+        list.push({ value, label: getTypWinaMeta(value).label });
+      }
+    });
+    list.sort((a, b) => a.label.localeCompare(b.label, 'pl'));
+    return list;
+  }, [rowsForTyp, selectedTypy]);
+
+  const rowsForTypWydania = filterRowsBy({
+    klient: selectedKlient || undefined,
+    typy: selectedTypy,
+    year: selectedYear || undefined,
+    month: selectedMonth || undefined,
+    dateFrom: dateFromKey || undefined,
+    dateTo: dateToKey || undefined,
+  });
+  const typWydaniaOptions = useMemo(() => {
+    const set = new Set(rowsForTypWydania.map((row) => row.typ_wydania || 'brak').filter(Boolean));
+    const list = Array.from(set)
+      .map((value) => ({ value, label: getTypWydaniaMeta(value).label }));
+    if (selectedTypWydania && !set.has(selectedTypWydania)) {
+      list.push({ value: selectedTypWydania, label: getTypWydaniaMeta(selectedTypWydania).label });
     }
     list.sort((a, b) => a.label.localeCompare(b.label, 'pl'));
     return list;
-  }, [rowsForTyp, selectedTyp]);
+  }, [rowsForTypWydania, selectedTypWydania]);
+
+  const rowsForDates = filterRowsBy({
+    klient: selectedKlient || undefined,
+    typy: selectedTypy,
+    typWydania: selectedTypWydania || undefined,
+    year: selectedYear || undefined,
+    month: selectedMonth || undefined,
+  });
+  const availableCalendarDates = useMemo(() => {
+    const set = new Set(
+      rowsForDates
+        .map((row) => dateKeyFromValue(row.data_faktury))
+        .filter(Boolean)
+    );
+    return Array.from(set)
+      .map(parseDateKey)
+      .filter((date): date is Date => date !== null)
+      .sort((a, b) => a.getTime() - b.getTime());
+  }, [rowsForDates]);
+  const availableDateKeySet = useMemo(
+    () => new Set(availableCalendarDates.map(toDateKey)),
+    [availableCalendarDates]
+  );
+  const calendarOpenToDate =
+    dateFrom || availableCalendarDates[availableCalendarDates.length - 1] || new Date();
 
   const rowsForYear = filterRowsBy({
     klient: selectedKlient || undefined,
-    typ: selectedTyp || undefined,
+    typy: selectedTypy,
+    typWydania: selectedTypWydania || undefined,
     month: selectedMonth || undefined,
+    dateFrom: dateFromKey || undefined,
+    dateTo: dateToKey || undefined,
   });
   const years = useMemo(() => {
     const set = new Set(
@@ -239,8 +357,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   const rowsForMonth = filterRowsBy({
     klient: selectedKlient || undefined,
-    typ: selectedTyp || undefined,
+    typy: selectedTypy,
+    typWydania: selectedTypWydania || undefined,
     year: selectedYear || undefined,
+    dateFrom: dateFromKey || undefined,
+    dateTo: dateToKey || undefined,
   });
   const months = useMemo(() => {
     const set = new Set(
@@ -327,7 +448,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     setDetailsErrorByKod({});
     setTypModal(null);
     loadProducts(activeFilters);
-  }, [selectedKlient, selectedTyp, selectedYear, selectedMonth]);
+  }, [selectedKlient, selectedTypy, selectedTypWydania, selectedYear, selectedMonth, dateFromKey, dateToKey]);
 
   useEffect(() => {
     if (refreshTrigger == null) return;
@@ -386,6 +507,90 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     await loadDetails(kod);
   };
 
+  useEffect(() => {
+    if (!isTypOpen) {
+      setTypMenuRect(null);
+      return;
+    }
+
+    const updateMenuRect = () => {
+      const el = typSelectRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setTypMenuRect({ top: rect.bottom + 2, left: rect.left, width: rect.width });
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (typFilterRef.current && !typFilterRef.current.contains(event.target as Node)) {
+        setIsTypOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsTypOpen(false);
+    };
+
+    updateMenuRect();
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    window.addEventListener('resize', updateMenuRect);
+    window.addEventListener('scroll', updateMenuRect, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('resize', updateMenuRect);
+      window.removeEventListener('scroll', updateMenuRect, true);
+    };
+  }, [isTypOpen]);
+
+  useEffect(() => {
+    if (!isDateOpen) {
+      setDateMenuRect(null);
+      return;
+    }
+
+    const updateMenuRect = () => {
+      const el = dateSelectRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const calendarWidth = 252;
+      const calendarHeight = 290;
+      let left = rect.right - calendarWidth;
+      left = Math.min(Math.max(8, left), window.innerWidth - calendarWidth - 8);
+      let top = rect.bottom + 2;
+      if (top + calendarHeight > window.innerHeight - 8 && rect.top > calendarHeight + 8) {
+        top = rect.top - calendarHeight - 2;
+      }
+      setDateMenuRect({ top, left });
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dateFilterRef.current && !dateFilterRef.current.contains(event.target as Node)) {
+        setIsDateOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsDateOpen(false);
+    };
+
+    updateMenuRect();
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    window.addEventListener('resize', updateMenuRect);
+    window.addEventListener('scroll', updateMenuRect, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('resize', updateMenuRect);
+      window.removeEventListener('scroll', updateMenuRect, true);
+    };
+  }, [isDateOpen]);
+
+  const toggleTyp = (value: string) => {
+    setSelectedTypy((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
+    );
+  };
+
   const kodColumnWidth = useMemo(() => {
     const longest = products.reduce((max, product) => Math.max(max, product.kod?.length || 0), 0);
     const chars = Math.max(6, Math.ceil(longest / 2));
@@ -410,13 +615,26 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   const totalButelki = filteredProducts.reduce((sum, product) => sum + (product.ilosc || 0), 0);
   const totalNetto = filteredProducts.reduce((sum, product) => sum + (Number(product.sprzedaz_netto) || 0), 0);
-  const hasActiveFilters = Boolean(selectedKlient || selectedTyp || selectedYear || selectedMonth);
+  const hasActiveFilters = Boolean(
+    selectedKlient || selectedTypy.length || selectedTypWydania || selectedYear || selectedMonth || dateFrom
+  );
+  const typButtonLabel = selectedTypy.length === 0
+    ? 'Typ towaru'
+    : typOptions
+        .filter((opt) => selectedTypy.includes(opt.value))
+        .map((opt) => opt.label)
+        .join(', ');
+  const zakresLabel = formatRangeLabel(dateFrom, dateTo);
 
   const clearFilters = () => {
     setSelectedKlient('');
-    setSelectedTyp('');
+    setSelectedTypy([]);
+    setIsTypOpen(false);
+    setSelectedTypWydania('');
     setSelectedYear('');
     setSelectedMonth('');
+    setDateFrom(null);
+    setDateTo(null);
   };
 
   const filterSelectClass =
@@ -439,6 +657,30 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
   return (
     <div className="space-y-4">
+      <style>{`
+        .analiza-typ-menu {
+          background: Canvas;
+          color: CanvasText;
+          border: 1px solid rgba(0, 0, 0, 0.2);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+        }
+        .analiza-typ-option {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px 8px;
+          cursor: pointer;
+        }
+        .analiza-typ-option:hover {
+          background: Highlight;
+          color: HighlightText;
+        }
+        .analiza-zakres-menu .react-datepicker,
+        .analiza-zakres-calendar {
+          position: static !important;
+          box-shadow: none;
+        }
+      `}</style>
       <div className="relative w-full">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <Search className="h-5 w-5 text-gray-400" />
@@ -452,9 +694,130 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         />
       </div>
 
-      <div className="flex justify-end">
-        <div className="flex flex-col gap-1">
-        <div className="grid grid-cols-2 gap-1">
+      <div className="flex justify-end overflow-visible">
+        <div className="flex flex-col gap-1 overflow-visible">
+        <div className="grid grid-cols-2 gap-1 overflow-visible">
+          <div className="relative" ref={typFilterRef}>
+            <select
+              ref={typSelectRef}
+              value=""
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsDateOpen(false);
+                setIsTypOpen((open) => !open);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setIsTypOpen((open) => !open);
+                }
+              }}
+              onChange={() => undefined}
+              className={filterSelectClass}
+              style={filterSelectStyle}
+              aria-label="Typ towaru"
+              aria-expanded={isTypOpen}
+            >
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>
+                {typButtonLabel}
+              </option>
+              {typOptions.map((opt) => (
+                <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {isTypOpen && typMenuRect && (
+              <div
+                className="analiza-typ-menu fixed z-[100] max-h-52 overflow-y-auto py-0.5"
+                style={{
+                  top: typMenuRect.top,
+                  left: typMenuRect.left,
+                  minWidth: typMenuRect.width,
+                  borderRadius: 4,
+                  fontFamily: 'Sora, sans-serif',
+                  fontSize: 12,
+                }}
+              >
+                {typOptions.length === 0 ? (
+                  <div className="px-2 py-1 text-xs text-gray-500 font-sora">Brak typów</div>
+                ) : (
+                  typOptions.map((opt) => (
+                    <label
+                      key={opt.value}
+                      className="analiza-typ-option"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTypy.includes(opt.value)}
+                        onChange={() => toggleTyp(opt.value)}
+                        className="cursor-pointer"
+                      />
+                      <span className="truncate">{opt.label}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="relative" ref={dateFilterRef}>
+            <select
+              ref={dateSelectRef}
+              value=""
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsTypOpen(false);
+                setIsDateOpen((open) => !open);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setIsTypOpen(false);
+                  setIsDateOpen((open) => !open);
+                }
+              }}
+              onChange={() => undefined}
+              className={filterSelectClass}
+              style={filterSelectStyle}
+              aria-label="Zakres dat"
+              aria-expanded={isDateOpen}
+            >
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>
+                {zakresLabel}
+              </option>
+            </select>
+            {isDateOpen && dateMenuRect && (
+              <div
+                className="analiza-zakres-menu analiza-typ-menu fixed z-[200]"
+                style={{
+                  top: dateMenuRect.top,
+                  left: dateMenuRect.left,
+                  borderRadius: 4,
+                  padding: 4,
+                }}
+              >
+                <DatePicker
+                  inline
+                  selectsRange
+                  startDate={dateFrom}
+                  endDate={dateTo}
+                  onChange={(dates) => {
+                    const [start, end] = Array.isArray(dates) ? dates : [dates, null];
+                    setDateFrom(start);
+                    setDateTo(end);
+                    if (start && end) setIsDateOpen(false);
+                  }}
+                  filterDate={(date) => availableDateKeySet.has(toDateKey(date))}
+                  openToDate={calendarOpenToDate}
+                  locale="pl"
+                  calendarStartDay={1}
+                  calendarClassName="analiza-zakres-calendar"
+                />
+              </div>
+            )}
+          </div>
+
           <div className="relative">
             <select
               value={selectedKlient}
@@ -473,13 +836,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
           <div className="relative">
             <select
-              value={selectedTyp}
-              onChange={(e) => setSelectedTyp(e.target.value)}
+              value={selectedTypWydania}
+              onChange={(e) => setSelectedTypWydania(e.target.value)}
               className={filterSelectClass}
               style={filterSelectStyle}
             >
-              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ towaru</option>
-              {typOptions.map((opt) => (
+              <option value="" style={{ fontFamily: 'Sora, sans-serif' }}>Typ wydania</option>
+              {typWydaniaOptions.map((opt) => (
                 <option key={opt.value} value={opt.value} style={{ fontFamily: 'Sora, sans-serif' }}>
                   {opt.label}
                 </option>
