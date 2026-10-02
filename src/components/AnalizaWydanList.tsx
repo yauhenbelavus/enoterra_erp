@@ -334,6 +334,16 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     () => new Set(availableCalendarDates.map(toDateKey)),
     [availableCalendarDates]
   );
+
+  // Самая ранняя дата во всей системе (без учёта фильтров)
+  const firstEverWydanieDate = useMemo(() => {
+    const keys = filterRows
+      .map((row) => dateKeyFromValue(row.data_faktury))
+      .filter(Boolean)
+      .sort();
+    return keys.length > 0 ? parseDateKey(keys[0]) : null;
+  }, [filterRows]);
+
   const calendarOpenToDate = dateFrom || new Date();
 
   const rowsForYear = filterRowsBy({
@@ -899,7 +909,10 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                   inline
                   startDate={dateFrom ?? undefined}
                   endDate={dateTo ?? undefined}
-                  filterDate={(date) => availableDateKeySet.has(toDateKey(date))}
+                  filterDate={(date) => {
+                    if (!firstEverWydanieDate) return true;
+                    return date >= firstEverWydanieDate;
+                  }}
                   renderDayContents={(day, date) => (
                     <span
                       onMouseDown={(e) => {
