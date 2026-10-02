@@ -185,7 +185,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const dateSelectRef = useRef<HTMLSelectElement>(null);
   const [dateMenuRect, setDateMenuRect] = useState<{ top: number; left: number } | null>(null);
 
-  const selectedTypy = selectedTyp ? [selectedTyp] : [];
+  const selectedTypy = useMemo(() => (selectedTyp ? [selectedTyp] : []), [selectedTyp]);
   const dateFromKey = dateFrom ? toDateKey(dateFrom) : '';
   const dateToKey = dateFrom ? toDateKey(dateTo || dateFrom) : '';
 
@@ -443,7 +443,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     setDetailsErrorByKod({});
     setTypModal(null);
     loadProducts(activeFilters);
-  }, [selectedKlient, selectedTypy, selectedTypWydania, selectedYear, selectedMonth, dateFromKey, dateToKey]);
+  }, [selectedKlient, selectedTyp, selectedTypWydania, selectedYear, selectedMonth, dateFromKey, dateToKey]);
 
   useEffect(() => {
     if (refreshTrigger == null) return;
