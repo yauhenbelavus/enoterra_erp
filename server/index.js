@@ -9601,7 +9601,7 @@ app.get('/api/analiza-wydan', (req, res) => {
 app.get('/api/analiza-wydan/:kod', (req, res) => {
   const { kod } = req.params;
   const filters = parseAnalizaWydanFilters(req.query);
-  console.log(`📊 GET /api/analiza-wydan/${kod} - Fetching typ breakdown`, filters);
+  console.log(`📊 GET /api/analiza-wydan/${kod} - Fetching client breakdown`, filters);
 
   getAnalizaWydanOrderIdsForDateFilters(filters, (dateErr, orderIdsForDate) => {
     if (dateErr) {
@@ -9612,7 +9612,7 @@ app.get('/api/analiza-wydan/:kod', (req, res) => {
 
     const built = buildAnalizaWydanWhere(filters, kod, orderIdsForDate);
     if (built.empty) {
-      res.json({ kod, nazwa: '', ilosc: 0, by_typ: [] });
+      res.json({ kod, nazwa: '', ilosc: 0, by_klient: [] });
       return;
     }
 
@@ -9620,15 +9620,15 @@ app.get('/api/analiza-wydan/:kod', (req, res) => {
       `WITH filtered AS (
         SELECT
           op.ilosc,
-          COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ,
+          COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klient,
           COALESCE(ws.nazwa, op.nazwa) AS nazwa
         ${ANALIZA_WYDAN_BASE_JOIN}
         WHERE ${built.where}
       )
-      SELECT typ, SUM(ilosc) AS ilosc, MAX(nazwa) AS nazwa
+      SELECT klient, SUM(ilosc) AS ilosc, MAX(nazwa) AS nazwa
       FROM filtered
-      GROUP BY typ
-      ORDER BY ilosc DESC, typ COLLATE NOCASE`,
+      GROUP BY klient
+      ORDER BY ilosc DESC, klient COLLATE NOCASE`,
       built.params,
       (err, rows) => {
         if (err) {
@@ -9637,15 +9637,73 @@ app.get('/api/analiza-wydan/:kod', (req, res) => {
           return;
         }
 
+        const byKlient = (rows || []).map((row) => ({
+          klient: row.klient,
+          ilosc: row.ilosc,
+        }));
+        const nazwa = rows?.[0]?.nazwa || '';
+        const totalIlosc = byKlient.reduce((sum, row) => sum + (row.ilosc || 0), 0);
+
+        console.log(`✅ Found ${byKlient.length} client rows for kod ${kod}`);
+        res.json({ kod, nazwa, ilosc: totalIlosc, by_klient: byKlient });
+      }
+    );
+  });
+});
+
+app.get('/api/analiza-wydan/:kod/typy', (req, res) => {
+  const { kod } = req.params;
+  const filters = parseAnalizaWydanFilters(req.query);
+  const klient = (req.query.klient || '').trim();
+  const filtersWithoutKlient = { ...filters, klient: '' };
+  console.log(`📊 GET /api/analiza-wydan/${kod}/typy - Fetching typ wydania for client`, klient, filters);
+
+  getAnalizaWydanOrderIdsForDateFilters(filtersWithoutKlient, (dateErr, orderIdsForDate) => {
+    if (dateErr) {
+      console.error('❌ Database error resolving analiza wydan date filters:', dateErr);
+      res.status(500).json({ error: dateErr.message });
+      return;
+    }
+
+    const built = buildAnalizaWydanWhere(filtersWithoutKlient, kod, orderIdsForDate);
+    if (built.empty) {
+      res.json({ kod, klient, by_typ: [] });
+      return;
+    }
+
+    if (klient) {
+      built.where += ` AND COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') = ?`;
+      built.params.push(klient);
+    }
+
+    db.all(
+      `WITH filtered AS (
+        SELECT
+          op.ilosc,
+          COALESCE(NULLIF(TRIM(op.typ), ''), 'brak') AS typ
+        ${ANALIZA_WYDAN_BASE_JOIN}
+        WHERE ${built.where}
+      )
+      SELECT typ, SUM(ilosc) AS ilosc
+      FROM filtered
+      GROUP BY typ
+      HAVING SUM(ilosc) > 0
+      ORDER BY ilosc DESC, typ COLLATE NOCASE`,
+      built.params,
+      (err, rows) => {
+        if (err) {
+          console.error('❌ Database error fetching analiza wydan typ breakdown:', err);
+          res.status(500).json({ error: err.message });
+          return;
+        }
+
         const byTyp = (rows || []).map((row) => ({
           typ: row.typ,
           ilosc: row.ilosc,
         }));
-        const nazwa = rows?.[0]?.nazwa || '';
-        const totalIlosc = byTyp.reduce((sum, row) => sum + (row.ilosc || 0), 0);
 
-        console.log(`✅ Found ${byTyp.length} typ rows for kod ${kod}`);
-        res.json({ kod, nazwa, ilosc: totalIlosc, by_typ: byTyp });
+        console.log(`✅ Found ${byTyp.length} typ rows for kod ${kod}, klient ${klient}`);
+        res.json({ kod, klient, by_typ: byTyp });
       }
     );
   });

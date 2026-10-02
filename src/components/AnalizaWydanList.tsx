@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Modal from 'react-modal';
+import { X } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
 import { compareAnalizaWydanProducts, extractDateFromOrderNumber, useTableSort } from '../utils/tableSort';
 
@@ -8,9 +10,20 @@ interface WydaniaProduct {
   ilosc: number;
 }
 
+interface WydaniaKlientRow {
+  klient: string;
+  ilosc: number;
+}
+
 interface WydaniaTypRow {
   typ: string;
   ilosc: number;
+}
+
+interface KlientTypModalState {
+  kod: string;
+  nazwa: string;
+  klient: string;
 }
 
 interface FilterRow {
@@ -68,11 +81,11 @@ const ALL_MONTHS = [
   { value: '12', label: 'Grudzień' },
 ];
 
-const getTypWydaniaMeta = (typ: string) =>
-  TYP_WYDANIA_LABELS[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
-
 const getTypWinaMeta = (typ: string) =>
   TYPY_WINA[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
+
+const getTypWydaniaMeta = (typ: string) =>
+  TYP_WYDANIA_LABELS[typ] || { label: typ, color: 'bg-gray-100 text-gray-800 border-gray-200' };
 
 const formatBottles = (value: number) =>
   new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 }).format(value);
@@ -101,7 +114,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedKod, setExpandedKod] = useState<string | null>(null);
-  const [detailsByKod, setDetailsByKod] = useState<Record<string, WydaniaTypRow[]>>({});
+  const [detailsByKod, setDetailsByKod] = useState<Record<string, WydaniaKlientRow[]>>({});
   const [detailsLoadingKod, setDetailsLoadingKod] = useState<string | null>(null);
   const [detailsErrorByKod, setDetailsErrorByKod] = useState<Record<string, string>>({});
   const [selectedKlient, setSelectedKlient] = useState('');
@@ -109,6 +122,11 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const [isTypOpen, setIsTypOpen] = useState(false);
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [typModal, setTypModal] = useState<KlientTypModalState | null>(null);
+  const [typModalRows, setTypModalRows] = useState<WydaniaTypRow[]>([]);
+  const [typModalLoading, setTypModalLoading] = useState(false);
+  const [typModalError, setTypModalError] = useState<string | null>(null);
+  const typRequestRef = useRef(0);
   const typFilterRef = useRef<HTMLDivElement>(null);
 
   const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(products, {
@@ -266,7 +284,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         throw new Error(`HTTP ${response.status}`);
       }
       const data = await response.json();
-      setDetailsByKod((prev) => ({ ...prev, [kod]: data.by_typ || [] }));
+      setDetailsByKod((prev) => ({ ...prev, [kod]: data.by_klient || [] }));
     } catch (err: any) {
       console.error(`❌ Error loading wydania details for ${kod}:`, err);
       setDetailsErrorByKod((prev) => ({
@@ -290,6 +308,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     setExpandedKod(null);
     setDetailsByKod({});
     setDetailsErrorByKod({});
+    setTypModal(null);
     loadProducts(activeFilters);
   }, [selectedKlient, selectedTypy, selectedYear, selectedMonth]);
 
@@ -299,6 +318,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     setExpandedKod(null);
     setDetailsByKod({});
     setDetailsErrorByKod({});
+    setTypModal(null);
     loadFilterRows()
       .then(setFilterRows)
       .catch((err: any) => {
@@ -312,6 +332,32 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       setExpandedKod(null);
     }
   }, [expandedKod, products]);
+
+  const openKlientTypModal = async (product: WydaniaProduct, klient: string) => {
+    const requestId = ++typRequestRef.current;
+    setTypModal({ kod: product.kod, nazwa: product.nazwa, klient });
+    setTypModalRows([]);
+    setTypModalError(null);
+    setTypModalLoading(true);
+    try {
+      const query = buildFilterQuery({ ...activeFilters, klient });
+      const response = await fetch(`${apiUrl}/api/analiza-wydan/${encodeURIComponent(product.kod)}/typy${query}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      if (typRequestRef.current !== requestId) return;
+      setTypModalRows(data.by_typ || []);
+    } catch (err: any) {
+      if (typRequestRef.current !== requestId) return;
+      console.error(`❌ Error loading typ breakdown for ${product.kod} / ${klient}:`, err);
+      setTypModalError(err.message || 'Błąd ładowania danych');
+    } finally {
+      if (typRequestRef.current === requestId) {
+        setTypModalLoading(false);
+      }
+    }
+  };
 
   const toggleProductDetails = async (kod: string) => {
     if (expandedKod === kod) {
@@ -498,7 +544,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
           <thead className="sticky top-0 z-10">
             <tr>
             <th
-              className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              className="w-px whitespace-nowrap px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
               onClick={() => handleSort('kod')}
             >
               <div className="flex items-center gap-1">
@@ -548,7 +594,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
           ) : (
             sortedProducts.map((product) => {
               const isExpanded = expandedKod === product.kod;
-              const typRows = isExpanded ? detailsByKod[product.kod] || [] : [];
+              const klientRows = isExpanded ? detailsByKod[product.kod] || [] : [];
               const isDetailsLoading = detailsLoadingKod === product.kod;
               const detailsError = detailsErrorByKod[product.kod];
 
@@ -558,7 +604,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => toggleProductDetails(product.kod)}
                   >
-                    <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-900 font-sora">
+                    <td className="w-px whitespace-nowrap px-4 py-3 text-sm text-gray-900 font-sora">
                       {product.kod}
                     </td>
                     <td className="px-8 py-3 text-sm text-gray-900 font-sora">
@@ -585,10 +631,10 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     </tr>
                   )}
 
-                  {isExpanded && !isDetailsLoading && !detailsError && typRows.length === 0 && (
+                  {isExpanded && !isDetailsLoading && !detailsError && klientRows.length === 0 && (
                     <tr className="bg-gray-50">
                       <td colSpan={3} className="px-8 py-3 text-sm text-gray-500 font-sora">
-                        Brak danych o typach
+                        Brak danych o klientach
                       </td>
                     </tr>
                   )}
@@ -596,22 +642,24 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                   {isExpanded &&
                     !isDetailsLoading &&
                     !detailsError &&
-                    typRows.map((row) => {
-                      const meta = getTypWydaniaMeta(row.typ);
-                      return (
-                        <tr key={`${product.kod}-${row.typ}`} className="bg-gray-50">
-                          <td className="px-8 py-2 pl-12 text-sm font-sora" />
-                          <td className="px-8 py-2 text-sm font-sora">
-                            <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium border ${meta.color}`}>
-                              {meta.label}
-                            </span>
-                          </td>
-                          <td className="px-8 py-2 whitespace-nowrap text-sm text-gray-600 font-sora">
-                            {row.ilosc}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    klientRows.map((row) => (
+                      <tr
+                        key={`${product.kod}-${row.klient}`}
+                        className="bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openKlientTypModal(product, row.klient);
+                        }}
+                      >
+                        <td className="w-px whitespace-nowrap px-4 py-2 text-sm font-sora" />
+                        <td className="px-8 py-2 text-sm text-gray-700 font-sora">
+                          {row.klient}
+                        </td>
+                        <td className="px-8 py-2 whitespace-nowrap text-sm text-gray-600 font-sora">
+                          {row.ilosc}
+                        </td>
+                      </tr>
+                    ))}
                 </React.Fragment>
               );
             })
@@ -619,6 +667,93 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         </tbody>
       </table>
       </div>
+
+      <Modal
+        isOpen={typModal !== null}
+        onRequestClose={() => setTypModal(null)}
+        style={{
+          content: {
+            width: '420px',
+            height: 'auto',
+            maxWidth: '90%',
+            maxHeight: '80vh',
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            margin: '0',
+            borderRadius: '0.5rem',
+            background: 'white',
+            overflow: 'hidden',
+            outline: 'none',
+            padding: '24px',
+            fontFamily: 'Sora',
+            zIndex: 9999,
+          },
+          overlay: {
+            backgroundColor: 'rgba(0, 0, 0, 0.25)',
+            zIndex: 9999,
+          },
+        }}
+      >
+        <div className="font-sora flex flex-col max-h-[70vh]">
+          <div className="flex justify-between items-start gap-4 mb-4">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-gray-800 truncate">{typModal?.klient}</h2>
+              <p className="text-xs text-gray-500 mt-1 truncate">
+                {typModal?.kod}{typModal?.nazwa ? ` · ${typModal.nazwa}` : ''}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTypModal(null)}
+              className="text-red-500 focus:outline-none shrink-0"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {typModalLoading ? (
+            <div className="text-sm text-gray-500 py-4">Ładowanie danych...</div>
+          ) : typModalError ? (
+            <div className="text-sm text-red-600 py-4">{typModalError}</div>
+          ) : typModalRows.length === 0 ? (
+            <div className="text-sm text-gray-500 py-4">Brak wydań</div>
+          ) : (
+            <div className="overflow-y-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">
+                      Typ
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">
+                      Ilość
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {typModalRows.map((row) => {
+                    const meta = getTypWydaniaMeta(row.typ);
+                    return (
+                      <tr key={row.typ}>
+                        <td className="px-2 py-2 text-sm">
+                          <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium border ${meta.color}`}>
+                            {meta.label}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-sm text-gray-600 whitespace-nowrap">
+                          {row.ilosc}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };
