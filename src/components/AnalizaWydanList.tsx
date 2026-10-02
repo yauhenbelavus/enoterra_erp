@@ -416,8 +416,10 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     const currentTable = `70% + 0.3 * (${kodColumnWidth}) + 4.95rem`;
     const share = (part: string) => `calc(100% * (${part}) / (${currentTable}))`;
     const kod = share(kodColumnWidth);
-    const sprzedaz = share('9.5rem');
-    const ilosc = '4rem';
+    const ilosc = '6.5rem';
+    const oldSprzedaz = share('7rem');
+    const oldNazwa = `100% - (${kod}) - (${oldSprzedaz}) - ${ilosc}`;
+    const sprzedaz = `max(5.75rem, calc(100% - (${kod}) - ${ilosc} - 1.2 * (${oldNazwa})))`;
     return {
       kod,
       ilosc,
