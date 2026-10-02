@@ -134,6 +134,9 @@ const formatRangeLabel = (from: Date | null, to: Date | null) => {
   return `${from.toLocaleDateString('pl-PL', short)}–${to.toLocaleDateString('pl-PL', short)}`;
 };
 
+const isSameDay = (a: Date | null, b: Date | null) =>
+  Boolean(a && b && toDateKey(a) === toDateKey(b));
+
 const buildFilterQuery = (filters: {
   klient: string;
   typy: string[];
@@ -592,6 +595,58 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
     );
   };
 
+  const applyDateClick = (date: Date) => {
+    if (!dateFrom) {
+      setDateFrom(date);
+      setDateTo(null);
+      return;
+    }
+
+    const single = !dateTo || isSameDay(dateFrom, dateTo);
+    if (single) {
+      if (isSameDay(date, dateFrom)) {
+        setDateFrom(null);
+        setDateTo(null);
+        return;
+      }
+      if (date.getTime() < dateFrom.getTime()) {
+        setDateTo(dateFrom);
+        setDateFrom(date);
+      } else {
+        setDateTo(date);
+      }
+      return;
+    }
+
+    if (isSameDay(date, dateFrom)) {
+      setDateFrom(dateTo);
+      setDateTo(null);
+      return;
+    }
+    if (isSameDay(date, dateTo)) {
+      setDateTo(null);
+      return;
+    }
+    setDateFrom(date);
+    setDateTo(null);
+  };
+
+  const removeDateEndpoint = (which: 'from' | 'to') => {
+    if (!dateFrom) return;
+    const ranged = Boolean(dateTo && !isSameDay(dateFrom, dateTo));
+    if (!ranged) {
+      setDateFrom(null);
+      setDateTo(null);
+      return;
+    }
+    if (which === 'from') {
+      setDateFrom(dateTo);
+      setDateTo(null);
+      return;
+    }
+    setDateTo(null);
+  };
+
   const kodColumnWidth = useMemo(() => {
     const longest = products.reduce((max, product) => Math.max(max, product.kod?.length || 0), 0);
     const chars = Math.max(6, Math.ceil(longest / 2));
@@ -683,6 +738,19 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         }
         .analiza-zakres-menu .react-datepicker {
           position: relative;
+        }
+        .analiza-zakres-menu .react-datepicker__day--in-range,
+        .analiza-zakres-menu .react-datepicker__day--in-selecting-range {
+          background-color: #dbeafe;
+          color: #1e3a8a;
+          border-radius: 0.375rem;
+        }
+        .analiza-zakres-menu .react-datepicker__day--range-start,
+        .analiza-zakres-menu .react-datepicker__day--range-end,
+        .analiza-zakres-menu .react-datepicker__day--selected {
+          background-color: #2563eb;
+          color: white;
+          border-radius: 9999px;
         }
       `}</style>
       <div className="relative w-full">
@@ -795,19 +863,18 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
               >
                 <DatePicker
                   inline
-                  selectsRange
+                  selected={dateFrom}
                   startDate={dateFrom}
-                  endDate={dateTo}
-                  onChange={(dates) => {
-                    const [start, end] = Array.isArray(dates) ? dates : [dates, null];
-                    setDateFrom(start);
-                    setDateTo(end);
-                    if (start && end) setIsDateOpen(false);
+                  endDate={dateTo || dateFrom}
+                  onSelect={(date: Date | null) => {
+                    if (date) applyDateClick(date);
                   }}
+                  onChange={() => undefined}
                   filterDate={(date) => availableDateKeySet.has(toDateKey(date))}
                   openToDate={calendarOpenToDate}
                   locale="pl"
                   calendarStartDay={1}
+                  shouldCloseOnSelect={false}
                 />
               </div>
             )}
@@ -890,15 +957,40 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
         </div>
       </div>
 
-      <div className="flex w-full justify-center items-center gap-6 px-4">
-        <span className="text-sm text-gray-600 font-sora">
-          Butelki:{' '}
-          <span className="font-bold">{formatBottles(totalButelki)}</span>
-        </span>
-        <span className="text-sm text-gray-600 font-sora">
-          Sprzedaż netto:{' '}
-          <span className="font-bold">{formatNetto(totalNetto)}</span>
-        </span>
+      <div className="relative flex w-full items-center px-4 min-h-[1.75rem]">
+        <div className="absolute left-4 flex items-center gap-1 text-sm font-sora text-gray-700">
+          {dateFrom && (
+            <button
+              type="button"
+              onClick={() => removeDateEndpoint('from')}
+              className="px-2 py-0.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+            >
+              {formatDayLabel(dateFrom)}
+            </button>
+          )}
+          {dateFrom && dateTo && !isSameDay(dateFrom, dateTo) && (
+            <>
+              <span className="text-gray-400">–</span>
+              <button
+                type="button"
+                onClick={() => removeDateEndpoint('to')}
+                className="px-2 py-0.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+              >
+                {formatDayLabel(dateTo)}
+              </button>
+            </>
+          )}
+        </div>
+        <div className="flex w-full justify-center items-center gap-6">
+          <span className="text-sm text-gray-600 font-sora">
+            Butelki:{' '}
+            <span className="font-bold">{formatBottles(totalButelki)}</span>
+          </span>
+          <span className="text-sm text-gray-600 font-sora">
+            Sprzedaż netto:{' '}
+            <span className="font-bold">{formatNetto(totalNetto)}</span>
+          </span>
+        </div>
       </div>
 
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
