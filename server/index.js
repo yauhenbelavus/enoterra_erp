@@ -9440,6 +9440,17 @@ const ANALIZA_WYDAN_BASE_WHERE = `
   AND TRIM(COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)) != ''
 `;
 
+const ANALIZA_WYDAN_INVOICE_JOIN = `
+  LEFT JOIN (
+    SELECT order_product_id, SUM(COALESCE(wartosc_netto, 0)) AS wartosc_netto
+    FROM invoice_products
+    WHERE order_product_id IS NOT NULL
+    GROUP BY order_product_id
+  ) ip_sum ON ip_sum.order_product_id = op.id
+`;
+
+const ANALIZA_WYDAN_SPRZEDAZ_NETTO = `COALESCE(ip_sum.wartosc_netto, 0)`;
+
 function parseAnalizaWydanTypList(value) {
   if (value == null || value === '') return [];
   const raw = Array.isArray(value) ? value : [value];
@@ -9578,8 +9589,10 @@ app.get('/api/analiza-wydan', (req, res) => {
       `SELECT
         COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod) AS kod,
         COALESCE(ws.nazwa, MAX(op.nazwa)) AS nazwa,
-        SUM(op.ilosc) AS ilosc
+        SUM(op.ilosc) AS ilosc,
+        ROUND(SUM(${ANALIZA_WYDAN_SPRZEDAZ_NETTO}), 2) AS sprzedaz_netto
       ${ANALIZA_WYDAN_BASE_JOIN}
+      ${ANALIZA_WYDAN_INVOICE_JOIN}
       WHERE ${built.where}
       GROUP BY COALESCE(NULLIF(TRIM(op.kod), ''), ws.kod)
       ORDER BY nazwa COLLATE NOCASE`,
@@ -9612,7 +9625,7 @@ app.get('/api/analiza-wydan/:kod', (req, res) => {
 
     const built = buildAnalizaWydanWhere(filters, kod, orderIdsForDate);
     if (built.empty) {
-      res.json({ kod, nazwa: '', ilosc: 0, by_klient: [] });
+      res.json({ kod, nazwa: '', ilosc: 0, sprzedaz_netto: 0, by_klient: [] });
       return;
     }
 
@@ -9621,11 +9634,13 @@ app.get('/api/analiza-wydan/:kod', (req, res) => {
         SELECT
           op.ilosc,
           COALESCE(NULLIF(TRIM(o.klient), ''), 'Brak klienta') AS klient,
-          COALESCE(ws.nazwa, op.nazwa) AS nazwa
+          COALESCE(ws.nazwa, op.nazwa) AS nazwa,
+          ${ANALIZA_WYDAN_SPRZEDAZ_NETTO} AS sprzedaz_netto
         ${ANALIZA_WYDAN_BASE_JOIN}
+        ${ANALIZA_WYDAN_INVOICE_JOIN}
         WHERE ${built.where}
       )
-      SELECT klient, SUM(ilosc) AS ilosc, MAX(nazwa) AS nazwa
+      SELECT klient, SUM(ilosc) AS ilosc, ROUND(SUM(sprzedaz_netto), 2) AS sprzedaz_netto, MAX(nazwa) AS nazwa
       FROM filtered
       GROUP BY klient
       ORDER BY ilosc DESC, klient COLLATE NOCASE`,
@@ -9640,12 +9655,14 @@ app.get('/api/analiza-wydan/:kod', (req, res) => {
         const byKlient = (rows || []).map((row) => ({
           klient: row.klient,
           ilosc: row.ilosc,
+          sprzedaz_netto: row.sprzedaz_netto,
         }));
         const nazwa = rows?.[0]?.nazwa || '';
         const totalIlosc = byKlient.reduce((sum, row) => sum + (row.ilosc || 0), 0);
+        const totalNetto = byKlient.reduce((sum, row) => sum + (row.sprzedaz_netto || 0), 0);
 
         console.log(`✅ Found ${byKlient.length} client rows for kod ${kod}`);
-        res.json({ kod, nazwa, ilosc: totalIlosc, by_klient: byKlient });
+        res.json({ kod, nazwa, ilosc: totalIlosc, sprzedaz_netto: Math.round(totalNetto * 100) / 100, by_klient: byKlient });
       }
     );
   });

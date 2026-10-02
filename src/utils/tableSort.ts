@@ -279,7 +279,7 @@ export function compareReservations<
 }
 
 export function compareAnalizaWydanProducts<
-  T extends { kod?: string; nazwa?: string; ilosc?: number }
+  T extends { kod?: string; nazwa?: string; ilosc?: number; sprzedaz_netto?: number }
 >(a: T, b: T, field: string, direction: SortDirection): number {
   switch (field) {
     case 'kod':
@@ -288,6 +288,8 @@ export function compareAnalizaWydanProducts<
       return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
     case 'ilosc':
       return compareSortValues(a.ilosc ?? 0, b.ilosc ?? 0, direction);
+    case 'sprzedaz_netto':
+      return compareSortValues(a.sprzedaz_netto ?? 0, b.sprzedaz_netto ?? 0, direction);
     default:
       return compareSortValues(lowerCase(a.nazwa), lowerCase(b.nazwa), direction);
   }

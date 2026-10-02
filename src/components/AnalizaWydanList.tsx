@@ -2,17 +2,20 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from 'react-modal';
 import { X } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
+import { formatPlMoney } from '../utils/receiptCurrency';
 import { compareAnalizaWydanProducts, extractDateFromOrderNumber, useTableSort } from '../utils/tableSort';
 
 interface WydaniaProduct {
   kod: string;
   nazwa: string;
   ilosc: number;
+  sprzedaz_netto: number;
 }
 
 interface WydaniaKlientRow {
   klient: string;
   ilosc: number;
+  sprzedaz_netto: number;
 }
 
 interface WydaniaTypRow {
@@ -90,6 +93,8 @@ const getTypWydaniaMeta = (typ: string) =>
 const formatBottles = (value: number) =>
   new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 }).format(value);
 
+const formatNetto = (value: number) => `${formatPlMoney(Number(value) || 0)} zł`;
+
 const buildFilterQuery = (filters: {
   klient: string;
   typy: string[];
@@ -132,7 +137,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
   const { sortField, sortDirection, handleSort, sortedItems: sortedProducts } = useTableSort(products, {
     defaultField: 'nazwa',
     defaultDirection: 'asc',
-    directionForField: (field) => (field === 'ilosc' ? 'desc' : 'asc'),
+    directionForField: (field) => (field === 'ilosc' || field === 'sprzedaz_netto' ? 'desc' : 'asc'),
     compareItems: compareAnalizaWydanProducts,
   });
 
@@ -548,12 +553,13 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
       <div className="w-full overflow-y-scroll max-h-[calc(100dvh-280px)] relative">
         <table
           className="table-fixed"
-          style={{ width: `calc(70% + 0.3 * (${kodColumnWidth}) + 2.1rem)` }}
+          style={{ width: `calc(70% + 0.3 * (${kodColumnWidth}) + 4.95rem)` }}
         >
           <colgroup>
             <col style={{ width: kodColumnWidth }} />
             <col />
             <col style={{ width: '7rem' }} />
+            <col style={{ width: '9.5rem' }} />
           </colgroup>
           <thead className="sticky top-0 z-10">
             <tr>
@@ -584,24 +590,33 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                 <SortIndicator field="ilosc" sortField={sortField} sortDirection={sortDirection} />
               </div>
             </th>
+            <th
+              className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50"
+              onClick={() => handleSort('sprzedaz_netto')}
+            >
+              <div className="flex items-center justify-end gap-1">
+                <span className="leading-tight">Sprzedaż netto</span>
+                <SortIndicator field="sprzedaz_netto" sortField={sortField} sortDirection={sortDirection} />
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {isLoading ? (
             <tr>
-              <td colSpan={3} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+              <td colSpan={4} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                 Ładowanie danych...
               </td>
             </tr>
           ) : error ? (
             <tr>
-              <td colSpan={3} className="px-8 py-8 text-center text-sm text-red-600 font-sora">
+              <td colSpan={4} className="px-8 py-8 text-center text-sm text-red-600 font-sora">
                 {error}
               </td>
             </tr>
           ) : products.length === 0 ? (
             <tr>
-              <td colSpan={3} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
+              <td colSpan={4} className="px-8 py-8 text-center text-sm text-gray-500 font-sora">
                 Brak danych o wydaniach
               </td>
             </tr>
@@ -627,11 +642,14 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                     <td className="px-8 py-3 whitespace-nowrap text-sm text-gray-600 font-sora">
                       {product.ilosc}
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 font-sora text-right">
+                      {formatNetto(product.sprzedaz_netto)}
+                    </td>
                   </tr>
 
                   {isExpanded && isDetailsLoading && (
                     <tr className="bg-gray-50">
-                      <td colSpan={3} className="px-8 py-3 text-sm text-gray-500 font-sora">
+                      <td colSpan={4} className="px-8 py-3 text-sm text-gray-500 font-sora">
                         Ładowanie szczegółów...
                       </td>
                     </tr>
@@ -639,7 +657,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
                   {isExpanded && detailsError && (
                     <tr className="bg-gray-50">
-                      <td colSpan={3} className="px-8 py-3 text-sm text-red-600 font-sora">
+                      <td colSpan={4} className="px-8 py-3 text-sm text-red-600 font-sora">
                         {detailsError}
                       </td>
                     </tr>
@@ -647,7 +665,7 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
 
                   {isExpanded && !isDetailsLoading && !detailsError && klientRows.length === 0 && (
                     <tr className="bg-gray-50">
-                      <td colSpan={3} className="px-8 py-3 text-sm text-gray-500 font-sora">
+                      <td colSpan={4} className="px-8 py-3 text-sm text-gray-500 font-sora">
                         Brak danych o klientach
                       </td>
                     </tr>
@@ -671,6 +689,9 @@ export const AnalizaWydanList: React.FC<AnalizaWydanListProps> = ({
                         </td>
                         <td className="px-8 py-2 whitespace-nowrap text-sm text-gray-600 font-sora">
                           {row.ilosc}
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-600 font-sora text-right">
+                          {formatNetto(row.sprzedaz_netto)}
                         </td>
                       </tr>
                     ))}
