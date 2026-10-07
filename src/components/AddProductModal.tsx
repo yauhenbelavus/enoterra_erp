@@ -364,7 +364,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         kod_kreskowy: row.kod_kreskowy || '',
         ilosc: parseFloat(row.ilosc) || 0,
         cena: parseFloat(row.cena.replace(',', '.')) || 0,
-        cena_zakupu_po_rabacie: cenaPoRabacie(parseFloat(row.cena.replace(',', '.')) || 0, rabatValue),
+        cena_zakupu_po_rabacie: cenaPoRabacie(parseFloat(row.cena.replace(',', '.')) || 0, rabatValue, row.typ),
         dataWaznosci: row.dataWaznosci ? row.dataWaznosci.toLocaleDateString('en-CA') : undefined,
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,

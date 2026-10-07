@@ -29,8 +29,17 @@ export function roundMoney(value: string | number | undefined | null): number {
   return Math.round(parsePlNumber(value) * 100) / 100;
 }
 
+/** Cena jednostkowa po rabacie: 3 miejsca (do mnożenia przez ilość). */
+export function roundCenaPoRabacie(value: string | number | undefined | null): number {
+  return Math.round(parsePlNumber(value) * 1000) / 1000;
+}
+
 export function formatPlMoney(value: number): string {
   return value.toFixed(2).replace('.', ',');
+}
+
+export function formatCenaPoRabacie(value: number): string {
+  return roundCenaPoRabacie(value).toFixed(3).replace('.', ',');
 }
 
 export function parseRabatPercent(rabat?: number | null): number {
@@ -45,20 +54,36 @@ export function formatRabatPercent(rabat?: number | null): string {
   return n.toFixed(2).replace('.', ',');
 }
 
-/** Invoice unit price after the receipt header rabat. */
-export function cenaPoRabacie(cena?: number | null, rabat?: number | null): number {
-  return roundMoney((cena || 0) * (1 - parseRabatPercent(rabat) / 100));
+export function isAksesoriaTyp(typ?: string | null): boolean {
+  return String(typ || '').trim() === 'aksesoria';
+}
+
+/**
+ * Cena jednostkowa po rabacie z nagłówka (3 miejsca).
+ * Aksesoria: rabat nagłówka nie dotyczy — zwracamy cenę katalogową.
+ * Wartość linii = roundMoney(ilosc × cenaPoRabacie(...)).
+ */
+export function cenaPoRabacie(
+  cena?: number | null,
+  rabat?: number | null,
+  typ?: string | null
+): number {
+  if (isAksesoriaTyp(typ)) {
+    return roundCenaPoRabacie(cena || 0);
+  }
+  return roundCenaPoRabacie((cena || 0) * (1 - parseRabatPercent(rabat) / 100));
 }
 
 export function cenaZakupuNaStanie(item: {
   cena_zakupu_pln?: number | null;
   cena_zakupu_po_rabacie?: number | null;
   rabat?: number | null;
+  typ?: string | null;
 }): number {
   if (item.cena_zakupu_po_rabacie != null && Number.isFinite(Number(item.cena_zakupu_po_rabacie))) {
     return roundMoney(item.cena_zakupu_po_rabacie);
   }
-  return cenaPoRabacie(item.cena_zakupu_pln, item.rabat);
+  return cenaPoRabacie(item.cena_zakupu_pln, item.rabat, item.typ);
 }
 
 export function getKosztWlasny(item: {

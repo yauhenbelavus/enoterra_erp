@@ -12,6 +12,7 @@ import {
   normalizeWalutaFaktury,
   roundMoney,
   cenaPoRabacie,
+  formatCenaPoRabacie,
   formatKursRate,
   formatPlMoney,
   parsePlNumber,
@@ -118,7 +119,7 @@ const getRowLineValue = (row: ProductRow): number => {
 const getRowLineValuePoRabacie = (row: ProductRow, rabatPercent: number): number => {
   const ilosc = parseFloat(row.ilosc) || 0;
   const cenaPelna = row.cenaPelna ?? parsePlNumber(row.cena);
-  return ilosc * cenaPoRabacie(cenaPelna, rabatPercent);
+  return roundMoney(ilosc * cenaPoRabacie(cenaPelna, rabatPercent, row.typ));
 };
 
 const getRowLineBruttoPoRabacie = (row: ProductRow, rabatPercent: number): number =>
@@ -452,7 +453,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                 <DisplaySlot className={ROW_SLOT}>{row.cena}</DisplaySlot>
                 {showRabatCol && (
                   <DisplaySlot className={ROW_SLOT}>
-                    {formatPlMoney(cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), rabatPercent))}
+                    {formatCenaPoRabacie(cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), rabatPercent, row.typ))}
                   </DisplaySlot>
                 )}
                 <DisplaySlot className={ROW_SLOT}>

@@ -16,7 +16,7 @@ async function extractTextFromPdfBuffer(buffer) {
 // gemini-2.5-flash is unavailable for new API keys; gemini-3.7-flash is frequently
 // overloaded on free tier (500/429), so use the stable gemini-3.6-flash via Interactions API.
 
-const { enrichOcrProducts } = require('./purchaseInvoiceCatalogMatch');
+const { enrichOcrProducts, pickCanonicalSupplier, loadWorkingSheetsCatalog } = require('./purchaseInvoiceCatalogMatch');
 
 async function parseWithGemini(text) {
   const apiKey = (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '').trim();
@@ -572,9 +572,10 @@ async function parsePurchaseInvoicePdf(buffer, db) {
     }
 
     const waluta = normalizeWaluta(parsed.waluta);
-    const sprzedawca = cleanSupplierName(parsed.sprzedawca);
+    const catalog = db ? await loadWorkingSheetsCatalog(db) : [];
+    const sprzedawca = pickCanonicalSupplier(cleanSupplierName(parsed.sprzedawca), catalog);
     const mappedProducts = (parsed.products || []).map((product) => mapProduct(product, waluta));
-    const products = await enrichOcrProducts(mappedProducts, sprzedawca, db);
+    const products = await enrichOcrProducts(mappedProducts, sprzedawca, db, catalog);
 
     return {
       success: true,

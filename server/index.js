@@ -342,10 +342,10 @@ function withCenaPln(products, walutaFaktury, kursFakturyToPln) {
   return products.map((p) => {
     const orig = roundMoney(p.cena);
     const cenaPln = waluta === 'PLN' ? orig : roundMoney(orig * rate);
-    const origPoRabacie = hasClientCenaPoRabacie(p) ? roundMoney(p.cena_zakupu_po_rabacie) : null;
+    const origPoRabacie = hasClientCenaPoRabacie(p) ? roundCenaPoRabacie(p.cena_zakupu_po_rabacie) : null;
     const poRabaciePln = origPoRabacie == null
       ? null
-      : (waluta === 'PLN' ? origPoRabacie : roundMoney(origPoRabacie * rate));
+      : (waluta === 'PLN' ? origPoRabacie : roundCenaPoRabacie(origPoRabacie * rate));
     return { ...p, cena: cenaPln, cenaOryginalna: orig, cena_zakupu_po_rabacie: poRabaciePln };
   });
 }
@@ -415,10 +415,12 @@ function withCenaEur(products, walutaFaktury, aktualnyKurs, kursFaktury) {
     const cenaEur = waluta === 'EUR'
       ? cenaOryginalna
       : convertCenaToEur(cenaOryginalna, waluta, aktualnyKurs, kursFaktury);
-    const origPoRabacie = hasClientCenaPoRabacie(p) ? roundMoney(p.cena_zakupu_po_rabacie) : null;
+    const origPoRabacie = hasClientCenaPoRabacie(p) ? roundCenaPoRabacie(p.cena_zakupu_po_rabacie) : null;
     const poRabacieEur = origPoRabacie == null
       ? null
-      : (waluta === 'EUR' ? origPoRabacie : convertCenaToEur(origPoRabacie, waluta, aktualnyKurs, kursFaktury));
+      : (waluta === 'EUR'
+        ? origPoRabacie
+        : roundCenaPoRabacie(origPoRabacie / parseKursValue(kursFaktury)));
     return { ...p, cena: cenaEur, cenaOryginalna, cena_zakupu_po_rabacie: poRabacieEur };
   });
 }
@@ -451,12 +453,19 @@ function roundMoney(value) {
   return Math.round(n * 100) / 100;
 }
 
+/** Cena jednostkowa po rabacie: 3 miejsca (wartość linii = roundMoney(ilosc × cena)). */
+function roundCenaPoRabacie(value) {
+  const n = parseFloat(String(value ?? '0').replace(',', '.'));
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 1000) / 1000;
+}
+
 function parseRabatPercentValue(rabat) {
   return parseFloat(String(rabat ?? '0').replace(',', '.')) || 0;
 }
 
 function cenaZakupuPoRabacieFromCena(cena, rabat) {
-  return roundMoney((parseFloat(String(cena ?? 0).replace(',', '.')) || 0) * (1 - parseRabatPercentValue(rabat) / 100));
+  return roundCenaPoRabacie((parseFloat(String(cena ?? 0).replace(',', '.')) || 0) * (1 - parseRabatPercentValue(rabat) / 100));
 }
 
 function hasClientCenaPoRabacie(product) {
@@ -466,10 +475,15 @@ function hasClientCenaPoRabacie(product) {
 function stampCenaZakupuPoRabacie(products, rabat) {
   if (!Array.isArray(products)) return products;
   for (const product of products) {
+    // Aksesoria: rabat z nagłówka nie jest rozkładany na jednostkę
+    if (String(product.typ || '').trim() === 'aksesoria') {
+      product.cena_zakupu_po_rabacie = roundCenaPoRabacie(product.cena || 0);
+      continue;
+    }
     if (!hasClientCenaPoRabacie(product)) {
       product.cena_zakupu_po_rabacie = cenaZakupuPoRabacieFromCena(product.cena, rabat);
     } else {
-      product.cena_zakupu_po_rabacie = roundMoney(product.cena_zakupu_po_rabacie);
+      product.cena_zakupu_po_rabacie = roundCenaPoRabacie(product.cena_zakupu_po_rabacie);
     }
   }
   return products;
@@ -506,7 +520,7 @@ function formatProductCenaZakupu(row) {
   return {
     ...row,
     cena_zakupu_pln: row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln),
-    cena_zakupu_po_rabacie: row.cena_zakupu_po_rabacie == null ? row.cena_zakupu_po_rabacie : roundMoney(row.cena_zakupu_po_rabacie),
+    cena_zakupu_po_rabacie: row.cena_zakupu_po_rabacie == null ? row.cena_zakupu_po_rabacie : roundCenaPoRabacie(row.cena_zakupu_po_rabacie),
     cena_zakupu_org: row.cena_zakupu_org == null ? row.cena_zakupu_org : roundMoney(row.cena_zakupu_org),
     rabat: roundMoney(row.rabat),
   };
@@ -652,7 +666,7 @@ function insertProductBatchParams(product, receiptId, iloscAktualna, date) {
     product.nazwa,
     product.kod_kreskowy || null,
     roundMoney(product.cena || 0),
-    roundMoney(product.cena_zakupu_po_rabacie != null ? product.cena_zakupu_po_rabacie : product.cena || 0),
+    roundCenaPoRabacie(product.cena_zakupu_po_rabacie != null ? product.cena_zakupu_po_rabacie : product.cena || 0),
     product.ilosc,
     iloscAktualna,
     receiptId,
@@ -682,7 +696,7 @@ function updateProductBatchByIdParams(product, productId, withQty, iloscAktualna
     product.nazwa,
     product.kod_kreskowy || null,
     roundMoney(product.cena || 0),
-    roundMoney(product.cena_zakupu_po_rabacie != null ? product.cena_zakupu_po_rabacie : product.cena || 0),
+    roundCenaPoRabacie(product.cena_zakupu_po_rabacie != null ? product.cena_zakupu_po_rabacie : product.cena || 0),
   ];
   if (withQty) {
     values.push(product.ilosc, iloscAktualna);
@@ -1738,7 +1752,7 @@ function backfillCenaZakupuPoRabacie(done) {
        COALESCE(cena_zakupu_pln, 0) * (1 - COALESCE((
          SELECT pr.rabat FROM product_receipts pr WHERE pr.id = products.receipt_id
        ), 0) / 100.0),
-       2
+       3
      )
      WHERE cena_zakupu_po_rabacie IS NULL`,
     function (err) {
@@ -1752,15 +1766,7 @@ function backfillCenaZakupuPoRabacie(done) {
       if (this.changes > 0) {
         console.log(`✅ Backfilled products.cena_zakupu_po_rabacie on ${this.changes} rows`);
       }
-      db.run(
-        'UPDATE products SET cena_zakupu_po_rabacie = ROUND(cena_zakupu_po_rabacie, 2) WHERE cena_zakupu_po_rabacie IS NOT NULL',
-        function (roundErr) {
-          if (roundErr && !String(roundErr.message || '').includes('no such column')) {
-            console.error('❌ Error rounding products.cena_zakupu_po_rabacie:', roundErr.message);
-          }
-          finish();
-        }
-      );
+      finish();
     }
   );
 }
@@ -10670,10 +10676,17 @@ function prepareReceiptWriteRequest(req, options = {}) {
   stampCenaZakupuPoRabacie(productsInternal, rabat);
 
   const rabatValueForWartosc = parseFloat(String(rabat || '0').replace(',', '.')) || 0;
-  const productsTotalValue = productsForJson.reduce((sum, p) => {
-    return sum + ((p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0));
-  }, 0);
-  const calculatedNetto = Math.round(productsTotalValue * (1 - rabatValueForWartosc / 100) * 100) / 100;
+  // Rabat tylko na wino; aksesoria wchodzą w netto bez rabatu
+  let productsDiscountableValue = 0;
+  let productsAksesoriaValue = 0;
+  for (const p of productsForJson) {
+    const line = (p.ilosc || 0) * (parseFloat(String(p.cena || '0').replace(',', '.')) || 0);
+    if (String(p.typ || '').trim() === 'aksesoria') productsAksesoriaValue += line;
+    else productsDiscountableValue += line;
+  }
+  const calculatedNetto = Math.round(
+    (productsDiscountableValue * (1 - rabatValueForWartosc / 100) + productsAksesoriaValue) * 100
+  ) / 100;
   const clientNetto = parseFloat(String(wartosc_przyjecia_netto ?? '0').replace(',', '.')) || 0;
   wartosc_przyjecia_netto = roundMoney(clientNetto > 0 ? clientNetto : calculatedNetto);
   vat = roundMoney(vat);
@@ -11724,13 +11737,13 @@ app.get('/api/working-sheets', (req, res) => {
     res.json((rows || []).map((row) => {
       const rabat = roundMoney(row.rabat);
       const cenaPln = row.cena_zakupu_pln == null ? row.cena_zakupu_pln : roundMoney(row.cena_zakupu_pln);
-      const storedPoRabacie = row.cena_zakupu_po_rabacie == null ? null : roundMoney(row.cena_zakupu_po_rabacie);
+      const storedPoRabacie = row.cena_zakupu_po_rabacie == null ? null : roundCenaPoRabacie(row.cena_zakupu_po_rabacie);
       return {
         ...row,
         cena_zakupu_pln: cenaPln,
         rabat,
         cena_zakupu_po_rabacie: storedPoRabacie == null
-          ? roundMoney((cenaPln || 0) * (1 - rabat / 100))
+          ? roundCenaPoRabacie((cenaPln || 0) * (1 - rabat / 100))
           : storedPoRabacie,
       };
     }));

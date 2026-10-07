@@ -63,12 +63,21 @@ function isVintageToken(token) {
   return /^(?:19|20)\d{2}$/.test(token);
 }
 
+const ESTATE_PREFIX_PATTERN =
+  /^(?:weingut|winzerhof|winzer|winery|wineries|domaine?s?|cantina(?:\s+dei|\s+della|\s+delle|\s+del)?|azienda(?:\s+agricola)?|societa(?:\s+agricola)?|tenuta|chateau|bodegas?|quinta|cellars?|vignerons?|vignoble|estate|vineyards?|agricola|maison|casa(?:\s+vinicola)?|podere|fattoria|castello|schloss)\s+/;
+
 function normalizeSupplierName(name) {
   let s = String(name || '').trim();
   if (!s) return '';
   s = s.replace(/,.*$/, '').trim();
   s = s.replace(LEGAL_FORM_PATTERN, '').trim();
-  return foldCase(s.replace(/\s+/g, ' ').trim());
+  s = foldCase(foldDiacritics(foldCase(s))).replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(ESTATE_PREFIX_PATTERN, '').trim();
+  } while (s !== prev && s);
+  return s;
 }
 
 function stripMatchNoise(name) {
@@ -202,7 +211,11 @@ function supplierMatches(catalogSprzedawca, invoiceSprzedawca) {
   const invoice = normalizeSupplierName(invoiceSprzedawca);
   const catalog = normalizeSupplierName(catalogSprzedawca);
   if (!invoice || !catalog) return false;
-  return invoice === catalog || invoice.includes(catalog) || catalog.includes(invoice);
+  if (invoice === catalog) return true;
+  // Whole-token phrase only — "allram" matches "weingut allram", but "all" does not match "allram".
+  const inv = ` ${invoice} `;
+  const cat = ` ${catalog} `;
+  return inv.includes(cat) || cat.includes(inv);
 }
 
 function pickBestRow(candidates, invoiceSprzedawca) {
@@ -217,6 +230,65 @@ function pickBestRow(candidates, invoiceSprzedawca) {
   }
 
   return [...pool].sort((a, b) => (b.id || 0) - (a.id || 0))[0];
+}
+
+/**
+ * Resolve the canonical supplier name from working_sheets for an OCR-parsed supplier.
+ * e.g. invoice "WEINGUT ALLRAM" → catalog "Allram". Returns the canonical DB string,
+ * or the original invoiceSprzedawca when there is no confident match.
+ */
+function pickCanonicalOriginal(entries) {
+  let best = null;
+  for (const [original, count] of entries) {
+    const len = original.length;
+    if (
+      !best ||
+      count > best.count ||
+      (count === best.count && len < best.len)
+    ) {
+      best = { original, count, len };
+    }
+  }
+  return best ? best.original : '';
+}
+
+/**
+ * Resolve the canonical supplier name from working_sheets for an OCR-parsed supplier.
+ * e.g. invoice "WEINGUT ALLRAM" → catalog "Allram". Returns the canonical DB string,
+ * or the original invoiceSprzedawca when there is no confident match.
+ */
+function pickCanonicalSupplier(invoiceSprzedawca, catalogRows) {
+  const invoiceNorm = normalizeSupplierName(invoiceSprzedawca);
+  if (!invoiceNorm || !Array.isArray(catalogRows)) return invoiceSprzedawca;
+
+  const byNorm = new Map(); // normalized → Map(original spelling → count)
+  for (const row of catalogRows) {
+    const original = String(row.sprzedawca || '').trim();
+    if (!original) continue;
+    const norm = normalizeSupplierName(original);
+    if (!norm) continue;
+    if (!byNorm.has(norm)) byNorm.set(norm, new Map());
+    const spellings = byNorm.get(norm);
+    spellings.set(original, (spellings.get(original) || 0) + 1);
+  }
+
+  if (byNorm.has(invoiceNorm)) {
+    return pickCanonicalOriginal(byNorm.get(invoiceNorm));
+  }
+
+  let best = null;
+  for (const [norm, spellings] of byNorm) {
+    if (!supplierMatches(norm, invoiceNorm)) continue;
+    const original = pickCanonicalOriginal(spellings);
+    if (
+      !best ||
+      norm.length > best.norm.length ||
+      (norm.length === best.norm.length && original.length < best.original.length)
+    ) {
+      best = { norm, original };
+    }
+  }
+  return best ? best.original : invoiceSprzedawca;
 }
 
 function buildCatalogIndexes(catalogRows) {
@@ -283,13 +355,15 @@ function loadWorkingSheetsCatalog(db) {
  * @param {string} invoiceSprzedawca cleaned supplier from OCR
  * @param {import('sqlite3').Database} db
  */
-async function enrichOcrProducts(mappedProducts, invoiceSprzedawca, db) {
-  if (!db || !Array.isArray(mappedProducts) || mappedProducts.length === 0) {
+async function enrichOcrProducts(mappedProducts, invoiceSprzedawca, db, catalogRows = null) {
+  if (!Array.isArray(mappedProducts) || mappedProducts.length === 0) {
     return mappedProducts;
   }
 
-  const catalog = await loadWorkingSheetsCatalog(db);
-  if (catalog.length === 0) {
+  const catalog = Array.isArray(catalogRows)
+    ? catalogRows
+    : (db ? await loadWorkingSheetsCatalog(db) : []);
+  if (!catalog || catalog.length === 0) {
     return mappedProducts.map((p) => ({ ...p, catalog_matched: false }));
   }
 
@@ -317,4 +391,6 @@ module.exports = {
   enrichOcrProducts,
   pickBestRow,
   matchByNazwa,
+  pickCanonicalSupplier,
+  loadWorkingSheetsCatalog,
 };

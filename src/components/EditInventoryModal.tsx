@@ -4,7 +4,7 @@ import DatePicker, { registerLocale } from 'react-datepicker';
 import { pl } from 'date-fns/locale';
 import { X, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { cenaPoRabacie, formatRabatPercent, parseRabatPercent, roundMoney } from '../utils/receiptCurrency';
+import { cenaPoRabacie, formatCenaPoRabacie, formatRabatPercent, isAksesoriaTyp, parseRabatPercent, roundMoney } from '../utils/receiptCurrency';
 import "react-datepicker/dist/react-datepicker.css";
 import "./DatePicker.css";
 
@@ -465,9 +465,9 @@ export const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
                   placeholder="0.00"
                   className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
-                {parseRabatPercent(item?.rabat) > 0 && (
+                {parseRabatPercent(item?.rabat) > 0 && !isAksesoriaTyp(formData.typ || item?.typ) && (
                   <p className="mt-1 text-[10px] text-blue-700 font-sora">
-                    Cena z faktury. Rabat {formatRabatPercent(item?.rabat)}% → {cenaPoRabacie(parseFloat(formData.cena_zakupu_pln) || item?.cena_zakupu_pln, item?.rabat).toFixed(2)} zł na stanie
+                    Cena z faktury. Rabat {formatRabatPercent(item?.rabat)}% → {formatCenaPoRabacie(cenaPoRabacie(parseFloat(formData.cena_zakupu_pln) || item?.cena_zakupu_pln, item?.rabat, formData.typ || item?.typ))} zł na stanie
                   </p>
                 )}
               </div>

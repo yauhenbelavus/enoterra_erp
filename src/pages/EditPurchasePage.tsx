@@ -20,6 +20,7 @@ import {
   sharesKursToPlnPair,
   roundMoney,
   cenaPoRabacie,
+  formatCenaPoRabacie,
   formatKursRate,
   toKursToPln,
   validatePurchaseKursPair,
@@ -170,7 +171,7 @@ const getRowLineValue = (row: ProductRow): number => {
 const getRowLineValuePoRabacie = (row: ProductRow, rabatPercent: number): number => {
   const ilosc = parseFloat(row.ilosc) || 0;
   const cenaPelna = row.cenaPelna ?? parsePlNumber(row.cena);
-  return ilosc * cenaPoRabacie(cenaPelna, rabatPercent);
+  return roundMoney(ilosc * cenaPoRabacie(cenaPelna, rabatPercent, row.typ));
 };
 
 const getRowLineBrutto = (row: ProductRow): number =>
@@ -660,7 +661,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         kod_kreskowy: row.kod_kreskowy || '',
         ilosc: parseFloat(row.ilosc) || 0,
         cena: parseFloat(row.cena.replace(',', '.')) || 0,
-        cena_zakupu_po_rabacie: cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), parsePlNumber(rabat)),
+        cena_zakupu_po_rabacie: cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), parsePlNumber(rabat), row.typ),
         dataWaznosci: row.dataWaznosci ? row.dataWaznosci.toLocaleDateString('en-CA') : undefined,
         vat: row.vat,
         typ: row.typ || undefined,
@@ -1141,7 +1142,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 {showRabatCol && (
                   <input
                     type="text"
-                    value={formatPlMoney(cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), rabatPercent))}
+                    value={formatCenaPoRabacie(cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), rabatPercent, row.typ))}
                     readOnly
                     className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                   />
