@@ -1383,7 +1383,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
             onChange={(e) => setHideZeroStock(e.target.checked)}
             className="cursor-pointer"
           />
-          Ukryj zerowe
+          Ukryj zerowe stany
         </label>
         <button
           onClick={handleGenerateReport}
@@ -1414,16 +1414,20 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
               {selectedInventory.length > 0 ? selectedInventory.reduce((sum, item) => sum + (item.ilosc || 0), 0) : 0}
             </p>
           </div>
-          <div className="bg-white p-2 rounded-lg border rounded-lg max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-            <h3 className="text-xs font-medium text-gray-500 font-sora">Wartość towaru zakupu</h3>
+          <div className="bg-white p-2 rounded-lg border rounded-lg max-w-[200px] w-full sm:w-auto flex-1 min-w-[200px]">
+            <h3 className="text-[10px] sm:text-xs font-medium text-gray-500 font-sora whitespace-nowrap">
+              Wartość wg ceny zakupu
+            </h3>
             <p className="text-2xl font-bold text-blue-600 font-sora">
               {selectedInventory.length > 0 ? selectedInventory.reduce((sum, item) => {
                 return sum + (wartoscTowaru[item.kod] || 0);
-              }, 0).toFixed(2) : '0.00'} €
+              }, 0).toFixed(2) : '0.00'} zł
             </p>
           </div>
-          <div className="bg-white p-2 rounded-lg border rounded-lg max-w-[170px] w-full sm:w-auto flex-1 min-w-[170px]">
-            <h3 className="text-xs font-medium text-gray-500 font-sora">Wartość towaru sprzedaży</h3>
+          <div className="bg-white p-2 rounded-lg border rounded-lg max-w-[200px] w-full sm:w-auto flex-1 min-w-[200px]">
+            <h3 className="text-[10px] sm:text-xs font-medium text-gray-500 font-sora whitespace-nowrap">
+              Wartość wg ceny sprzedaży
+            </h3>
             <p className="text-2xl font-bold text-red-600 font-sora">
               {selectedInventory.length > 0 ? selectedInventory.reduce((sum, item) => {
                 const cenaSprzedazy = item.cena_sprzedazy_pln || 0;
