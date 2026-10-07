@@ -114,6 +114,7 @@ interface OcrPurchaseInvoiceResponse {
   data?: {
     sprzedawca: string;
     waluta?: string;
+    rabat?: string;
     suma_netto?: string;
     suma_vat?: string;
     suma_brutto?: string;
@@ -349,6 +350,11 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     if (payload.sprzedawca) setSprzedawca(payload.sprzedawca);
     if (payload.waluta) setWalutaFaktury(normalizeWalutaFaktury(payload.waluta));
 
+    // Cena z OCR = cena katalogowa BEZ rabatu; % trafia do pola Rabat → cena po rabacie liczy się w UI
+    const ocrRabat = parseOcrMoney(payload.rabat);
+    const rabatValue = ocrRabat != null && ocrRabat > 0 ? ocrRabat : 0;
+    if (ocrRabat != null) setRabat(formatPlMoney(rabatValue));
+
     const nextRows: ProductRow[] = payload.products.length > 0
       ? payload.products.map((p) => ({
           kod: p.kod?.trim() || '',
@@ -367,7 +373,6 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
     if (payload.products.length > 0) setProductRows(nextRows);
 
-    const rabatValue = parseFloat(rabat.replace(',', '.')) || 0;
     const nettoFromRows = nextRows.reduce((sum, row) => sum + getRowLineValuePoRabacie(row, rabatValue), 0);
     const bruttoFromRows = nextRows.reduce((sum, row) => sum + getRowLineBruttoPoRabacie(row, rabatValue), 0);
     const vatFromRows = Math.max(0, bruttoFromRows - nettoFromRows);

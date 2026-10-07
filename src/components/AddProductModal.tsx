@@ -104,6 +104,7 @@ interface OcrPurchaseInvoiceResponse {
   data?: {
     sprzedawca: string;
     waluta?: string;
+    rabat?: string;
     suma_netto?: string;
     suma_vat?: string;
     suma_brutto?: string;
@@ -257,6 +258,12 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
 
     if (payload.waluta) {
       setWalutaFaktury(normalizeWalutaFaktury(payload.waluta));
+    }
+
+    // Cena z OCR = bez rabatu; % rabatu → pole Rabat
+    if (payload.rabat != null && String(payload.rabat).trim() !== '') {
+      const rabatNum = parseFloat(String(payload.rabat).replace(',', '.')) || 0;
+      setRabat(rabatNum.toFixed(2).replace('.', ','));
     }
 
     if (payload.suma_vat != null && String(payload.suma_vat).trim() !== '') {

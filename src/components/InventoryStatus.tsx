@@ -108,8 +108,6 @@ const EXCEL_MONEY_CELL_STYLE = {
 const toExcelMoney = (value?: number | null): number | null =>
   value != null ? Number(value.toFixed(2)) : null;
 
-const toExcelCenaPoRabacie = (value?: number | null): number | null =>
-  value != null ? Number(value.toFixed(3)) : null;
 
 const getTypExcelBadgeColors = (typ?: string): ExcelBadgeColors =>
   (typ && TYP_EXCEL_BADGE_COLORS[typ]) || DEFAULT_EXCEL_BADGE;
@@ -1283,9 +1281,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
           : '-',
         Rezerwacje: reservationsCount[item.kod] || 0,
         Objętość: item.objetosc ? `${item.objetosc} l` : '-',
-        'Cena zakupu': item.cena_zakupu_po_rabacie != null
-          ? toExcelCenaPoRabacie(item.cena_zakupu_po_rabacie)
-          : toExcelMoney(item.cena_zakupu_pln),
+        'Cena zakupu': toExcelMoney(item.cena_zakupu_po_rabacie ?? item.cena_zakupu_pln),
         'Koszt własny': toExcelMoney(getKosztWlasny(item)),
         'Cena sprzedaży': toExcelMoney(item.cena_sprzedazy_pln),
         'Data ważności': formatDate(item.data_waznosci),
@@ -1773,7 +1769,7 @@ export const InventoryStatus: React.FC<InventoryStatusProps> = ({ refreshTrigger
                     </td>
                     <td className="px-8 py-4 text-left text-xs text-gray-600 font-sora leading-tight align-baseline whitespace-nowrap">
                       {item.cena_zakupu_po_rabacie != null
-                        ? `${Number(item.cena_zakupu_po_rabacie).toFixed(3)} zł`
+                        ? `${Number(item.cena_zakupu_po_rabacie).toFixed(2)} zł`
                         : item.cena_zakupu_pln != null
                           ? `${Number(item.cena_zakupu_pln).toFixed(2)} zł`
                           : '-'}

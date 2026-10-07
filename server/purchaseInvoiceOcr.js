@@ -30,11 +30,12 @@ Return ONLY valid JSON (no markdown, no explanation):
 {
   "sprzedawca": "supplier company name",
   "waluta": "EUR",
+  "rabat": "30",
   "suma_netto": "1150,50",
   "suma_vat": "264,62",
   "suma_brutto": "1415,12",
   "products": [
-    {"nazwa": "Ambijus Act Naturally 750ml", "ilosc": 30, "cena_katalogowa": "38,35", "rabat_procent": 0, "wartosc_netto": "1150,50", "vat_procent": 23, "wartosc_brutto": "1415,12"}
+    {"nazwa": "Ambijus Act Naturally 750ml", "ilosc": 30, "cena_katalogowa": "38,35", "rabat_procent": 30, "wartosc_netto": "805,35", "vat_procent": 23, "wartosc_brutto": "990,58"}
   ]
 }
 
@@ -118,43 +119,58 @@ SKIP non-goods rows:
 INCLUDE F.o.C./Omaggio/free rows: cena_katalogowa "0", wartosc_netto "0", wartosc_brutto "0", rabat_procent 0 (ilosc > 0).
 
 === PRICES — extract RAW values only (NO calculations) ===
-Extract exactly what is printed on the invoice. Do NOT multiply, divide, or apply discount/VAT.
+Extract exactly what is printed on the invoice. Do NOT multiply, divide, or apply discount/VAT yourself.
+
+CRITICAL for the ERP form:
+- Field "cena" on the form = LIST / catalog unit price BEFORE discount
+- Field "rabat" on the form = discount % (header)
+- "Cena po rabacie" is calculated later by the app from cena + rabat — NEVER put the discounted unit price into cena_katalogowa
 
 Fields per product:
-- cena_katalogowa: unit list/catalog price from price column BEFORE discount
-  (PL: "Cena netto", IT: "PREZZO UNIT.", DK: "Stk. pris", EN: "ITEM.PRICE", FR: "P.U. HT")
-- rabat_procent: discount % from row (% SCONTO, Sc.%, % Rem, DISC.) — 0 if none
-- wartosc_netto: line NET total (Wartość netto, IMPORTO NETTO, Imp. Netto, Montant HT)
+- cena_katalogowa: unit LIST price BEFORE any discount
+  (PL: "Cena netto" / "Cena" before rabat, IT: "PREZZO UNIT.", DK: "Stk. pris", EN: "ITEM.PRICE", FR: "P.U. HT")
+  If the invoice shows BOTH a list price and a discounted unit price, take the LIST price (before % SCONTO / rabat).
+- rabat_procent: discount % from that row (% SCONTO, Sc.%, % Rem, DISC., Rabat %) — 0 if none
+- wartosc_netto: line NET total AFTER discount (Wartość netto, IMPORTO NETTO, Imp. Netto, Montant HT)
 - vat_procent: VAT rate as integer (23, 5, 22) or 0 if not shown
 - wartosc_brutto: line GROSS total (Wartość brutto) or "0" if not on invoice
 
+Document-level field:
+- rabat: the invoice discount % for the form header. Prefer the % shared by paid product rows
+  (e.g. all wine lines have 30% → "30"). If rows differ, use the most common non-zero %.
+  "0" if there is no discount. Do NOT put a money amount here — only the percent.
+
 NEVER confuse unit price with line total:
-  Cena netto 38,35 (unit) ≠ Wartość netto 1150,50 (line total)
+  PREZZO UNIT. 5,40 (unit BEFORE discount) ≠ IMPORTO NETTO 2358,72 (line total AFTER discount)
 
 NEVER apply discount or VAT yourself — extract raw column values only.
+NEVER return cena_katalogowa = wartosc_netto / ilosc when a list price column exists
+(that would be the AFTER-discount unit — wrong for this form).
 
-=== PLN INVOICES (zł) — CRITICAL ===
-When waluta is PLN, server final unit price uses NET only:
-1. Prefer unit "Cena netto" (cena_katalogowa) — after discount if rabat_procent > 0
-2. If Cena netto is missing/0 → server uses wartosc_netto / ilosc
-3. NEVER use Cena brutto, Wartość brutto, or VAT markup for PLN
-4. Still extract wartosc_brutto / vat_procent if present on the PDF (raw), but they are ignored for PLN cena
+=== PLN INVOICES (zł) ===
+1. cena_katalogowa = unit "Cena netto" / list unit BEFORE rabat
+2. rabat_procent = row discount % (0 if none)
+3. Still extract wartosc_netto / wartosc_brutto / vat_procent as printed
+4. NEVER use Cena brutto / Wartość brutto as cena_katalogowa
 
-PLN example:
+PLN example (no discount):
   Cena netto 31,70 | Ilość 30 | Wartość netto 951,00 | VAT 5% | Wartość brutto 998,55
-  → server cena = 31,70 (NOT 998,55/30, NOT 31,70×1,05)
+  → cena_katalogowa "31,70", rabat_procent 0, document rabat "0"
 
-PLN without unit price:
-  Ilość 30 | Wartość netto 951,00 (no Cena netto column)
-  → server cena = 951,00 / 30 = 31,70
+PLN with discount (if shown):
+  Cena 10,00 | Rabat 10% | Ilość 12 | Wartość netto 108,00
+  → cena_katalogowa "10,00", rabat_procent 10, document rabat "10"
 
-=== EUR / DKK — server calculation ===
-- Net after discount: wartosc_netto / ilosc  (or cena_katalogowa × (1 − rabat/100) if no line net)
-- Brutto with VAT:    wartosc_brutto / ilosc  (when Wartość brutto column is present)
-- Fallback VAT only if wartosc_brutto missing: net × (1 + vat_procent/100)
+=== EUR / DKK ===
+- cena_katalogowa = PREZZO UNIT. / Stk. pris / ITEM.PRICE BEFORE % SCONTO
+- rabat_procent = % SCONTO / Sc.% from the row
+- wartosc_netto = IMPORTO NETTO / line net AFTER discount (raw)
+- Do NOT put (wartosc_netto / ilosc) or (wartosc_brutto / ilosc) into cena_katalogowa
 
-EUR/DKK SC row example:
-  wartosc_brutto 1415,12 / ilosc 30 → server cena = 47,17 (do NOT multiply 38,35 × 1,23 yourself)
+EUR/DKK example:
+  PREZZO UNIT. 5,400 | % SCONTO 30 | QUANTITA' 624 | IMPORTO NETTO 2.358,72
+  → cena_katalogowa "5,400", rabat_procent 30, document rabat "30"
+  (app will compute cena po rabacie ≈ 3,780 and wartość ≈ 2358,72)
 
 === MULTI-LINE ROWS (critical — read before parsing) ===
 PDF text often splits ONE table row across several lines. You MUST join them
@@ -167,15 +183,16 @@ Algorithm — when you see a line starting with "N." (Lp. number, e.g. "8."):
 4. Treat the joined block as ONE product row — extract nazwa, ilosc, prices, vat from it.
 5. Do NOT output separate products for the continuation lines.
 
-Example (Polish invoice — NET only for PLN cena):
+Example (Polish invoice):
   Line 1: "8. Domaine D'Grottes L'."
   Line 2: "Antidote  30 szt.  31,70  951,00  ..."
 → ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena_katalogowa": "31,70", "rabat_procent": 0, "wartosc_netto": "951,00", "vat_procent": 5, "wartosc_brutto": "998,55"}
-→ server PLN cena = 31,70 (from Cena netto; ignore brutto 998,55)
+→ form cena = 31,70; rabat = 0
 
-Bortolomiol example — extract RAW columns, do NOT calculate discount:
+Bortolomiol example — extract RAW columns, do NOT put discounted unit into cena:
   PREZZO UNIT. 5,400 | % SCONTO 30 | QUANTITA' 624 | IMPORTO NETTO 2.358,72
   → {"nazwa": "MIOL ECRU...", "ilosc": 624, "cena_katalogowa": "5,400", "rabat_procent": 30, "wartosc_netto": "2358,72", "vat_procent": 0, "wartosc_brutto": "0"}
+  → form cena = 5,40; form rabat = 30; app computes cena po rabacie (NOT 3,78 in cena)
 
   Row 2 (same product, F.o.C.): PREZZO 0 | QUANTITA' 30 | IMPORTO NETTO 0 → separate product, cena 0
 
@@ -183,8 +200,8 @@ Bortolomiol example — extract RAW columns, do NOT calculate discount:
   → {"nazwa": "MIOL Prosecco...", "ilosc": 240, "cena_katalogowa": "7,100", "rabat_procent": 30, "wartosc_netto": "1192,80", ...}
 
   EVERY paid row MUST have its OWN rabat_procent and wartosc_netto — copy % SCONTO from each row, do NOT skip on rows 2+.
-  PREZZO UNIT. is BEFORE discount; IMPORTO NETTO is AFTER discount (already reduced).
-  Server: cena = wartosc_netto / ilosc (e.g. 2358,72 / 624 = 3,78 — NOT 5,40).
+  PREZZO UNIT. is BEFORE discount → cena_katalogowa.
+  IMPORTO NETTO is AFTER discount → wartosc_netto only (never divide into cena_katalogowa).
 
 This is DIFFERENT from Bortolomiol case where the SAME product name appears in
 TWO separate table rows (paid row + F.o.C. row) — each with its own qty and price.
@@ -460,76 +477,97 @@ function resolveUnitNet(product, ilosc) {
   return unitNetFromCatalog(product, discount);
 }
 
-/** Final unit price + line value — all math on server */
+/**
+ * Form field "cena" = list/catalog unit BEFORE discount.
+ * Header "rabat" is applied later on the client → "cena po rabacie".
+ */
+function resolveListUnitPrice(product, ilosc) {
+  const catalog = parseNumber(
+    product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
+  );
+  if (catalog > 0) return catalog;
+
+  const lineNet = parseNumber(product.wartosc_netto);
+  if (lineNet <= 0 || ilosc <= 0) return 0;
+
+  const discount = inferDiscountPercent(product, ilosc);
+  if (discount > 0 && discount < 100) {
+    return lineNet / ilosc / (1 - discount / 100);
+  }
+  return lineNet / ilosc;
+}
+
+/** Final unit list price + line value (line value stays AFTER discount when known). */
 function computeProductPricing(product, waluta = 'EUR') {
   const ilosc = resolveQuantity(product);
   if (ilosc <= 0) {
-    return { cena: '0', cenaPelna: 0, wartosc: '0' };
+    return { cena: '0', cenaPelna: 0, wartosc: '0', rabatProcent: 0 };
   }
 
-  const lineBrutto = parseNumber(product.wartosc_brutto);
   const lineNet = parseNumber(product.wartosc_netto);
-  const catalog = parseNumber(product.cena_katalogowa ?? product.cena_netto ?? product.cena);
+  const lineBrutto = parseNumber(product.wartosc_brutto);
+  const rabatProcent = inferDiscountPercent(product, ilosc);
+  const cenaPelna = resolveListUnitPrice(product, ilosc);
 
-  // PLN: только cena netto; brutto / VAT не используем.
-  // 1) Cena netto (с учётом rabatu, если есть)
-  // 2) иначе wartosc_netto / ilosc
-  if (waluta === 'PLN') {
-    if (catalog === 0 && lineNet === 0) {
-      return { cena: '0', cenaPelna: 0, wartosc: '0' };
-    }
-
-    let cenaPelna = 0;
-    if (catalog > 0) {
-      const discount = inferDiscountPercent(product, ilosc);
-      cenaPelna = unitNetFromCatalog(product, discount);
-    } else if (lineNet > 0) {
-      cenaPelna = lineNet / ilosc;
-    }
-
-    if (cenaPelna === 0) {
-      return { cena: '0', cenaPelna: 0, wartosc: '0' };
-    }
-
-    const lineValue = lineNet > 0 ? lineNet : cenaPelna * ilosc;
-    return {
-      cena: formatPrice(cenaPelna),
-      cenaPelna,
-      wartosc: formatPrice(lineValue),
-    };
+  if (cenaPelna === 0 && lineNet === 0 && lineBrutto === 0) {
+    return { cena: '0', cenaPelna: 0, wartosc: '0', rabatProcent: 0 };
   }
 
-  if (catalog === 0 && lineNet === 0 && lineBrutto === 0) {
-    return { cena: '0', cenaPelna: 0, wartosc: '0' };
-  }
-
-  let cenaPelna = 0;
-  let lineValue = 0;
-
-  // Prefer line net total (already includes discount) over brutto when both exist
-  if (lineNet > 0) {
-    const unitNet = resolveUnitNet(product, ilosc);
-    const vat = parseNumber(product.vat_procent ?? product.vat);
-    cenaPelna = vat > 0 ? unitNet * (1 + vat / 100) : unitNet;
-    lineValue = lineNet;
-  } else if (lineBrutto > 0) {
-    cenaPelna = lineBrutto / ilosc;
-    lineValue = lineBrutto;
-  } else {
-    const unitNet = resolveUnitNet(product, ilosc);
-    if (unitNet === 0) {
-      return { cena: '0', cenaPelna: 0, wartosc: '0' };
-    }
-    const vat = parseNumber(product.vat_procent ?? product.vat);
-    cenaPelna = vat > 0 ? unitNet * (1 + vat / 100) : unitNet;
-    lineValue = cenaPelna * ilosc;
-  }
+  const unitAfterRabat =
+    rabatProcent > 0 && rabatProcent < 100
+      ? cenaPelna * (1 - rabatProcent / 100)
+      : cenaPelna;
+  const lineValue =
+    lineNet > 0
+      ? lineNet
+      : lineBrutto > 0 && waluta !== 'PLN'
+        ? lineBrutto
+        : unitAfterRabat * ilosc;
 
   return {
     cena: formatPrice(cenaPelna),
     cenaPelna,
     wartosc: formatPrice(lineValue),
+    rabatProcent,
   };
+}
+
+/** Header rabat % for the form: document-level if present, else mode of paid rows. */
+function resolveHeaderRabat(parsed, products) {
+  const fromDoc = parseNumber(
+    parsed?.rabat ?? parsed?.rabat_procent ?? parsed?.discount ?? parsed?.sconto
+  );
+  if (fromDoc > 0 && fromDoc < 100) {
+    return Math.round(fromDoc * 100) / 100;
+  }
+
+  const counts = new Map();
+  for (const product of products || []) {
+    const ilosc = resolveQuantity(product);
+    if (ilosc <= 0) continue;
+    const catalog = parseNumber(
+      product.cena_katalogowa ?? product.cena_netto ?? product.cena ?? product.prezzo_unit
+    );
+    const lineNet = parseNumber(product.wartosc_netto);
+    if (catalog === 0 && lineNet === 0) continue;
+    const d = inferDiscountPercent(product, ilosc);
+    if (d <= 0 || d >= 100) continue;
+    const key = String(Math.round(d * 100) / 100);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  let best = null;
+  for (const [key, count] of counts) {
+    const value = parseFloat(key);
+    if (
+      !best ||
+      count > best.count ||
+      (count === best.count && value > best.value)
+    ) {
+      best = { value, count };
+    }
+  }
+  return best ? best.value : 0;
 }
 
 function normalizeWaluta(waluta) {
@@ -547,6 +585,7 @@ function mapProduct(product, waluta = 'EUR') {
     cena: pricing.cena,
     cenaPelna: pricing.cenaPelna,
     wartosc: pricing.wartosc,
+    rabat_procent: pricing.rabatProcent,
   };
 }
 
@@ -574,6 +613,7 @@ async function parsePurchaseInvoicePdf(buffer, db) {
     const waluta = normalizeWaluta(parsed.waluta);
     const catalog = db ? await loadWorkingSheetsCatalog(db) : [];
     const sprzedawca = pickCanonicalSupplier(cleanSupplierName(parsed.sprzedawca), catalog);
+    const headerRabat = resolveHeaderRabat(parsed, parsed.products || []);
     const mappedProducts = (parsed.products || []).map((product) => mapProduct(product, waluta));
     const products = await enrichOcrProducts(mappedProducts, sprzedawca, db, catalog);
 
@@ -582,6 +622,7 @@ async function parsePurchaseInvoicePdf(buffer, db) {
       data: {
         sprzedawca,
         waluta,
+        rabat: formatPrice(headerRabat),
         suma_netto: formatPrice(parseNumber(parsed.suma_netto)),
         suma_vat: formatPrice(parseNumber(parsed.suma_vat)),
         suma_brutto: formatPrice(parseNumber(parsed.suma_brutto)),
