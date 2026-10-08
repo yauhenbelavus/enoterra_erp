@@ -12,6 +12,7 @@ import { getZakupEdycjaPath, getZakupPodgladPath } from '../routes';
 interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
+  termin_platnosci?: string | null;
   sprzedawca: string;
   numer_dokumentu_przyjecia?: string;
   wartosc_przyjecia_netto: number;
@@ -39,6 +40,13 @@ interface ProductReceipt {
   product_invoice?: string;
   transport_invoice?: string;
 }
+
+const formatReceiptDate = (dateStr?: string | null) => {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('pl-PL', { year: 'numeric', month: '2-digit', day: '2-digit' });
+};
 
 interface ProductReceiptsListProps {
   receipts: ProductReceipt[];
@@ -317,6 +325,15 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   <SortIndicator field="data_przyjecia" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
+              <th
+                className={fitHeadClass}
+                onClick={() => handleSort('termin_platnosci')}
+              >
+                <div className={headInnerClass}>
+                  Termin płatności
+                  <SortIndicator field="termin_platnosci" sortField={sortField} sortDirection={sortDirection} />
+                </div>
+              </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap"
                 onClick={() => handleSort('sprzedawca')}
@@ -363,7 +380,10 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   {receipt.numer_dokumentu_przyjecia || '—'}
                 </td>
                 <td className={fitCellClass}>
-                  {receipt.data_przyjecia}
+                  {formatReceiptDate(receipt.data_przyjecia)}
+                </td>
+                <td className={fitCellClass}>
+                  {formatReceiptDate(receipt.termin_platnosci)}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   {receipt.sprzedawca}

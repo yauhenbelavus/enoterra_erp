@@ -210,7 +210,7 @@ export function compareClientSales<
   }
 }
 
-export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?: string; wartosc_dostawy?: number; kosztDostawy?: number; wartosc_przyjecia_brutto?: number; numer_dokumentu_przyjecia?: string }>(
+export function compareReceipts<T extends { data_przyjecia?: string; termin_platnosci?: string | null; sprzedawca?: string; wartosc_dostawy?: number; kosztDostawy?: number; wartosc_przyjecia_brutto?: number; numer_dokumentu_przyjecia?: string }>(
   a: T,
   b: T,
   field: string,
@@ -221,6 +221,8 @@ export function compareReceipts<T extends { data_przyjecia?: string; sprzedawca?
     case 'dataPrzyjecia':
     case 'data_przyjecia':
       return compareSortValues(parseSortDate(a.data_przyjecia), parseSortDate(b.data_przyjecia), direction);
+    case 'termin_platnosci':
+      return compareSortValues(parseSortDate(a.termin_platnosci), parseSortDate(b.termin_platnosci), direction);
     case 'numer_dokumentu_przyjecia':
       return compareSortValues(
         parseNumerDokumentuPrzyjeciaSortKey(a.numer_dokumentu_przyjecia || ''),

@@ -51,6 +51,7 @@ const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'ht
 interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
+  termin_platnosci?: string | null;
   sprzedawca: string;
   numer_dokumentu_przyjecia?: string;
   wartosc_przyjecia_netto: number;
@@ -220,6 +221,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
     return data.map((receipt: any) => ({
       id: receipt.id,
       data_przyjecia: receipt.data_przyjecia,
+      termin_platnosci: receipt.termin_platnosci || null,
       sprzedawca: receipt.sprzedawca || '',
       numer_dokumentu_przyjecia: receipt.numer_dokumentu_przyjecia || '',
       wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
@@ -248,6 +250,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const navigate = useNavigate();
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
+  const [terminPlatnosci, setTerminPlatnosci] = useState<Date | null>(getTodayDate());
   const [sprzedawca, setSprzedawca] = useState('');
   const [productRows, setProductRows] = useState<ProductRow[]>([emptyRow()]);
   const [kosztDostawy, setKosztDostawy] = useState('');
@@ -542,6 +545,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     );
     const receiptPayload = {
       date: selectedDate.toLocaleDateString('en-CA'),
+      termin_platnosci: terminPlatnosci ? terminPlatnosci.toLocaleDateString('en-CA') : null,
       sprzedawca,
       wartosc_przyjecia_netto: roundMoney(kwotaNetto),
       vat: roundMoney(kwotaVat),
@@ -742,16 +746,30 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
 
-          <div className="w-[112px] shrink-0">
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
-            {kurs1Active ? (
-              <div className="relative w-[112px]">
-                <KursRateInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
-                <KursInputSpinner visible={isNbpLoadingDostawy} />
-              </div>
-            ) : (
-              <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
-            )}
+          <div className="flex gap-8 min-w-0 items-end w-full">
+            <div className="w-[112px] shrink-0">
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
+              {kurs1Active ? (
+                <div className="relative w-[112px]">
+                  <KursRateInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
+                  <KursInputSpinner visible={isNbpLoadingDostawy} />
+                </div>
+              ) : (
+                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
+              <DatePicker
+                selected={terminPlatnosci}
+                onChange={(date: Date | null) => setTerminPlatnosci(date)}
+                locale="pl"
+                dateFormat="dd/MM/yyyy"
+                className={`w-[200px] ${HEADER_FIELD}`}
+                placeholderText="Wybierz datę"
+                popperClassName="z-50"
+              />
+            </div>
           </div>
 
           <div className="w-[300px]">

@@ -3055,6 +3055,7 @@ db.serialize(() => {
     waluta_dostawy TEXT,
     kurs_2 REAL DEFAULT 1,
     numer_dokumentu_przyjecia TEXT,
+    termin_platnosci DATE,
     product_invoice TEXT,
     transport_invoice TEXT,
     version INTEGER NOT NULL DEFAULT 1,
@@ -3188,6 +3189,17 @@ db.serialize(() => {
           }
         } else {
           console.log('✅ Column version added to product_receipts');
+        }
+      });
+      db.run(`ALTER TABLE product_receipts ADD COLUMN termin_platnosci DATE`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column termin_platnosci already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding termin_platnosci column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column termin_platnosci added to product_receipts');
         }
       });
       db.run(`ALTER TABLE product_receipts ADD COLUMN numer_dokumentu_przyjecia TEXT`, (alterErr) => {
@@ -10597,6 +10609,7 @@ function readReceiptRequestPayload(req) {
       transportInvoice: transportFile ? transportFile.filename : source.transport_invoice,
       version: source.version,
       numer_dokumentu_przyjecia: source.numer_dokumentu_przyjecia,
+      termin_platnosci: source.termin_platnosci || null,
     };
   } catch (error) {
     console.error('❌ Error parsing JSON data from FormData:', error);
@@ -10613,7 +10626,7 @@ function prepareReceiptWriteRequest(req, options = {}) {
   let {
     date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products,
     productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury,
-    kursMode, walutaDostawy, version, numer_dokumentu_przyjecia,
+    kursMode, walutaDostawy, version, numer_dokumentu_przyjecia, termin_platnosci,
   } = receiptPayload;
 
   const productFile = uploadedReceiptFile(req, 'product_invoice');
@@ -10730,6 +10743,13 @@ function prepareReceiptWriteRequest(req, options = {}) {
     assigned,
     version,
     numer_dokumentu_przyjecia: String(numer_dokumentu_przyjecia || '').trim() || null,
+    termin_platnosci: (() => {
+      const raw = String(termin_platnosci || '').trim();
+      if (!raw) return null;
+      // Expect YYYY-MM-DD from client DatePicker
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+      return null;
+    })(),
   };
 }
 
@@ -10779,6 +10799,7 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
     kursFaktury,
     walutaDostawyForDb,
     aktualnyKursForDb,
+    termin_platnosci,
   } = prepared;
 
   console.log(`📦 POST /api/product-receipts lines=${productsInternal.length}`);
@@ -10805,8 +10826,8 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
       console.log(`📄 POST /api/product-receipts numer=${numerDokumentuPrzyjecia}`);
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, numer_dokumentu_przyjecia, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, numer_dokumentu_przyjecia, termin_platnosci, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, termin_platnosci || null, productInvoice || null, transportInvoice || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -11037,6 +11058,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
     aktualnyKursForDb,
     kosztDostawyPerUnit,
     version,
+    termin_platnosci,
   } = prepared;
 
   console.log(`📦 PUT /api/product-receipts/${id} lines=${products.length}`);
@@ -11150,8 +11172,8 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, numer_dokumentu_przyjecia = ?, product_invoice = ?, transport_invoice = ?, created_at = ?, version = version + 1 WHERE id = ? AND version = ?',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, finalProductInvoice, finalTransportInvoice, date, id, expectedVersion],
+          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, numer_dokumentu_przyjecia = ?, termin_platnosci = ?, product_invoice = ?, transport_invoice = ?, created_at = ?, version = version + 1 WHERE id = ? AND version = ?',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, termin_platnosci || null, finalProductInvoice, finalTransportInvoice, date, id, expectedVersion],
           function(err) {
             if (err) {
               reject(err);

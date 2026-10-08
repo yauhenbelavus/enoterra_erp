@@ -50,6 +50,7 @@ interface Client {
 interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
+  termin_platnosci?: string | null;
   sprzedawca: string;
   numer_dokumentu_przyjecia?: string;
   wartosc_przyjecia_netto: number;
@@ -467,6 +468,7 @@ function App() {
       return data.map((receipt: any) => ({
         id: receipt.id,
         data_przyjecia: receipt.data_przyjecia,
+        termin_platnosci: receipt.termin_platnosci || null,
         sprzedawca: receipt.sprzedawca || '',
         numer_dokumentu_przyjecia: receipt.numer_dokumentu_przyjecia || '',
         wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,

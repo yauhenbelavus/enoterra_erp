@@ -141,6 +141,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
   const navigate = useNavigate();
   const [isLoadingReceipt, setIsLoadingReceipt] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [terminPlatnosci, setTerminPlatnosci] = useState<Date | null>(null);
   const [sprzedawca, setSprzedawca] = useState('');
   const [productRows, setProductRows] = useState<ProductRow[]>([]);
   const [kosztDostawy, setKosztDostawy] = useState('');
@@ -174,7 +175,9 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
         const walutaFakturyInit = parseWalutaSelection(receipt.waluta_przyjecia) || normalizeWalutaFaktury(receipt.waluta_przyjecia);
         const walutaDostawyInit = parseWalutaSelection(receipt.waluta_dostawy);
 
-        setSelectedDate(parseReceiptDate(receipt.data_przyjecia));
+        const purchaseDate = parseReceiptDate(receipt.data_przyjecia);
+        setSelectedDate(purchaseDate);
+        setTerminPlatnosci(parseReceiptDate(receipt.termin_platnosci) || purchaseDate);
         setSprzedawca(receipt.sprzedawca || '');
         setKosztDostawy(formatPlMoney(Number(receipt.wartosc_dostawy) || 0));
         setWalutaFaktury(walutaFakturyInit);
@@ -324,6 +327,66 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                 <div className="w-[112px] h-[30px]" />
               )}
             </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
+              <DisplaySlot className={`w-[200px] ${HEADER_SLOT}`}>
+                {terminPlatnosci ? formatDateDdMmYyyy(terminPlatnosci) : '—'}
+              </DisplaySlot>
+            </div>
+          </div>
+
+          <div className="w-[300px]">
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Sprzedawca</label>
+            <DisplaySlot className={`w-[300px] ${HEADER_SLOT}`}>
+              {sprzedawca}
+            </DisplaySlot>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
+            <div className="relative">
+              <DisplaySlot className={`w-full ${HEADER_SLOT} pr-9 text-gray-600`}>
+                {deliveryPerUnitDisplay}
+              </DisplaySlot>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
+                {walutaDostawySymbol}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
+            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
+              {walutaFaktury || '—'}
+            </DisplaySlot>
+          </div>
+
+          <div className="flex gap-8 min-w-0 items-end w-full">
+            <div className="w-[112px] shrink-0">
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
+              {kurs2Active ? (
+                <DisplaySlot className={`w-[112px] ${HEADER_SLOT} pr-6`}>
+                  {kursFaktury}
+                </DisplaySlot>
+              ) : (
+                <div className="w-[112px] h-[30px]" />
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
+              <div className="relative">
+                <DisplaySlot className={`w-[112px] ${HEADER_SLOT} pr-10`}>
+                  {podatekAkcyzowy}
+                </DisplaySlot>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
+              <DisplaySlot className={`w-[77px] ${HEADER_SLOT}`}>
+                {rabat}
+              </DisplaySlot>
+            </div>
             <div className="ml-auto flex gap-2 shrink-0">
               <div className="w-[75px]">
                 <button
@@ -355,60 +418,6 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                   <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-            </div>
-          </div>
-
-          <div className="w-[300px]">
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Sprzedawca</label>
-            <DisplaySlot className={`w-[300px] ${HEADER_SLOT}`}>
-              {sprzedawca}
-            </DisplaySlot>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
-            <div className="relative">
-              <DisplaySlot className={`w-full ${HEADER_SLOT} pr-9 text-gray-600`}>
-                {deliveryPerUnitDisplay}
-              </DisplaySlot>
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                {walutaDostawySymbol}
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
-            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
-              {walutaFaktury || '—'}
-            </DisplaySlot>
-          </div>
-
-          <div className="flex gap-8 min-w-0 items-end">
-            <div className="w-[112px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
-              {kurs2Active ? (
-                <DisplaySlot className={`w-[112px] ${HEADER_SLOT} pr-6`}>
-                  {kursFaktury}
-                </DisplaySlot>
-              ) : (
-                <div className="w-[112px] h-[30px]" />
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
-              <div className="relative">
-                <DisplaySlot className={`w-[112px] ${HEADER_SLOT} pr-10`}>
-                  {podatekAkcyzowy}
-                </DisplaySlot>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
-              <DisplaySlot className={`w-[77px] ${HEADER_SLOT}`}>
-                {rabat}
-              </DisplaySlot>
             </div>
           </div>
         </div>
