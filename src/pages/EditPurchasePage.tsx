@@ -228,6 +228,18 @@ const parseReceiptDate = (raw?: string | null): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const daysBetweenDates = (from: Date | null, to: Date | null): number => {
+  if (!from || !to) return 0;
+  return Math.round((startOfLocalDay(to).getTime() - startOfLocalDay(from).getTime()) / 86400000);
+};
+const addDaysToDate = (from: Date | null, days: number): Date | null => {
+  if (!from) return null;
+  const d = startOfLocalDay(from);
+  d.setDate(d.getDate() + (Number.isFinite(days) ? days : 0));
+  return d;
+};
+
 const yearMonthKeyFromDate = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
@@ -322,6 +334,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [terminPlatnosci, setTerminPlatnosci] = useState<Date | null>(null);
+  const [terminDni, setTerminDni] = useState(0);
   const [sprzedawca, setSprzedawca] = useState('');
   const [productRows, setProductRows] = useState<ProductRow[]>([emptyRow()]);
   const [kosztDostawy, setKosztDostawy] = useState('');
@@ -426,8 +439,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
         skipBruttoSyncRef.current = true;
         const purchaseDate = parseReceiptDate(receipt.data_przyjecia);
+        const paymentDate = parseReceiptDate(receipt.termin_platnosci) || purchaseDate;
         setSelectedDate(purchaseDate);
-        setTerminPlatnosci(parseReceiptDate(receipt.termin_platnosci) || purchaseDate);
+        setTerminPlatnosci(paymentDate);
+        setTerminDni(Math.max(0, daysBetweenDates(purchaseDate, paymentDate)));
         setSprzedawca(receipt.sprzedawca || '');
         setKosztDostawy(formatPlMoney(Number(receipt.wartosc_dostawy) || 0));
         setWalutaFaktury(walutaFakturyInit);
@@ -861,7 +876,11 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Data zakupu</label>
             <DatePicker
               selected={selectedDate}
-              onChange={(date: Date | null) => setSelectedDate(date)}
+              onChange={(date: Date | null) => {
+                setSelectedDate(date);
+                // При dni = 0 termin = data zakupu; при dni > 0 — data zakupu + dni
+                setTerminPlatnosci(terminDni === 0 ? (date ? startOfLocalDay(date) : null) : addDaysToDate(date, terminDni));
+              }}
               locale="pl"
               dateFormat="dd/MM/yyyy"
               className={withInvalid(`w-[200px] ${HEADER_FIELD}`, headerInvalid.date)}
@@ -929,17 +948,37 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
-              <DatePicker
-                selected={terminPlatnosci}
-                onChange={(date: Date | null) => setTerminPlatnosci(date)}
-                locale="pl"
-                dateFormat="dd/MM/yyyy"
-                className={`w-[200px] ${HEADER_FIELD}`}
-                placeholderText="Wybierz datę"
-                popperClassName="z-50"
-              />
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
+                <DatePicker
+                  selected={terminPlatnosci}
+                  onChange={(date: Date | null) => {
+                    setTerminPlatnosci(date);
+                    setTerminDni(Math.max(0, daysBetweenDates(selectedDate, date)));
+                  }}
+                  locale="pl"
+                  dateFormat="dd/MM/yyyy"
+                  className={`w-[200px] ${HEADER_FIELD}`}
+                  placeholderText="Wybierz datę"
+                  popperClassName="z-50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={terminDni}
+                  onChange={(e) => {
+                    const days = Math.max(0, Math.round(Number(e.target.value)) || 0);
+                    setTerminDni(days);
+                    setTerminPlatnosci(addDaysToDate(selectedDate, days));
+                  }}
+                  className={`w-[52px] ${HEADER_FIELD} text-center px-1`}
+                />
+              </div>
             </div>
           </div>
 

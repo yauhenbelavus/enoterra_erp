@@ -96,6 +96,12 @@ const parseReceiptDate = (raw?: string | null): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const daysBetweenDates = (from: Date | null, to: Date | null): number => {
+  if (!from || !to) return 0;
+  return Math.round((startOfLocalDay(to).getTime() - startOfLocalDay(from).getTime()) / 86400000);
+};
+
 const formatDateDdMmYyyy = (date: Date | null): string => {
   if (!date) return '';
   const day = String(date.getDate()).padStart(2, '0');
@@ -142,6 +148,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
   const [isLoadingReceipt, setIsLoadingReceipt] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [terminPlatnosci, setTerminPlatnosci] = useState<Date | null>(null);
+  const [terminDni, setTerminDni] = useState(0);
   const [sprzedawca, setSprzedawca] = useState('');
   const [productRows, setProductRows] = useState<ProductRow[]>([]);
   const [kosztDostawy, setKosztDostawy] = useState('');
@@ -176,8 +183,10 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
         const walutaDostawyInit = parseWalutaSelection(receipt.waluta_dostawy);
 
         const purchaseDate = parseReceiptDate(receipt.data_przyjecia);
+        const paymentDate = parseReceiptDate(receipt.termin_platnosci) || purchaseDate;
         setSelectedDate(purchaseDate);
-        setTerminPlatnosci(parseReceiptDate(receipt.termin_platnosci) || purchaseDate);
+        setTerminPlatnosci(paymentDate);
+        setTerminDni(Math.max(0, daysBetweenDates(purchaseDate, paymentDate)));
         setSprzedawca(receipt.sprzedawca || '');
         setKosztDostawy(formatPlMoney(Number(receipt.wartosc_dostawy) || 0));
         setWalutaFaktury(walutaFakturyInit);
@@ -327,11 +336,19 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                 <div className="w-[112px] h-[30px]" />
               )}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
-              <DisplaySlot className={`w-[200px] ${HEADER_SLOT}`}>
-                {terminPlatnosci ? formatDateDdMmYyyy(terminPlatnosci) : '—'}
-              </DisplaySlot>
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
+                <DisplaySlot className={`w-[200px] ${HEADER_SLOT}`}>
+                  {terminPlatnosci ? formatDateDdMmYyyy(terminPlatnosci) : '—'}
+                </DisplaySlot>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
+                <DisplaySlot className={`w-[52px] ${HEADER_SLOT} text-center px-1`}>
+                  {terminDni}
+                </DisplaySlot>
+              </div>
             </div>
           </div>
 

@@ -153,6 +153,17 @@ const VAT_RATES = [
 ];
 
 const getTodayDate = () => new Date();
+const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const daysBetweenDates = (from: Date | null, to: Date | null): number => {
+  if (!from || !to) return 0;
+  return Math.round((startOfLocalDay(to).getTime() - startOfLocalDay(from).getTime()) / 86400000);
+};
+const addDaysToDate = (from: Date | null, days: number): Date | null => {
+  if (!from) return null;
+  const d = startOfLocalDay(from);
+  d.setDate(d.getDate() + (Number.isFinite(days) ? days : 0));
+  return d;
+};
 const parsePlNumber = (value: string) => parseFloat(value.replace(',', '.')) || 0;
 const formatPlMoney = (value: number) => value.toFixed(2).replace('.', ',');
 const parseOcrMoney = (value: unknown): number | null => {
@@ -251,6 +262,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
   const [terminPlatnosci, setTerminPlatnosci] = useState<Date | null>(getTodayDate());
+  const [terminDni, setTerminDni] = useState(0);
   const [sprzedawca, setSprzedawca] = useState('');
   const [productRows, setProductRows] = useState<ProductRow[]>([emptyRow()]);
   const [kosztDostawy, setKosztDostawy] = useState('');
@@ -696,7 +708,11 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Data zakupu</label>
             <DatePicker
               selected={selectedDate}
-              onChange={(date: Date | null) => setSelectedDate(date)}
+              onChange={(date: Date | null) => {
+                setSelectedDate(date);
+                // При dni = 0 termin = data zakupu; при dni > 0 — data zakupu + dni
+                setTerminPlatnosci(terminDni === 0 ? (date ? startOfLocalDay(date) : null) : addDaysToDate(date, terminDni));
+              }}
               locale="pl"
               dateFormat="dd/MM/yyyy"
               className={withInvalid(`w-[200px] ${HEADER_FIELD}`, headerInvalid.date)}
@@ -758,17 +774,37 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
-              <DatePicker
-                selected={terminPlatnosci}
-                onChange={(date: Date | null) => setTerminPlatnosci(date)}
-                locale="pl"
-                dateFormat="dd/MM/yyyy"
-                className={`w-[200px] ${HEADER_FIELD}`}
-                placeholderText="Wybierz datę"
-                popperClassName="z-50"
-              />
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
+                <DatePicker
+                  selected={terminPlatnosci}
+                  onChange={(date: Date | null) => {
+                    setTerminPlatnosci(date);
+                    setTerminDni(Math.max(0, daysBetweenDates(selectedDate, date)));
+                  }}
+                  locale="pl"
+                  dateFormat="dd/MM/yyyy"
+                  className={`w-[200px] ${HEADER_FIELD}`}
+                  placeholderText="Wybierz datę"
+                  popperClassName="z-50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={terminDni}
+                  onChange={(e) => {
+                    const days = Math.max(0, Math.round(Number(e.target.value)) || 0);
+                    setTerminDni(days);
+                    setTerminPlatnosci(addDaysToDate(selectedDate, days));
+                  }}
+                  className={`w-[52px] ${HEADER_FIELD} text-center px-1`}
+                />
+              </div>
             </div>
           </div>
 
