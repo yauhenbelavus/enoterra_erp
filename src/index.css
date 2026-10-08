@@ -57,3 +57,16 @@ body {
 .product-table-hscroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Dni: крупные стрелки на всю высоту поля, у правого края */
+.termin-dni-input::-webkit-outer-spin-button,
+.termin-dni-input::-webkit-inner-spin-button {
+  -webkit-appearance: inner-spin-button;
+  appearance: auto;
+  opacity: 1;
+  height: 100%;
+  width: 1.25rem;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+}

@@ -239,6 +239,11 @@ const addDaysToDate = (from: Date | null, days: number): Date | null => {
   d.setDate(d.getDate() + (Number.isFinite(days) ? days : 0));
   return d;
 };
+const parseTerminDniInput = (value: string): number => {
+  if (value === '') return 0;
+  return Math.max(0, Math.round(Number(value)) || 0);
+};
+const formatTerminDniInput = (days: number): string => (days > 0 ? String(days) : '');
 
 const yearMonthKeyFromDate = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -334,7 +339,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [terminPlatnosci, setTerminPlatnosci] = useState<Date | null>(null);
-  const [terminDni, setTerminDni] = useState(0);
+  const [terminDni, setTerminDni] = useState('');
   const [sprzedawca, setSprzedawca] = useState('');
   const [productRows, setProductRows] = useState<ProductRow[]>([emptyRow()]);
   const [kosztDostawy, setKosztDostawy] = useState('');
@@ -347,7 +352,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const [openVatDropdownIndex, setOpenVatDropdownIndex] = useState<number | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
-  const [rabat, setRabat] = useState('0,00');
+  const [rabat, setRabat] = useState('');
   const [walutaFaktury, setWalutaFaktury] = useState<WalutaFakturySelection>('');
   const [walutaDostawy, setWalutaDostawy] = useState<WalutaFakturySelection>('');
   const [kursFaktury, setKursFaktury] = useState('');
@@ -442,7 +447,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         const paymentDate = parseReceiptDate(receipt.termin_platnosci) || purchaseDate;
         setSelectedDate(purchaseDate);
         setTerminPlatnosci(paymentDate);
-        setTerminDni(Math.max(0, daysBetweenDates(purchaseDate, paymentDate)));
+        setTerminDni(formatTerminDniInput(Math.max(0, daysBetweenDates(purchaseDate, paymentDate))));
         setSprzedawca(receipt.sprzedawca || '');
         setKosztDostawy(formatPlMoney(Number(receipt.wartosc_dostawy) || 0));
         setWalutaFaktury(walutaFakturyInit);
@@ -454,7 +459,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
             : ''
         );
         setPodatekAkcyzowy(formatPlMoney(Number(receipt.stawka_podatek_akcyzowy ?? 0)));
-        setRabat(formatPlMoney(Number(receipt.rabat ?? 0)));
+        {
+          const loadedRabat = Number(receipt.rabat ?? 0);
+          setRabat(loadedRabat > 0 ? formatPlMoney(loadedRabat) : '');
+        }
         setKwotaNetto(Number(receipt.wartosc_przyjecia_netto) > 0 ? formatPlMoney(Number(receipt.wartosc_przyjecia_netto)) : '');
         setKwotaVat(Number(receipt.vat) > 0 ? formatPlMoney(Number(receipt.vat)) : '');
         setSumaBrutto(Number(receipt.wartosc_przyjecia_brutto) > 0 ? formatPlMoney(Number(receipt.wartosc_przyjecia_brutto)) : '');
@@ -531,7 +539,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     // Cena z OCR = bez rabatu; % rabatu → pole Rabat (cena po rabacie liczy się w UI)
     if (payload.rabat != null && String(payload.rabat).trim() !== '') {
       const rabatNum = parseFloat(String(payload.rabat).replace(',', '.')) || 0;
-      setRabat(formatPlMoney(rabatNum));
+      setRabat(rabatNum > 0 ? formatPlMoney(rabatNum) : '');
     }
     if (payload.suma_netto != null && String(payload.suma_netto).trim() !== '') setKwotaNetto(String(payload.suma_netto));
     if (payload.suma_vat != null && String(payload.suma_vat).trim() !== '') setKwotaVat(String(payload.suma_vat));
@@ -878,8 +886,9 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               selected={selectedDate}
               onChange={(date: Date | null) => {
                 setSelectedDate(date);
+                const days = parseTerminDniInput(terminDni);
                 // При dni = 0 termin = data zakupu; при dni > 0 — data zakupu + dni
-                setTerminPlatnosci(terminDni === 0 ? (date ? startOfLocalDay(date) : null) : addDaysToDate(date, terminDni));
+                setTerminPlatnosci(days === 0 ? (date ? startOfLocalDay(date) : null) : addDaysToDate(date, days));
               }}
               locale="pl"
               dateFormat="dd/MM/yyyy"
@@ -955,7 +964,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   selected={terminPlatnosci}
                   onChange={(date: Date | null) => {
                     setTerminPlatnosci(date);
-                    setTerminDni(Math.max(0, daysBetweenDates(selectedDate, date)));
+                    setTerminDni(formatTerminDniInput(Math.max(0, daysBetweenDates(selectedDate, date))));
                   }}
                   locale="pl"
                   dateFormat="dd/MM/yyyy"
@@ -968,15 +977,16 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
                 <input
                   type="number"
-                  min={0}
-                  step={1}
+                  placeholder="0"
                   value={terminDni}
                   onChange={(e) => {
-                    const days = Math.max(0, Math.round(Number(e.target.value)) || 0);
-                    setTerminDni(days);
-                    setTerminPlatnosci(addDaysToDate(selectedDate, days));
+                    const v = e.target.value;
+                    if (v === '' || /^\d*$/.test(v)) {
+                      setTerminDni(v);
+                      setTerminPlatnosci(addDaysToDate(selectedDate, parseTerminDniInput(v)));
+                    }
                   }}
-                  className={`w-[78px] ${HEADER_FIELD} text-center !pl-1 !pr-0 [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0`}
+                  className={`termin-dni-input w-[78px] ${HEADER_FIELD} text-center !pl-1 !pr-0`}
                 />
               </div>
             </div>

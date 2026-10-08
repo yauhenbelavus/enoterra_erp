@@ -164,6 +164,11 @@ const addDaysToDate = (from: Date | null, days: number): Date | null => {
   d.setDate(d.getDate() + (Number.isFinite(days) ? days : 0));
   return d;
 };
+const parseTerminDniInput = (value: string): number => {
+  if (value === '') return 0;
+  return Math.max(0, Math.round(Number(value)) || 0);
+};
+const formatTerminDniInput = (days: number): string => (days > 0 ? String(days) : '');
 const parsePlNumber = (value: string) => parseFloat(value.replace(',', '.')) || 0;
 const formatPlMoney = (value: number) => value.toFixed(2).replace('.', ',');
 const parseOcrMoney = (value: unknown): number | null => {
@@ -262,7 +267,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(getTodayDate());
   const [terminPlatnosci, setTerminPlatnosci] = useState<Date | null>(getTodayDate());
-  const [terminDni, setTerminDni] = useState(0);
+  const [terminDni, setTerminDni] = useState('');
   const [sprzedawca, setSprzedawca] = useState('');
   const [productRows, setProductRows] = useState<ProductRow[]>([emptyRow()]);
   const [kosztDostawy, setKosztDostawy] = useState('');
@@ -273,7 +278,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [openVatDropdownIndex, setOpenVatDropdownIndex] = useState<number | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
-  const [rabat, setRabat] = useState('0,00');
+  const [rabat, setRabat] = useState('');
   const [walutaFaktury, setWalutaFaktury] = useState<WalutaFakturySelection>('');
   const [walutaDostawy, setWalutaDostawy] = useState<WalutaFakturySelection>('');
   const [kursFaktury, setKursFaktury] = useState('');
@@ -369,7 +374,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     // Cena z OCR = cena katalogowa BEZ rabatu; % trafia do pola Rabat → cena po rabacie liczy się w UI
     const ocrRabat = parseOcrMoney(payload.rabat);
     const rabatValue = ocrRabat != null && ocrRabat > 0 ? ocrRabat : 0;
-    if (ocrRabat != null) setRabat(formatPlMoney(rabatValue));
+    if (ocrRabat != null) setRabat(rabatValue > 0 ? formatPlMoney(rabatValue) : '');
 
     const nextRows: ProductRow[] = payload.products.length > 0
       ? payload.products.map((p) => ({
@@ -710,8 +715,9 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               selected={selectedDate}
               onChange={(date: Date | null) => {
                 setSelectedDate(date);
+                const days = parseTerminDniInput(terminDni);
                 // При dni = 0 termin = data zakupu; при dni > 0 — data zakupu + dni
-                setTerminPlatnosci(terminDni === 0 ? (date ? startOfLocalDay(date) : null) : addDaysToDate(date, terminDni));
+                setTerminPlatnosci(days === 0 ? (date ? startOfLocalDay(date) : null) : addDaysToDate(date, days));
               }}
               locale="pl"
               dateFormat="dd/MM/yyyy"
@@ -781,7 +787,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   selected={terminPlatnosci}
                   onChange={(date: Date | null) => {
                     setTerminPlatnosci(date);
-                    setTerminDni(Math.max(0, daysBetweenDates(selectedDate, date)));
+                    setTerminDni(formatTerminDniInput(Math.max(0, daysBetweenDates(selectedDate, date))));
                   }}
                   locale="pl"
                   dateFormat="dd/MM/yyyy"
@@ -794,15 +800,16 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
                 <input
                   type="number"
-                  min={0}
-                  step={1}
+                  placeholder="0"
                   value={terminDni}
                   onChange={(e) => {
-                    const days = Math.max(0, Math.round(Number(e.target.value)) || 0);
-                    setTerminDni(days);
-                    setTerminPlatnosci(addDaysToDate(selectedDate, days));
+                    const v = e.target.value;
+                    if (v === '' || /^\d*$/.test(v)) {
+                      setTerminDni(v);
+                      setTerminPlatnosci(addDaysToDate(selectedDate, parseTerminDniInput(v)));
+                    }
                   }}
-                  className={`w-[78px] ${HEADER_FIELD} text-center !pl-1 !pr-0 [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0`}
+                  className={`termin-dni-input w-[78px] ${HEADER_FIELD} text-center !pl-1 !pr-0`}
                 />
               </div>
             </div>
