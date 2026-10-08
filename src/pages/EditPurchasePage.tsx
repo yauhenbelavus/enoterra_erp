@@ -1009,7 +1009,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
             <div className="relative">
-              <div className={`w-full ${HEADER_FIELD} pr-9 flex items-center bg-gray-50 font-bold text-gray-900`}>
+              <div className={`w-full ${HEADER_FIELD} pr-9 flex items-center bg-gray-50`}>
                 {calculateDeliveryCostPerUnit().replace('.', ',')}
               </div>
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">

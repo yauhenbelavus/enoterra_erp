@@ -19,7 +19,9 @@ export function TerminDniInput({ value, onChange, className = '' }: TerminDniInp
   };
 
   return (
-    <div className={`relative w-[78px] ${className}`.trim()}>
+    <div
+      className={`flex w-[78px] h-[30px] box-border border border-gray-300 rounded-md overflow-hidden bg-white focus-within:border-gray-300 ${className}`.trim()}
+    >
       <input
         type="text"
         inputMode="numeric"
@@ -29,9 +31,9 @@ export function TerminDniInput({ value, onChange, className = '' }: TerminDniInp
           const v = e.target.value;
           if (v === '' || /^\d*$/.test(v)) onChange(v);
         }}
-        className="w-full h-[30px] box-border pl-3 pr-5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left placeholder:text-gray-400"
+        className="min-w-0 flex-1 h-full box-border pl-3 pr-1 border-0 focus:outline-none font-sora text-xs text-left placeholder:text-gray-400 bg-transparent"
       />
-      <div className="absolute right-0 top-0 bottom-0 w-[18px] flex flex-col border-l border-gray-300 rounded-r-md overflow-hidden bg-white">
+      <div className="w-[18px] shrink-0 self-stretch flex flex-col border-l border-gray-300">
         <button
           type="button"
           tabIndex={-1}
