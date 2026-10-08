@@ -34,7 +34,7 @@ export function TerminDniInput({ value, onChange, className = '' }: TerminDniInp
         }}
         className="min-w-0 flex-1 h-full box-border px-2 border-0 focus:outline-none font-sora text-xs text-left placeholder:text-gray-400 bg-transparent"
       />
-      <div className="w-7 shrink-0 self-stretch flex flex-col border-l border-gray-300">
+      <div className="w-5 shrink-0 self-stretch flex flex-col border-l border-gray-300">
         <button
           type="button"
           tabIndex={-1}

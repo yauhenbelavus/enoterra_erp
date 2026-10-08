@@ -28,9 +28,10 @@ import {
   validateRequiredKurs,
 } from '../utils/receiptCurrency';
 import { PlMoneyInput } from './PlMoneyInput';
-import { SelectChevron } from './SelectChevron';
+import { AppSelect } from './AppSelect';
 
-const ROW_SELECT = 'h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs leading-[28px] appearance-none';
+const ROW_SELECT = 'h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs leading-[28px]';
+const HEADER_SELECT = 'h-[30px] box-border w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs leading-[28px] bg-white';
 
 registerLocale('pl', pl);
 
@@ -796,10 +797,9 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora">
                 Waluta
               </label>
-              <select
+              <AppSelect
                 value={walutaFaktury}
-                onChange={(e) => {
-                  const raw = e.target.value;
+                onChange={(raw) => {
                   if (raw === '') {
                     setWalutaFaktury('');
                     setKursFaktury('');
@@ -811,13 +811,10 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                   if (!isKursFakturyActive(next)) setKursFaktury('');
                   if (!isKursEurPlnActive(next)) setAktualnyKurs('');
                 }}
-                className="w-[80px] px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white"
-              >
-                <option value="">—</option>
-                {WALUTY_FAKTURY.map((w) => (
-                  <option key={w} value={w}>{w}</option>
-                ))}
-              </select>
+                options={WALUTY_FAKTURY.map((w) => ({ value: w, label: w }))}
+                wrapperClassName="w-[80px]"
+                className={HEADER_SELECT}
+              />
             </div>
           </div>
           </div>
@@ -982,38 +979,31 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                   </div>
                 )}
                 <div className="col-span-1.8 relative ml-1">
-                  <div
-                    className={`relative w-[200%] ml-1 h-[30px] box-border rounded-md border ${row.typ
+                  <AppSelect
+                    value={row.typ}
+                    onChange={(v) => handleTypChange(index, v)}
+                    options={TYPY_TOWARU.map((typ) => ({
+                      value: typ.value,
+                      label: typ.label,
+                      optionClassName: typ.color,
+                    }))}
+                    wrapperClassName="w-[200%] ml-1"
+                    className={`w-full ${ROW_SELECT} border ${row.typ
                       ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
                       : 'border-gray-300 bg-white'}`}
-                  >
-                    <select
-                      value={row.typ}
-                      onChange={(e) => handleTypChange(index, e.target.value)}
-                      className={`w-full ${ROW_SELECT} h-full border-0 bg-transparent leading-[28px]${row.typ ? '' : ' text-center text-gray-400'}`}
-                    >
-                      <option value="">—</option>
-                      {TYPY_TOWARU.map((typ) => (
-                        <option key={typ.value} value={typ.value}>{typ.label}</option>
-                      ))}
-                    </select>
-                    <SelectChevron />
-                  </div>
+                  />
                 </div>
                 <div className="col-span-3 relative ml-20">
-                  <div className="relative w-[60%]" style={{ maxWidth: '200px' }}>
-                    <select
-                      value={row.objetosc}
-                      onChange={(e) => handleObjetoscChange(index, e.target.value)}
-                      className={`w-full ${ROW_SELECT} border border-gray-300 bg-white${row.objetosc ? '' : ' text-center text-gray-400'}`}
-                    >
-                      <option value="">—</option>
-                      {OBJETOSCI_WINA.map((objetosc) => (
-                        <option key={objetosc.value} value={objetosc.value}>{objetosc.label}</option>
-                      ))}
-                    </select>
-                    <SelectChevron />
-                  </div>
+                  <AppSelect
+                    value={row.objetosc}
+                    onChange={(v) => handleObjetoscChange(index, v)}
+                    options={OBJETOSCI_WINA.map((objetosc) => ({
+                      value: objetosc.value,
+                      label: objetosc.label,
+                    }))}
+                    wrapperClassName="w-[60%]"
+                    className={`w-full ${ROW_SELECT} border border-gray-300 bg-white`}
+                  />
                 </div>
               </div>
             ))}

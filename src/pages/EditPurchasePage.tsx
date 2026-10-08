@@ -34,7 +34,7 @@ import {
 } from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput, KursRateInput } from '../components/PlMoneyInput';
 import { TerminDniInput } from '../components/TerminDniInput';
-import { SelectChevron } from '../components/SelectChevron';
+import { AppSelect } from '../components/AppSelect';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
@@ -265,8 +265,8 @@ const parseLineDate = (product: { dataWaznosci?: string | number; data_waznosci?
 
 const HEADER_H = 'h-[30px] box-border';
 const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
-const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs leading-[28px] bg-white appearance-none`;
-const ROW_SELECT = 'w-full min-w-0 h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs leading-[28px] appearance-none';
+const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs leading-[28px] bg-white`;
+const ROW_SELECT = 'w-full min-w-0 h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs leading-[28px]';
 const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
@@ -909,28 +909,22 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta dostawy</label>
-            <div className="relative">
-              <select
-                value={walutaDostawy}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  const next = raw === '' ? '' : normalizeWalutaFaktury(raw);
-                  setWalutaDostawy(next);
-                  if (!needsKursToPln(next)) {
-                    setKursDostawy('');
-                    return;
-                  }
-                  if (next === walutaFaktury && !kursDostawy && kursFaktury) {
-                    setKursDostawy(kursFaktury);
-                  }
-                }}
-                className={withInvalid(`${HEADER_SELECT}${walutaDostawy === '' ? ' text-center text-gray-400' : ''}`, headerInvalid.walutaDostawy)}
-              >
-                <option value="">—</option>
-                {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
-              </select>
-              <SelectChevron />
-            </div>
+            <AppSelect
+              value={walutaDostawy}
+              onChange={(raw) => {
+                const next = raw === '' ? '' : normalizeWalutaFaktury(raw);
+                setWalutaDostawy(next);
+                if (!needsKursToPln(next)) {
+                  setKursDostawy('');
+                  return;
+                }
+                if (next === walutaFaktury && !kursDostawy && kursFaktury) {
+                  setKursDostawy(kursFaktury);
+                }
+              }}
+              options={WALUTY_FAKTURY.map((w) => ({ value: w, label: w }))}
+              className={withInvalid(HEADER_SELECT, headerInvalid.walutaDostawy)}
+            />
           </div>
 
           <div className="flex gap-8 min-w-0 items-end w-full">
@@ -1013,30 +1007,24 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
-            <div className="relative">
-              <select
-                value={walutaFaktury}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); return; }
-                  const next = normalizeWalutaFaktury(raw);
-                  setWalutaFaktury(next);
-                  if (!needsKursToPln(next)) {
-                    setKursFaktury('');
-                    return;
-                  }
-                  if (next === walutaDostawy) {
-                    if (!kursDostawy && kursFaktury) setKursDostawy(kursFaktury);
-                    setKursFaktury('');
-                  }
-                }}
-                className={withInvalid(`${HEADER_SELECT}${walutaFaktury === '' ? ' text-center text-gray-400' : ''}`, kursInvalid.walutaFaktury)}
-              >
-                <option value="">—</option>
-                {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
-              </select>
-              <SelectChevron />
-            </div>
+            <AppSelect
+              value={walutaFaktury}
+              onChange={(raw) => {
+                if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); return; }
+                const next = normalizeWalutaFaktury(raw);
+                setWalutaFaktury(next);
+                if (!needsKursToPln(next)) {
+                  setKursFaktury('');
+                  return;
+                }
+                if (next === walutaDostawy) {
+                  if (!kursDostawy && kursFaktury) setKursDostawy(kursFaktury);
+                  setKursFaktury('');
+                }
+              }}
+              options={WALUTY_FAKTURY.map((w) => ({ value: w, label: w }))}
+              className={withInvalid(HEADER_SELECT, kursInvalid.walutaFaktury)}
+            />
           </div>
 
           <div className="flex gap-8 min-w-0 items-end w-full">
@@ -1215,60 +1203,44 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative min-w-0">
-                  <select
-                    value={String(row.vat ?? 0)}
-                    onChange={(e) => handleVatChange(index, Number(e.target.value))}
-                    className={`${ROW_SELECT} border border-gray-300 bg-white`}
-                  >
-                    {VAT_RATES.map((vat) => (
-                      <option key={vat.value} value={vat.value}>{vat.label}</option>
-                    ))}
-                  </select>
-                  <SelectChevron />
-                </div>
+                <AppSelect
+                  value={String(row.vat ?? 0)}
+                  onChange={(v) => handleVatChange(index, Number(v))}
+                  options={VAT_RATES.map((vat) => ({ value: String(vat.value), label: vat.label }))}
+                  allowEmpty={false}
+                  emptyMuted={false}
+                  className={`${ROW_SELECT} border border-gray-300 bg-white font-normal${(row.vat ?? 0) === 0 ? ' text-gray-400' : ' text-gray-900'}`}
+                />
                 <input
                   type="text"
                   value={formatPlMoney(getRowLineBruttoPoRabacie(row, rabatPercent))}
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div
+                <AppSelect
+                  value={row.typ}
+                  onChange={(v) => handleTypChange(index, v)}
+                  options={TYPY_TOWARU.map((typ) => ({
+                    value: typ.value,
+                    label: typ.label,
+                    optionClassName: typ.color,
+                  }))}
                   className={withInvalid(
-                    `relative min-w-0 h-[30px] box-border rounded-md border ${row.typ
+                    `${ROW_SELECT} border ${row.typ
                       ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
                       : 'border-gray-300 bg-white'}`,
                     rowInvalid.typ
                   )}
-                >
-                  <select
-                    value={row.typ}
-                    onChange={(e) => handleTypChange(index, e.target.value)}
-                    className={`${ROW_SELECT} h-full border-0 bg-transparent leading-[28px]${row.typ ? '' : ' text-center text-gray-400'}`}
-                  >
-                    <option value="">—</option>
-                    {TYPY_TOWARU.map((typ) => (
-                      <option key={typ.value} value={typ.value}>{typ.label}</option>
-                    ))}
-                  </select>
-                  <SelectChevron />
-                </div>
-                <div className="relative min-w-0">
-                  <select
-                    value={row.objetosc}
-                    onChange={(e) => handleObjetoscChange(index, e.target.value)}
-                    className={withInvalid(
-                      `${ROW_SELECT} border border-gray-300 bg-white${row.objetosc ? '' : ' text-center text-gray-400'}`,
-                      rowInvalid.objetosc
-                    )}
-                  >
-                    <option value="">—</option>
-                    {OBJETOSCI_WINA.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  <SelectChevron />
-                </div>
+                />
+                <AppSelect
+                  value={row.objetosc}
+                  onChange={(v) => handleObjetoscChange(index, v)}
+                  options={OBJETOSCI_WINA.map((o) => ({ value: o.value, label: o.label }))}
+                  className={withInvalid(
+                    `${ROW_SELECT} border border-gray-300 bg-white`,
+                    rowInvalid.objetosc
+                  )}
+                />
                 <div className="product-col-koszt min-w-0 w-full">
                   <input
                     type="text"
