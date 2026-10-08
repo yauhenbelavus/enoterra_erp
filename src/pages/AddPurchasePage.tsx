@@ -816,7 +816,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               onFocus={(e) => { e.currentTarget.readOnly = false; }}
               value={sprzedawca}
               onChange={(e) => setSprzedawca(e.target.value)}
-              placeholder="Wprowadź imię sprzedawcy"
+              placeholder="Sprzedawca"
               className={withInvalid(`w-[300px] ${HEADER_FIELD} read-only:bg-white`, headerInvalid.sprzedawca)}
             />
           </div>

@@ -32,7 +32,7 @@ export function TerminDniInput({ value, onChange, className = '' }: TerminDniInp
           const v = e.target.value;
           if (v === '' || /^\d*$/.test(v)) onChange(v);
         }}
-        className="min-w-0 flex-1 h-full box-border px-1 border-0 focus:outline-none font-sora text-xs text-center placeholder:text-gray-400 bg-transparent"
+        className="min-w-0 flex-1 h-full box-border px-2 border-0 focus:outline-none font-sora text-xs text-left placeholder:text-gray-400 bg-transparent"
       />
       <div className="w-[18px] shrink-0 self-stretch flex flex-col border-l border-gray-300">
         <button
