@@ -345,7 +345,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
-                <DisplaySlot className={`w-[78px] ${HEADER_SLOT} text-center px-1`}>
+                <DisplaySlot className={`w-[78px] ${HEADER_SLOT} text-left`}>
                   {terminDni}
                 </DisplaySlot>
               </div>
@@ -362,7 +362,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
             <div className="relative">
-              <DisplaySlot className={`w-full ${HEADER_SLOT} pr-9 text-gray-600`}>
+              <DisplaySlot className={`w-full ${HEADER_SLOT} pr-9 font-bold text-gray-900`}>
                 {deliveryPerUnitDisplay}
               </DisplaySlot>
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">

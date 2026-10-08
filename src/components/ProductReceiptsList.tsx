@@ -325,15 +325,6 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                   <SortIndicator field="data_przyjecia" sortField={sortField} sortDirection={sortDirection} />
                 </div>
               </th>
-              <th
-                className={fitHeadClass}
-                onClick={() => handleSort('termin_platnosci')}
-              >
-                <div className={headInnerClass}>
-                  Termin płatności
-                  <SortIndicator field="termin_platnosci" sortField={sortField} sortDirection={sortDirection} />
-                </div>
-              </th>
               <th 
                 className="px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap"
                 onClick={() => handleSort('sprzedawca')}
@@ -381,9 +372,6 @@ export const ProductReceiptsList: React.FC<ProductReceiptsListProps> = ({ receip
                 </td>
                 <td className={fitCellClass}>
                   {formatReceiptDate(receipt.data_przyjecia)}
-                </td>
-                <td className={fitCellClass}>
-                  {formatReceiptDate(receipt.termin_platnosci)}
                 </td>
                 <td className="px-8 py-3 text-left text-sm text-gray-600 font-sora">
                   {receipt.sprzedawca}

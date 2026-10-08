@@ -31,6 +31,7 @@ import {
   kosztButWgWartosci,
 } from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput, KursRateInput } from '../components/PlMoneyInput';
+import { TerminDniInput } from '../components/TerminDniInput';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines } from '../utils/receiptProducts';
@@ -798,18 +799,12 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
-                <input
-                  type="number"
-                  placeholder="0"
+                <TerminDniInput
                   value={terminDni}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === '' || /^\d*$/.test(v)) {
-                      setTerminDni(v);
-                      setTerminPlatnosci(addDaysToDate(selectedDate, parseTerminDniInput(v)));
-                    }
+                  onChange={(v) => {
+                    setTerminDni(v);
+                    setTerminPlatnosci(addDaysToDate(selectedDate, parseTerminDniInput(v)));
                   }}
-                  className={`termin-dni-input w-[78px] ${HEADER_FIELD} text-center !pl-1 !pr-0`}
                 />
               </div>
             </div>
@@ -837,7 +832,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
             <div className="relative">
-              <div className={`w-full ${HEADER_FIELD} pr-9 flex items-center bg-gray-50 text-gray-600`}>
+              <div className={`w-full ${HEADER_FIELD} pr-9 flex items-center bg-gray-50 font-bold text-gray-900`}>
                 {calculateDeliveryCostPerUnit().replace('.', ',')}
               </div>
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
