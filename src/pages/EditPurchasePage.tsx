@@ -100,6 +100,7 @@ interface ParsedPurchaseProduct {
   kod_kreskowy?: string;
   typ?: string;
   objetosc?: string;
+  vat?: number;
   catalog_matched?: boolean;
 }
 
@@ -526,7 +527,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
           cenaPelna: p.cenaPelna,
           dataWaznosci: null,
           showDataWaznosci: false,
-          vat: 0,
+          vat: Number(p.vat) > 0 ? Math.round(Number(p.vat)) : 0,
           typ: p.typ?.trim() || '',
           objetosc: p.objetosc?.trim() || '',
         }))
@@ -904,23 +905,111 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
             </div>
           </div>
 
+          <div className="w-[112px] shrink-0">
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
+            {kurs1Active ? (
+              <div className="relative w-[112px]">
+                <KursRateInput
+                  value={kursDostawy}
+                  onChange={setKursDostawy}
+                  readOnly
+                  placeholder="0,0000"
+                  className={withInvalid(`w-[112px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)}
+                />
+                <KursInputSpinner visible={isNbpLoadingDostawy} />
+              </div>
+            ) : (
+              <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+            )}
+          </div>
+
+          <div className="w-[300px]">
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Sprzedawca</label>
+            <input
+              type="text"
+              name="sprzedawca_plain"
+              id="sprzedawca_plain"
+              autoComplete="nope"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              readOnly
+              onFocus={(e) => { e.currentTarget.readOnly = false; }}
+              value={sprzedawca}
+              onChange={(e) => setSprzedawca(e.target.value)}
+              placeholder="Wprowadź imię sprzedawcy"
+              className={withInvalid(`w-[300px] ${HEADER_FIELD} read-only:bg-white`, headerInvalid.sprzedawca)}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
+            <div className="relative">
+              <div className={`w-full ${HEADER_FIELD} pr-9 flex items-center bg-gray-50 text-gray-600`}>
+                {calculateDeliveryCostPerUnit().replace('.', ',')}
+              </div>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
+                {getWalutaSymbol(walutaDostawy)}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
+            <div className="relative">
+              <select
+                value={walutaFaktury}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); return; }
+                  const next = normalizeWalutaFaktury(raw);
+                  setWalutaFaktury(next);
+                  if (!needsKursToPln(next)) {
+                    setKursFaktury('');
+                    return;
+                  }
+                  if (next === walutaDostawy) {
+                    if (!kursDostawy && kursFaktury) setKursDostawy(kursFaktury);
+                    setKursFaktury('');
+                  }
+                }}
+                className={withInvalid(HEADER_SELECT, kursInvalid.walutaFaktury)}
+              >
+                <option value="">—</option>
+                {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
+              </select>
+              <SelectChevron />
+            </div>
+          </div>
+
           <div className="flex gap-8 min-w-0 items-end w-full">
             <div className="w-[112px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
-              {kurs1Active ? (
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
+              {kurs2Active ? (
                 <div className="relative w-[112px]">
                   <KursRateInput
-                    value={kursDostawy}
-                    onChange={setKursDostawy}
+                    value={kursFaktury}
+                    onChange={setKursFaktury}
                     readOnly
                     placeholder="0,0000"
-                    className={withInvalid(`w-[112px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)}
+                    className={withInvalid(`w-[112px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)}
                   />
-                  <KursInputSpinner visible={isNbpLoadingDostawy} />
+                  <KursInputSpinner visible={isNbpLoadingFaktury} />
                 </div>
               ) : (
                 <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
               )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
+              <div className="relative">
+                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={withInvalid(`w-[112px] ${HEADER_FIELD} pr-10`, headerInvalid.akcyza)} />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
+              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[77px] ${HEADER_FIELD}`} />
             </div>
             <div className="ml-auto flex gap-2 shrink-0">
               <div className="w-[75px]">
@@ -985,96 +1074,6 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   <Car className={`h-4 w-4 ${transportInvoice || existingTransportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-            </div>
-          </div>
-
-          <div className="w-[300px]">
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Sprzedawca</label>
-            <input
-              type="text"
-              name="sprzedawca_plain"
-              id="sprzedawca_plain"
-              autoComplete="nope"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              readOnly
-              onFocus={(e) => { e.currentTarget.readOnly = false; }}
-              value={sprzedawca}
-              onChange={(e) => setSprzedawca(e.target.value)}
-              placeholder="Wprowadź imię sprzedawcy"
-              className={withInvalid(`w-[300px] ${HEADER_FIELD} read-only:bg-white`, headerInvalid.sprzedawca)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
-            <div className="relative">
-              <div className={`w-full ${HEADER_FIELD} pr-9 flex items-center bg-gray-50 text-gray-600`}>
-                {calculateDeliveryCostPerUnit().replace('.', ',')}
-              </div>
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                {getWalutaSymbol(walutaDostawy)}
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
-            <div className="relative">
-              <select
-                value={walutaFaktury}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === '') { setWalutaFaktury(''); setKursFaktury(''); return; }
-                  const next = normalizeWalutaFaktury(raw);
-                  setWalutaFaktury(next);
-                  if (!needsKursToPln(next)) {
-                    setKursFaktury('');
-                    return;
-                  }
-                  if (next === walutaDostawy) {
-                    if (!kursDostawy && kursFaktury) setKursDostawy(kursFaktury);
-                    setKursFaktury('');
-                  }
-                }}
-                className={withInvalid(HEADER_SELECT, kursInvalid.walutaFaktury)}
-              >
-                <option value="">—</option>
-                {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
-              </select>
-              <SelectChevron />
-            </div>
-          </div>
-
-          <div className="flex gap-8 min-w-0 items-end">
-            <div className="w-[112px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
-              {kurs2Active ? (
-                <div className="relative w-[112px]">
-                  <KursRateInput
-                    value={kursFaktury}
-                    onChange={setKursFaktury}
-                    readOnly
-                    placeholder="0,0000"
-                    className={withInvalid(`w-[112px] ${HEADER_FIELD} bg-gray-50 text-gray-600 ${isNbpLoadingFaktury ? 'pr-7' : 'pr-6'}`, kursInvalid.kursFaktury)}
-                  />
-                  <KursInputSpinner visible={isNbpLoadingFaktury} />
-                </div>
-              ) : (
-                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
-              <div className="relative">
-                <PlMoneyInput value={podatekAkcyzowy} onChange={setPodatekAkcyzowy} placeholder="0,00" className={withInvalid(`w-[112px] ${HEADER_FIELD} pr-10`, headerInvalid.akcyza)} />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
-              <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[77px] ${HEADER_FIELD}`} />
             </div>
           </div>
         </div>

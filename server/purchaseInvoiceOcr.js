@@ -132,8 +132,24 @@ Fields per product:
   If the invoice shows BOTH a list price and a discounted unit price, take the LIST price (before % SCONTO / rabat).
 - rabat_procent: discount % from that row (% SCONTO, Sc.%, % Rem, DISC., Rabat %) — 0 if none
 - wartosc_netto: line NET total AFTER discount (Wartość netto, IMPORTO NETTO, Imp. Netto, Montant HT)
-- vat_procent: VAT rate as integer (23, 5, 22) or 0 if not shown
+- vat_procent: VAT / IVA rate for the ERP form field "VAT" — MUST be taken from the invoice when VAT is present
 - wartosc_brutto: line GROSS total (Wartość brutto) or "0" if not on invoice
+
+=== VAT → form field "VAT" (critical) ===
+If the invoice HAS VAT (stawka VAT / % IVA / VAT %), copy that rate into vat_procent on EACH product.
+Do NOT leave vat_procent as 0 when the invoice shows a VAT rate.
+
+How to find the rate:
+- PL: column "VAT" / "Stawka VAT" / "VAT %" next to the line (5, 8, 23, 0)
+- IT: "IVA" / "% IVA" / "Aliquota IVA" (often 22)
+- DK/EN/FR: VAT % / Moms % / TVA %
+- If rates appear only in the document summary (one rate for all goods), apply that same rate to every paid product row
+- If lines have different rates, use each line's own rate
+- Free / F.o.C. / Omaggio rows: use the rate printed for that row, or 0 if none
+- Use 0 ONLY when the invoice truly has no VAT (exempt, 0%, or VAT column not present at all)
+
+vat_procent is an integer percent for the form dropdown (e.g. 5, 8, 23, 22) — NOT the VAT money amount.
+The VAT money amount belongs in suma_vat (document total), not in vat_procent.
 
 Document-level field:
 - rabat: the invoice discount % for the form header. Prefer the % shared by paid product rows
@@ -152,10 +168,12 @@ NEVER return cena_katalogowa = wartosc_netto / ilosc when a list price column ex
 2. rabat_procent = row discount % (0 if none)
 3. Still extract wartosc_netto / wartosc_brutto / vat_procent as printed
 4. NEVER use Cena brutto / Wartość brutto as cena_katalogowa
+5. If VAT % is printed on the line or in totals → vat_procent MUST equal that rate (form field VAT)
 
 PLN example (no discount):
   Cena netto 31,70 | Ilość 30 | Wartość netto 951,00 | VAT 5% | Wartość brutto 998,55
-  → cena_katalogowa "31,70", rabat_procent 0, document rabat "0"
+  → cena_katalogowa "31,70", rabat_procent 0, vat_procent 5, document rabat "0"
+  → form VAT field = 5
 
 PLN with discount (if shown):
   Cena 10,00 | Rabat 10% | Ilość 12 | Wartość netto 108,00
@@ -165,6 +183,7 @@ PLN with discount (if shown):
 - cena_katalogowa = PREZZO UNIT. / Stk. pris / ITEM.PRICE BEFORE % SCONTO
 - rabat_procent = % SCONTO / Sc.% from the row
 - wartosc_netto = IMPORTO NETTO / line net AFTER discount (raw)
+- vat_procent = % IVA / VAT from the line or document summary when present (form field VAT); 0 only if no VAT on invoice
 - Do NOT put (wartosc_netto / ilosc) or (wartosc_brutto / ilosc) into cena_katalogowa
 
 EUR/DKK example:
@@ -187,7 +206,7 @@ Example (Polish invoice):
   Line 1: "8. Domaine D'Grottes L'."
   Line 2: "Antidote  30 szt.  31,70  951,00  ..."
 → ONE product: {"nazwa": "Domaine D'Grottes L'Antidote", "ilosc": 30, "cena_katalogowa": "31,70", "rabat_procent": 0, "wartosc_netto": "951,00", "vat_procent": 5, "wartosc_brutto": "998,55"}
-→ form cena = 31,70; rabat = 0
+→ form cena = 31,70; rabat = 0; VAT = 5
 
 Bortolomiol example — extract RAW columns, do NOT put discounted unit into cena:
   PREZZO UNIT. 5,400 | % SCONTO 30 | QUANTITA' 624 | IMPORTO NETTO 2.358,72
@@ -576,6 +595,13 @@ function normalizeWaluta(waluta) {
   return 'EUR';
 }
 
+/** VAT % for the form field "VAT" — from invoice rate, not money amount. */
+function resolveVatPercent(product) {
+  const n = parseNumber(product.vat_procent ?? product.vat ?? product.iva ?? product.stawka_vat);
+  if (!Number.isFinite(n) || n <= 0 || n >= 100) return 0;
+  return Math.round(n);
+}
+
 function mapProduct(product, waluta = 'EUR') {
   const ilosc = resolveQuantity(product);
   const pricing = computeProductPricing(product, waluta);
@@ -586,6 +612,7 @@ function mapProduct(product, waluta = 'EUR') {
     cenaPelna: pricing.cenaPelna,
     wartosc: pricing.wartosc,
     rabat_procent: pricing.rabatProcent,
+    vat: resolveVatPercent(product),
   };
 }
 

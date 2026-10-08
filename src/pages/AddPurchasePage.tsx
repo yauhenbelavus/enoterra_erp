@@ -91,6 +91,7 @@ interface ParsedPurchaseProduct {
   kod_kreskowy?: string;
   typ?: string;
   objetosc?: string;
+  vat?: number;
   catalog_matched?: boolean;
 }
 
@@ -365,7 +366,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           cenaPelna: p.cenaPelna,
           dataWaznosci: null,
           showDataWaznosci: false,
-          vat: 0,
+          vat: Number(p.vat) > 0 ? Math.round(Number(p.vat)) : 0,
           typ: p.typ?.trim() || '',
           objetosc: p.objetosc?.trim() || '',
         }))
@@ -741,74 +742,16 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
 
-          <div className="flex gap-8 min-w-0 items-end w-full">
-            <div className="w-[112px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
-              {kurs1Active ? (
-                <div className="relative w-[112px]">
-                  <KursRateInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
-                  <KursInputSpinner visible={isNbpLoadingDostawy} />
-                </div>
-              ) : (
-                <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
-              )}
-            </div>
-            <div className="ml-auto flex gap-2 shrink-0">
-              <div className="w-[75px]">
-                <input
-                  type="file"
-                  accept=".pdf"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
-                    setProductInvoice(f);
-                  }}
-                  className="hidden"
-                  ref={productFileInputRef}
-                />
-                <button
-                  type="button"
-                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
-                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
-                    productInvoice
-                      ? 'border border-green-500 hover:bg-green-50'
-                      : 'border border-gray-300 hover:bg-gray-50'
-                  }`}
-                  title={productInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
-                >
-                  <Grape className={`h-4 w-4 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
-                </button>
+          <div className="w-[112px] shrink-0">
+            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
+            {kurs1Active ? (
+              <div className="relative w-[112px]">
+                <KursRateInput value={kursDostawy} onChange={setKursDostawy} placeholder="0,0000" className={withInvalid(`w-[112px] ${HEADER_FIELD} ${isNbpLoadingDostawy ? 'pr-7' : 'pr-6'}`, kursInvalid.kursDostawy)} />
+                <KursInputSpinner visible={isNbpLoadingDostawy} />
               </div>
-              <div className="w-[75px]">
-                <input
-                  type="file"
-                  accept=".pdf"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
-                    setTransportInvoice(f);
-                  }}
-                  className="hidden"
-                  ref={transportFileInputRef}
-                />
-                <button
-                  type="button"
-                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
-                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
-                    transportInvoice
-                      ? 'border border-green-500 hover:bg-green-50'
-                      : 'border border-gray-300 hover:bg-gray-50'
-                  }`}
-                  title={transportInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
-                >
-                  <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
-                </button>
-              </div>
-            </div>
+            ) : (
+              <div className="w-[112px] h-[30px] rounded-md bg-gray-100 border border-gray-200" />
+            )}
           </div>
 
           <div className="w-[300px]">
@@ -870,7 +813,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             </div>
           </div>
 
-          <div className="flex gap-8 min-w-0 items-end">
+          <div className="flex gap-8 min-w-0 items-end w-full">
             <div className="w-[112px] shrink-0">
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
@@ -892,6 +835,62 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
               <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[77px] ${HEADER_FIELD}`} />
+            </div>
+            <div className="ml-auto flex gap-2 shrink-0">
+              <div className="w-[75px]">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
+                    setProductInvoice(f);
+                  }}
+                  className="hidden"
+                  ref={productFileInputRef}
+                />
+                <button
+                  type="button"
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                    productInvoice
+                      ? 'border border-green-500 hover:bg-green-50'
+                      : 'border border-gray-300 hover:bg-gray-50'
+                  }`}
+                  title={productInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
+                >
+                  <Grape className={`h-4 w-4 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                </button>
+              </div>
+              <div className="w-[75px]">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
+                    setTransportInvoice(f);
+                  }}
+                  className="hidden"
+                  ref={transportFileInputRef}
+                />
+                <button
+                  type="button"
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                    transportInvoice
+                      ? 'border border-green-500 hover:bg-green-50'
+                      : 'border border-gray-300 hover:bg-gray-50'
+                  }`}
+                  title={transportInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
+                >
+                  <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
