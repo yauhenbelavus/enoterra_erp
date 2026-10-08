@@ -32,6 +32,7 @@ import {
   validatePurchaseReceipt,
 } from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput, KursRateInput } from './PlMoneyInput';
+import { SelectChevron } from './SelectChevron';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
 import { isPdfFile } from '../utils/receiptInvoice';
 import "react-datepicker/dist/react-datepicker.css";
@@ -72,12 +73,7 @@ const VAT_RATES = [
 const HEADER_H = 'h-[30px] box-border';
 const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
 const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
-
-const SelectChevron = () => (
-  <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-  </svg>
-);
+const ROW_SELECT = 'h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs appearance-none';
 
 const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => {
   const s = String(value || '').trim().toUpperCase();
@@ -238,9 +234,6 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
   const [existingTransportInvoice, setExistingTransportInvoice] = useState<string | null>(null);
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const transportFileInputRef = useRef<HTMLInputElement>(null);
-  const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
-  const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
-  const [openVatDropdownIndex, setOpenVatDropdownIndex] = useState<number | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
   const [rabat, setRabat] = useState('0,00');
@@ -394,19 +387,10 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       }
   }, [isOpen, receipt]);
 
-  // Закрываем выпадающие списки и календари при клике вне их области
+  // Закрываем календари при клике вне их области
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (!target.closest('.dropdown-container') && !target.closest('button[onclick*="toggleDropdown"]')) {
-        setOpenDropdownIndex(null);
-        setOpenVatDropdownIndex(null);
-      }
-      if (!target.closest('.objetosc-dropdown-container') && !target.closest('button[onclick*="toggleObjetoscDropdown"]')) {
-        setOpenObjetoscDropdownIndex(null);
-      }
-      
-      // Закрываем календари при клике вне их области
       if (!target.closest('.react-datepicker') && !target.closest('button[title*="ważności"]')) {
         const newRows = [...productRows];
         let hasChanges = false;
@@ -424,10 +408,6 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpenDropdownIndex(null);
-        setOpenObjetoscDropdownIndex(null);
-        setOpenVatDropdownIndex(null);
-        // Закрываем календари при нажатии Escape
         const newRows = [...productRows];
         let hasChanges = false;
         newRows.forEach(row => {
@@ -459,7 +439,6 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     const newRows = [...productRows];
     newRows[index].vat = value;
     setProductRows(newRows);
-    setOpenVatDropdownIndex(null);
   };
 
   const deleteRow = (index: number) => {
@@ -480,30 +459,12 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
     const newRows = [...productRows];
     newRows[index].typ = value;
     setProductRows(newRows);
-    setOpenDropdownIndex(null);
-  };
-
-  const toggleDropdown = (index: number) => {
-    if (openDropdownIndex === index) {
-      setOpenDropdownIndex(null);
-    } else {
-      setOpenDropdownIndex(index);
-    }
   };
 
   const handleObjetoscChange = (index: number, value: string) => {
     const newRows = [...productRows];
     newRows[index].objetosc = value;
     setProductRows(newRows);
-    setOpenObjetoscDropdownIndex(null);
-  };
-
-  const toggleObjetoscDropdown = (index: number) => {
-    if (openObjetoscDropdownIndex === index) {
-      setOpenObjetoscDropdownIndex(null);
-    } else {
-      setOpenObjetoscDropdownIndex(index);
-    }
   };
 
 
@@ -612,7 +573,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
       dataWaznosci: row.dataWaznosci || undefined,
       typ: row.typ || undefined,
       objetosc: row.objetosc ? parseFloat(row.objetosc) : undefined,
-      vat: row.vat || 0
+      vat: row.vat ?? 0
     }));
 
     const totalValue = formattedProducts.reduce((sum, product) => {
@@ -826,7 +787,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                         setKursDostawy(kursFaktury);
                       }
                     }}
-                    className={withInvalid(HEADER_SELECT, headerInvalid.walutaDostawy)}
+                    className={withInvalid(`${HEADER_SELECT}${walutaDostawy === '' ? ' text-center text-gray-400' : ''}`, headerInvalid.walutaDostawy)}
                   >
                     <option value="">—</option>
                     {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
@@ -977,7 +938,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                       setKursFaktury('');
                     }
                   }}
-                  className={withInvalid(HEADER_SELECT, kursInvalid.walutaFaktury)}
+                  className={withInvalid(`${HEADER_SELECT}${walutaFaktury === '' ? ' text-center text-gray-400' : ''}`, kursInvalid.walutaFaktury)}
                 >
                   <option value="">—</option>
                   {WALUTY_FAKTURY.map((w) => (
@@ -1154,28 +1115,19 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                     />
                   </div>
                 </div>
-                <div className="col-span-1 relative dropdown-container ml-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenVatDropdownIndex(openVatDropdownIndex === index ? null : index);
-                      setOpenDropdownIndex(null);
-                      setOpenObjetoscDropdownIndex(null);
-                    }}
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between bg-white"
-                  >
-                    <span className="truncate">{row.vat}%</span>
-                    <svg className="w-3 h-3 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                  {openVatDropdownIndex === index && (
-                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
+                <div className="col-span-1 relative ml-1">
+                  <div className="relative">
+                    <select
+                      value={String(row.vat ?? 0)}
+                      onChange={(e) => handleVatChange(index, Number(e.target.value))}
+                      className={`w-full ${ROW_SELECT} border border-gray-300 bg-white`}
+                    >
                       {VAT_RATES.map((vat) => (
-                        <button key={vat.value} type="button" onClick={() => handleVatChange(index, vat.value)} className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50">
-                          {vat.label}
-                        </button>
+                        <option key={vat.value} value={vat.value}>{vat.label}</option>
                       ))}
-                    </div>
-                  )}
+                    </select>
+                    <SelectChevron />
+                  </div>
                 </div>
                 <div className="absolute right-0 top-[2px] flex flex-row items-center gap-1 z-50 pointer-events-auto" style={{transform: 'translateX(0%)'}}>
                   <button
@@ -1216,71 +1168,42 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                     />
                   </div>
                 )}
-                <div className="col-span-1.8 relative dropdown-container ml-1">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => toggleDropdown(index)}
-                      className={withInvalid(`w-[200%] px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ml-1 ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`, rowInvalid.typ)}
+                <div className="col-span-1.8 relative ml-1">
+                  <div className="relative w-[200%] ml-1">
+                    <select
+                      value={row.typ}
+                      onChange={(e) => handleTypChange(index, e.target.value)}
+                      className={withInvalid(
+                        `w-full ${ROW_SELECT} border ${row.typ
+                          ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
+                          : 'border-gray-300 bg-white text-center text-gray-400'}`,
+                        rowInvalid.typ
+                      )}
                     >
-                      <span className="truncate">
-                        {row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Wybierz typ' : 'Wybierz typ'}
-                      </span>
-                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {openDropdownIndex === index && (
-                      <div 
-                        className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-[200%] ml-1"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {TYPY_TOWARU.map((typ) => (
-                          <button
-                            key={typ.value}
-                            type="button"
-                            onClick={() => handleTypChange(index, typ.value)}
-                            className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 ${typ.color}`}
-                          >
-                            {typ.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                      <option value="">—</option>
+                      {TYPY_TOWARU.map((typ) => (
+                        <option key={typ.value} value={typ.value}>{typ.label}</option>
+                      ))}
+                    </select>
+                    <SelectChevron />
                   </div>
                 </div>
-                <div className="col-span-3 relative ml-20 objetosc-dropdown-container">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => toggleObjetoscDropdown(index)}
-                      className={withInvalid(`w-[60%] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`, rowInvalid.objetosc)}
+                <div className="col-span-3 relative ml-20">
+                  <div className="relative w-[60%]" style={{ maxWidth: '200px' }}>
+                    <select
+                      value={row.objetosc}
+                      onChange={(e) => handleObjetoscChange(index, e.target.value)}
+                      className={withInvalid(
+                        `w-full ${ROW_SELECT} border border-gray-300 bg-white${row.objetosc ? '' : ' text-center text-gray-400'}`,
+                        rowInvalid.objetosc
+                      )}
                     >
-                      <span className="truncate">
-                        {row.objetosc ? OBJETOSCI_WINA.find(o => o.value === row.objetosc)?.label || row.objetosc : 'Wybierz'}
-                      </span>
-                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {openObjetoscDropdownIndex === index && (
-                      <div 
-                        className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-[100] max-h-40 overflow-y-auto w-[60%]"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ maxWidth: '200px' }}
-                      >
-                        {OBJETOSCI_WINA.map((objetosc) => (
-                          <button
-                            key={objetosc.value}
-                            type="button"
-                            onClick={() => handleObjetoscChange(index, objetosc.value)}
-                            className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50"
-                          >
-                            {objetosc.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                      <option value="">—</option>
+                      {OBJETOSCI_WINA.map((objetosc) => (
+                        <option key={objetosc.value} value={objetosc.value}>{objetosc.label}</option>
+                      ))}
+                    </select>
+                    <SelectChevron />
                   </div>
                 </div>
               </div>

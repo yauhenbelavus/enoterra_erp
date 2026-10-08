@@ -28,6 +28,9 @@ import {
   validateRequiredKurs,
 } from '../utils/receiptCurrency';
 import { PlMoneyInput } from './PlMoneyInput';
+import { SelectChevron } from './SelectChevron';
+
+const ROW_SELECT = 'h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs appearance-none';
 
 registerLocale('pl', pl);
 
@@ -154,8 +157,6 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
   const [kosztDostawy, setKosztDostawy] = useState('');
   const [productInvoice, setProductInvoice] = useState<File | null>(null);
   const [transportInvoice, setTransportInvoice] = useState<File | null>(null);
-  const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
-  const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
   const [aktualnyKurs, setAktualnyKurs] = useState('0,00');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('0,00');
   const [rabat, setRabat] = useState('0,00');
@@ -475,22 +476,12 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
     const newRows = [...productRows];
     newRows[index].typ = value;
     setProductRows(newRows);
-    setOpenDropdownIndex(null);
-  };
-
-  const toggleDropdown = (index: number) => {
-    setOpenDropdownIndex(openDropdownIndex === index ? null : index);
-  };
-
-  const toggleObjetoscDropdown = (index: number) => {
-    setOpenObjetoscDropdownIndex(openObjetoscDropdownIndex === index ? null : index);
   };
 
   const handleObjetoscChange = (index: number, value: string) => {
     const newRows = [...productRows];
     newRows[index].objetosc = value;
     setProductRows(newRows);
-    setOpenObjetoscDropdownIndex(null);
   };
 
   useEffect(() => {
@@ -518,25 +509,19 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
         }
       }
       
-      // Закрываем dropdown типа товара
-      if (openDropdownIndex !== null) {
-        if (!target.closest('.dropdown-container')) {
-          setOpenDropdownIndex(null);
-        }
-      }
-      
-      // Закрываем dropdown объема товара
-      if (openObjetoscDropdownIndex !== null) {
-        if (!target.closest('.dropdown-container')) {
-          setOpenObjetoscDropdownIndex(null);
-        }
-      }
     };
     
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpenDropdownIndex(null);
-        setOpenObjetoscDropdownIndex(null);
+        const newRows = [...productRows];
+        let hasChanges = false;
+        newRows.forEach(row => {
+          if (row.showDataWaznosci) {
+            row.showDataWaznosci = false;
+            hasChanges = true;
+          }
+        });
+        if (hasChanges) setProductRows(newRows);
       }
     };
     
@@ -546,7 +531,7 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [openDropdownIndex, openObjetoscDropdownIndex, productRows]);
+  }, [productRows]);
 
   return (
     <Modal
@@ -996,71 +981,36 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
                     />
                   </div>
                 )}
-                <div className="col-span-1.8 relative dropdown-container ml-1">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => toggleDropdown(index)}
-                      className={`w-[200%] px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ml-1 ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`}
+                <div className="col-span-1.8 relative ml-1">
+                  <div className="relative w-[200%] ml-1">
+                    <select
+                      value={row.typ}
+                      onChange={(e) => handleTypChange(index, e.target.value)}
+                      className={`w-full ${ROW_SELECT} border ${row.typ
+                        ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
+                        : 'border-gray-300 bg-white text-center text-gray-400'}`}
                     >
-                      <span className="truncate">
-                        {row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Wybierz typ' : 'Wybierz typ'}
-                      </span>
-                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {openDropdownIndex === index && (
-                      <div 
-                        className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-[200%] ml-1"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {TYPY_TOWARU.map((typ) => (
-                          <button
-                            key={typ.value}
-                            type="button"
-                            onClick={() => handleTypChange(index, typ.value)}
-                            className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 ${typ.color}`}
-                          >
-                            {typ.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                      <option value="">—</option>
+                      {TYPY_TOWARU.map((typ) => (
+                        <option key={typ.value} value={typ.value}>{typ.label}</option>
+                      ))}
+                    </select>
+                    <SelectChevron />
                   </div>
                 </div>
-                <div className="col-span-3 relative ml-20 dropdown-container">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => toggleObjetoscDropdown(index)}
-                      className={`w-[60%] px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
+                <div className="col-span-3 relative ml-20">
+                  <div className="relative w-[60%]" style={{ maxWidth: '200px' }}>
+                    <select
+                      value={row.objetosc}
+                      onChange={(e) => handleObjetoscChange(index, e.target.value)}
+                      className={`w-full ${ROW_SELECT} border border-gray-300 bg-white${row.objetosc ? '' : ' text-center text-gray-400'}`}
                     >
-                      <span className="truncate">
-                        {row.objetosc || 'Wybierz'}
-                      </span>
-                      <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {openObjetoscDropdownIndex === index && (
-                      <div 
-                        className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-[100] max-h-40 overflow-y-auto w-[60%]"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ maxWidth: '200px' }}
-                      >
-                        {OBJETOSCI_WINA.map((objetosc) => (
-                          <button
-                            key={objetosc.value}
-                            type="button"
-                            onClick={() => handleObjetoscChange(index, objetosc.value)}
-                            className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50"
-                          >
-                            {objetosc.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                      <option value="">—</option>
+                      {OBJETOSCI_WINA.map((objetosc) => (
+                        <option key={objetosc.value} value={objetosc.value}>{objetosc.label}</option>
+                      ))}
+                    </select>
+                    <SelectChevron />
                   </div>
                 </div>
               </div>

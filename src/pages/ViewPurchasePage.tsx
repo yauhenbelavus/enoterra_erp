@@ -320,7 +320,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta dostawy</label>
-            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
+            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs whitespace-normal break-words leading-tight ${walutaDostawy ? 'text-gray-900' : 'justify-center text-gray-400'}`}>
               {walutaDostawy || '—'}
             </DisplaySlot>
           </div>
@@ -339,7 +339,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             <div className="flex items-end gap-2">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
-                <DisplaySlot className={`w-[200px] ${HEADER_SLOT}`}>
+                <DisplaySlot className={`w-[200px] ${HEADER_SLOT} ${terminPlatnosci ? '' : 'justify-center text-gray-400'}`}>
                   {terminPlatnosci ? formatDateDdMmYyyy(terminPlatnosci) : '—'}
                 </DisplaySlot>
               </div>
@@ -373,7 +373,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
-            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight`}>
+            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs whitespace-normal break-words leading-tight ${walutaFaktury ? 'text-gray-900' : 'justify-center text-gray-400'}`}>
               {walutaFaktury || '—'}
             </DisplaySlot>
           </div>

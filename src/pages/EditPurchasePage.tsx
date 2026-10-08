@@ -34,6 +34,7 @@ import {
 } from '../../server/purchaseReceiptValidation.mjs';
 import { PlMoneyInput, KursRateInput } from '../components/PlMoneyInput';
 import { TerminDniInput } from '../components/TerminDniInput';
+import { SelectChevron } from '../components/SelectChevron';
 import { ZAKUP_PATH } from '../routes';
 import { Product } from '../types/Product';
 import { normalizeReceiptProductLines, receiptLineDataWaznosci } from '../utils/receiptProducts';
@@ -265,17 +266,13 @@ const parseLineDate = (product: { dataWaznosci?: string | number; data_waznosci?
 const HEADER_H = 'h-[30px] box-border';
 const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
 const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
+const ROW_SELECT = 'w-full min-w-0 h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs appearance-none';
 const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
 const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_52px]';
 const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px_52px]';
 
-const SelectChevron = () => (
-  <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-  </svg>
-);
 
 const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
   try {
@@ -348,9 +345,6 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const [transportInvoice, setTransportInvoice] = useState<File | null>(null);
   const [existingProductInvoice, setExistingProductInvoice] = useState<string | null>(null);
   const [existingTransportInvoice, setExistingTransportInvoice] = useState<string | null>(null);
-  const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
-  const [openObjetoscDropdownIndex, setOpenObjetoscDropdownIndex] = useState<number | null>(null);
-  const [openVatDropdownIndex, setOpenVatDropdownIndex] = useState<number | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
   const [rabat, setRabat] = useState('');
@@ -637,17 +631,19 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         newRows.forEach(row => { if (row.showDataWaznosci) { row.showDataWaznosci = false; hasChanges = true; } });
         if (hasChanges) setProductRows(newRows);
       }
-      if (openDropdownIndex !== null && !target.closest('.dropdown-container')) setOpenDropdownIndex(null);
-      if (openObjetoscDropdownIndex !== null && !target.closest('.dropdown-container')) setOpenObjetoscDropdownIndex(null);
-      if (openVatDropdownIndex !== null && !target.closest('.dropdown-container')) setOpenVatDropdownIndex(null);
     };
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setOpenDropdownIndex(null); setOpenObjetoscDropdownIndex(null); setOpenVatDropdownIndex(null); }
+      if (e.key === 'Escape') {
+        const newRows = [...productRows];
+        let hasChanges = false;
+        newRows.forEach(row => { if (row.showDataWaznosci) { row.showDataWaznosci = false; hasChanges = true; } });
+        if (hasChanges) setProductRows(newRows);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
     return () => { document.removeEventListener('mousedown', handleClickOutside); document.removeEventListener('keydown', handleEscape); };
-  }, [openDropdownIndex, openObjetoscDropdownIndex, openVatDropdownIndex, productRows]);
+  }, [productRows]);
 
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
@@ -699,7 +695,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         cena: parseFloat(row.cena.replace(',', '.')) || 0,
         cena_zakupu_po_rabacie: cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), parsePlNumber(rabat), row.typ),
         dataWaznosci: row.dataWaznosci ? row.dataWaznosci.toLocaleDateString('en-CA') : undefined,
-        vat: row.vat,
+        vat: row.vat ?? 0,
         typ: row.typ || undefined,
         objetosc: row.objetosc || undefined,
         koszt_dostawy_per_unit: roundMoney(kosztButWgWartosci(row, productRows, deliveryCost) * kursDostawyNumber),
@@ -798,7 +794,6 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     const newRows = [...productRows];
     newRows[index].vat = value;
     setProductRows(newRows);
-    setOpenVatDropdownIndex(null);
   };
 
   const handleTypChange = (index: number, value: string) => {
@@ -809,14 +804,12 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
       newRows[index].showDataWaznosci = false;
     }
     setProductRows(newRows);
-    setOpenDropdownIndex(null);
   };
 
   const handleObjetoscChange = (index: number, value: string) => {
     const newRows = [...productRows];
     newRows[index].objetosc = value;
     setProductRows(newRows);
-    setOpenObjetoscDropdownIndex(null);
   };
 
   const deliveryCostNumber = parsePlNumber(kosztDostawy);
@@ -931,7 +924,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                     setKursDostawy(kursFaktury);
                   }
                 }}
-                className={withInvalid(HEADER_SELECT, headerInvalid.walutaDostawy)}
+                className={withInvalid(`${HEADER_SELECT}${walutaDostawy === '' ? ' text-center text-gray-400' : ''}`, headerInvalid.walutaDostawy)}
               >
                 <option value="">—</option>
                 {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
@@ -1037,7 +1030,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                     setKursFaktury('');
                   }
                 }}
-                className={withInvalid(HEADER_SELECT, kursInvalid.walutaFaktury)}
+                className={withInvalid(`${HEADER_SELECT}${walutaFaktury === '' ? ' text-center text-gray-400' : ''}`, kursInvalid.walutaFaktury)}
               >
                 <option value="">—</option>
                 {WALUTY_FAKTURY.map((w) => <option key={w} value={w}>{w}</option>)}
@@ -1222,28 +1215,17 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative dropdown-container min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenVatDropdownIndex(openVatDropdownIndex === index ? null : index);
-                      setOpenDropdownIndex(null);
-                      setOpenObjetoscDropdownIndex(null);
-                    }}
-                    className="w-full px-2 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between bg-white"
+                <div className="relative min-w-0">
+                  <select
+                    value={String(row.vat ?? 0)}
+                    onChange={(e) => handleVatChange(index, Number(e.target.value))}
+                    className={`${ROW_SELECT} border border-gray-300 bg-white`}
                   >
-                    <span className="truncate">{row.vat}%</span>
-                    <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                  {openVatDropdownIndex === index && (
-                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
-                      {VAT_RATES.map((vat) => (
-                        <button key={vat.value} type="button" onClick={() => handleVatChange(index, vat.value)} className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50">
-                          {vat.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    {VAT_RATES.map((vat) => (
+                      <option key={vat.value} value={vat.value}>{vat.label}</option>
+                    ))}
+                  </select>
+                  <SelectChevron />
                 </div>
                 <input
                   type="text"
@@ -1251,51 +1233,39 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative dropdown-container min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenDropdownIndex(openDropdownIndex === index ? null : index);
-                      setOpenVatDropdownIndex(null);
-                      setOpenObjetoscDropdownIndex(null);
-                    }}
-                    className={withInvalid(`w-full px-3 py-1.5 border rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.color || 'border-gray-300 bg-white' : 'border-gray-300 bg-white'}`, rowInvalid.typ)}
+                <div className="relative min-w-0">
+                  <select
+                    value={row.typ}
+                    onChange={(e) => handleTypChange(index, e.target.value)}
+                    className={withInvalid(
+                      `${ROW_SELECT} border ${row.typ
+                        ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
+                        : 'border-gray-300 bg-white text-center text-gray-400'}`,
+                      rowInvalid.typ
+                    )}
                   >
-                    <span className="truncate">{row.typ ? TYPY_TOWARU.find(t => t.value === row.typ)?.label || 'Typ' : 'Typ'}</span>
-                    <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                  {openDropdownIndex === index && (
-                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
-                      {TYPY_TOWARU.map((typ) => (
-                        <button key={typ.value} type="button" onClick={() => handleTypChange(index, typ.value)} className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 ${typ.color}`}>
-                          {typ.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    <option value="">—</option>
+                    {TYPY_TOWARU.map((typ) => (
+                      <option key={typ.value} value={typ.value}>{typ.label}</option>
+                    ))}
+                  </select>
+                  <SelectChevron />
                 </div>
-                <div className="relative dropdown-container min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenObjetoscDropdownIndex(openObjetoscDropdownIndex === index ? null : index);
-                      setOpenVatDropdownIndex(null);
-                      setOpenDropdownIndex(null);
-                    }}
-                    className={withInvalid(`w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs text-left flex items-center justify-between ${row.objetosc ? 'bg-blue-50 border-blue-300' : 'bg-white'}`, rowInvalid.objetosc)}
+                <div className="relative min-w-0">
+                  <select
+                    value={row.objetosc}
+                    onChange={(e) => handleObjetoscChange(index, e.target.value)}
+                    className={withInvalid(
+                      `${ROW_SELECT} border border-gray-300 bg-white${row.objetosc ? '' : ' text-center text-gray-400'}`,
+                      rowInvalid.objetosc
+                    )}
                   >
-                    <span className="truncate">{row.objetosc || '—'}</span>
-                    <svg className="w-4 h-4 ml-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                  {openObjetoscDropdownIndex === index && (
-                    <div className="absolute top-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-[100] max-h-40 overflow-y-auto w-full" onClick={(e) => e.stopPropagation()}>
-                      {OBJETOSCI_WINA.map((o) => (
-                        <button key={o.value} type="button" onClick={() => handleObjetoscChange(index, o.value)} className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50">
-                          {o.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    <option value="">—</option>
+                    {OBJETOSCI_WINA.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <SelectChevron />
                 </div>
                 <div className="product-col-koszt min-w-0 w-full">
                   <input
