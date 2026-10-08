@@ -345,7 +345,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
-                <DisplaySlot className={`w-[52px] ${HEADER_SLOT} text-center px-1`}>
+                <DisplaySlot className={`w-[78px] ${HEADER_SLOT} text-center px-1`}>
                   {terminDni}
                 </DisplaySlot>
               </div>

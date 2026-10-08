@@ -976,7 +976,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                     setTerminDni(days);
                     setTerminPlatnosci(addDaysToDate(selectedDate, days));
                   }}
-                  className={`w-[52px] ${HEADER_FIELD} text-center px-1`}
+                  className={`w-[78px] ${HEADER_FIELD} text-center !pl-1 !pr-0 [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:m-0`}
                 />
               </div>
             </div>
