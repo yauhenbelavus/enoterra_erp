@@ -34,7 +34,7 @@ export function TerminDniInput({ value, onChange, className = '' }: TerminDniInp
         }}
         className="min-w-0 flex-1 h-full box-border px-2 border-0 focus:outline-none font-sora text-xs text-left placeholder:text-gray-400 bg-transparent"
       />
-      <div className="w-[18px] shrink-0 self-stretch flex flex-col border-l border-gray-300">
+      <div className="w-7 shrink-0 self-stretch flex flex-col border-l border-gray-300">
         <button
           type="button"
           tabIndex={-1}
@@ -42,7 +42,7 @@ export function TerminDniInput({ value, onChange, className = '' }: TerminDniInp
           onClick={() => commit(parseDni(value) + 1)}
           className="flex-1 min-h-0 flex items-center justify-center hover:bg-gray-100 leading-none"
         >
-          <ChevronDownIcon className="w-3 h-3 text-gray-500 rotate-180" />
+          <ChevronDownIcon className="w-3 h-3 shrink-0 text-gray-500 rotate-180" />
         </button>
         <button
           type="button"
@@ -51,7 +51,7 @@ export function TerminDniInput({ value, onChange, className = '' }: TerminDniInp
           onClick={() => commit(parseDni(value) - 1)}
           className="flex-1 min-h-0 flex items-center justify-center hover:bg-gray-100 leading-none border-t border-gray-300"
         >
-          <ChevronDownIcon className="w-3 h-3 text-gray-500" />
+          <ChevronDownIcon className="w-3 h-3 shrink-0 text-gray-500" />
         </button>
       </div>
     </div>

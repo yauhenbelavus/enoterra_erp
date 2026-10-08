@@ -218,8 +218,8 @@ const emptyRow = (): ProductRow => ({
 
 const HEADER_H = 'h-[30px] box-border';
 const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
-const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
-const ROW_SELECT = 'w-full min-w-0 h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs appearance-none';
+const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs leading-[28px] bg-white appearance-none`;
+const ROW_SELECT = 'w-full min-w-0 h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs leading-[28px] appearance-none';
 const INVALID_FIELD = '!border-red-400';
 const ROW_INPUT = 'px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
@@ -1041,16 +1041,18 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   readOnly
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
-                <div className="relative min-w-0">
+                <div
+                  className={withInvalid(
+                    `relative min-w-0 h-[30px] box-border rounded-md border ${row.typ
+                      ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
+                      : 'border-gray-300 bg-white'}`,
+                    rowInvalid.typ
+                  )}
+                >
                   <select
                     value={row.typ}
                     onChange={(e) => handleTypChange(index, e.target.value)}
-                    className={withInvalid(
-                      `${ROW_SELECT} border ${row.typ
-                        ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
-                        : 'border-gray-300 bg-white text-center text-gray-400'}`,
-                      rowInvalid.typ
-                    )}
+                    className={`${ROW_SELECT} h-full border-0 bg-transparent leading-[28px]${row.typ ? '' : ' text-center text-gray-400'}`}
                   >
                     <option value="">—</option>
                     {TYPY_TOWARU.map((typ) => (

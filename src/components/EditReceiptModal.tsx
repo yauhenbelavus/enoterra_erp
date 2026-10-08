@@ -72,8 +72,8 @@ const VAT_RATES = [
 
 const HEADER_H = 'h-[30px] box-border';
 const HEADER_FIELD = `${HEADER_H} px-3 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs`;
-const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs bg-white appearance-none`;
-const ROW_SELECT = 'h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs appearance-none';
+const HEADER_SELECT = `${HEADER_H} w-full px-2 pr-7 py-0 border border-gray-300 rounded-md focus:outline-none font-sora text-xs leading-[28px] bg-white appearance-none`;
+const ROW_SELECT = 'h-[30px] box-border px-2 pr-7 py-0 rounded-md focus:outline-none font-sora text-xs leading-[28px] appearance-none';
 
 const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => {
   const s = String(value || '').trim().toUpperCase();
@@ -1169,16 +1169,18 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                   </div>
                 )}
                 <div className="col-span-1.8 relative ml-1">
-                  <div className="relative w-[200%] ml-1">
+                  <div
+                    className={withInvalid(
+                      `relative w-[200%] ml-1 h-[30px] box-border rounded-md border ${row.typ
+                        ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
+                        : 'border-gray-300 bg-white'}`,
+                      rowInvalid.typ
+                    )}
+                  >
                     <select
                       value={row.typ}
                       onChange={(e) => handleTypChange(index, e.target.value)}
-                      className={withInvalid(
-                        `w-full ${ROW_SELECT} border ${row.typ
-                          ? (TYPY_TOWARU.find((t) => t.value === row.typ)?.color || 'border-gray-300 bg-white')
-                          : 'border-gray-300 bg-white text-center text-gray-400'}`,
-                        rowInvalid.typ
-                      )}
+                      className={`w-full ${ROW_SELECT} h-full border-0 bg-transparent leading-[28px]${row.typ ? '' : ' text-center text-gray-400'}`}
                     >
                       <option value="">—</option>
                       {TYPY_TOWARU.map((typ) => (
