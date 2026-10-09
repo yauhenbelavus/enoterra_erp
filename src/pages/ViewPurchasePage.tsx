@@ -69,10 +69,12 @@ const SLOT =
   'box-border pl-0 pr-3 py-1.5 font-sora text-xs text-left text-gray-900 whitespace-normal break-words leading-tight';
 const HEADER_SLOT = `min-h-[30px] flex items-center justify-start ${SLOT}`;
 const ROW_SLOT = `w-full min-w-0 ${SLOT}`;
+const ROW_TYP_SLOT =
+  'w-full min-w-0 h-[30px] box-border px-2 py-0 rounded-md border font-sora text-xs leading-[28px] flex items-center truncate';
 const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-normal whitespace-nowrap leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
-const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px]';
-const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px]';
+const PRODUCT_ROW_COLS = '[grid-template-columns:max-content_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px]';
+const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:max-content_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px]';
 
 const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => {
   const s = String(value || '').trim().toUpperCase();
@@ -458,85 +460,89 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
         <div className="border-t border-gray-200" />
 
-        <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 pt-6 pb-6 flex flex-col">
+        <div className="product-table flex-1 min-h-0 min-w-0 flex flex-col pt-6 pb-6">
           <div className="product-table-hscroll flex flex-col">
-          <div className={productRowsInnerClass}>
-          <div className={`product-row-head product-table-full-rule shrink-0 pb-6 bg-white ${productRowHeader}`}>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Nazwa</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod kreskowy</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Ilość</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Cena</span>
-            {showRabatCol && (
-              <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora whitespace-nowrap">Cena po rab.</span>
-            )}
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Wart. netto</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">VAT</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Wart. brutto</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Typ</span>
-            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Objętość</span>
-            <span className="product-col-koszt block w-full text-left text-xs font-bold text-gray-700 font-sora">Koszt/but.</span>
-          </div>
-
-            <div>
-            {productRows.map((row, index) => {
-              const typMeta = TYPY_TOWARU.find((item) => item.value === row.typ);
-              const isLast = index === productRows.length - 1;
-              return (
-              <div
-                key={`${row.kod}-${index}`}
-                className={`${productRowFields} relative py-2${isLast ? '' : ' product-table-full-rule product-table-full-rule-thin'}`}
-              >
-                <DisplaySlot className={ROW_SLOT}>{row.kod}</DisplaySlot>
-                <DisplaySlot className={ROW_SLOT}>{row.nazwa}</DisplaySlot>
-                <DisplaySlot className={ROW_SLOT}>{row.kod_kreskowy}</DisplaySlot>
-                <DisplaySlot className={ROW_SLOT}>{row.ilosc}</DisplaySlot>
-                <DisplaySlot className={ROW_SLOT}>{row.cena}</DisplaySlot>
+            <div className={`${productRowsInnerClass} !w-full max-w-none`}>
+              <div className={`product-row-head product-table-full-rule shrink-0 px-8 pb-6 bg-white ${productRowHeader}`}>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Nazwa</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod kreskowy</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Ilość</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Cena</span>
                 {showRabatCol && (
-                  <DisplaySlot className={ROW_SLOT}>
-                    {formatCenaPoRabacie(cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), rabatPercent, row.typ))}
-                  </DisplaySlot>
+                  <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora whitespace-nowrap">Cena po rab.</span>
                 )}
-                <DisplaySlot className={ROW_SLOT}>
-                  {formatPlMoney(getRowLineValuePoRabacie(row, rabatPercent))}
-                </DisplaySlot>
-                <DisplaySlot className={`${ROW_SLOT} px-2`}>
-                  {`${row.vat}%`}
-                </DisplaySlot>
-                <DisplaySlot className={ROW_SLOT}>
-                  {formatPlMoney(getRowLineBruttoPoRabacie(row, rabatPercent))}
-                </DisplaySlot>
-                <DisplaySlot className={ROW_SLOT}>
-                  {typMeta?.label || row.typ}
-                </DisplaySlot>
-                <DisplaySlot className={ROW_SLOT}>
-                  {objetoscLabel(row.objetosc)}
-                </DisplaySlot>
-                <div className="product-col-koszt min-w-0 w-full">
-                  <DisplaySlot className={ROW_SLOT}>
-                    {formatPlMoney(kosztButWgWartosci(row, productRows, deliveryCostNumber))}
-                  </DisplaySlot>
-                </div>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Wart. netto</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">VAT</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Wart. brutto</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Typ</span>
+                <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Objętość</span>
+                <span className="product-col-koszt block w-full text-left text-xs font-bold text-gray-700 font-sora">Koszt/but.</span>
               </div>
-            );
-            })}
+
+              <div>
+                {productRows.map((row, index) => {
+                  const typMeta = TYPY_TOWARU.find((item) => item.value === row.typ);
+                  const isLast = index === productRows.length - 1;
+                  return (
+                    <div
+                      key={`${row.kod}-${index}`}
+                      className={`px-8 ${productRowFields} relative py-2${isLast ? '' : ' product-table-full-rule product-table-full-rule-thin'}`}
+                    >
+                      <DisplaySlot className={`${ROW_SLOT} whitespace-nowrap`}>{row.kod}</DisplaySlot>
+                      <DisplaySlot className={ROW_SLOT}>{row.nazwa}</DisplaySlot>
+                      <DisplaySlot className={ROW_SLOT}>{row.kod_kreskowy}</DisplaySlot>
+                      <DisplaySlot className={ROW_SLOT}>{row.ilosc}</DisplaySlot>
+                      <DisplaySlot className={ROW_SLOT}>{row.cena}</DisplaySlot>
+                      {showRabatCol && (
+                        <DisplaySlot className={ROW_SLOT}>
+                          {formatCenaPoRabacie(cenaPoRabacie(row.cenaPelna ?? parsePlNumber(row.cena), rabatPercent, row.typ))}
+                        </DisplaySlot>
+                      )}
+                      <DisplaySlot className={ROW_SLOT}>
+                        {formatPlMoney(getRowLineValuePoRabacie(row, rabatPercent))}
+                      </DisplaySlot>
+                      <DisplaySlot className={`${ROW_SLOT} px-2`}>
+                        {`${row.vat}%`}
+                      </DisplaySlot>
+                      <DisplaySlot className={ROW_SLOT}>
+                        {formatPlMoney(getRowLineBruttoPoRabacie(row, rabatPercent))}
+                      </DisplaySlot>
+                      <DisplaySlot
+                        className={`${ROW_TYP_SLOT} ${
+                          typMeta ? typMeta.color : 'border-gray-300 bg-white text-gray-400'
+                        }`}
+                      >
+                        {typMeta?.label || (row.typ ? row.typ : '—')}
+                      </DisplaySlot>
+                      <DisplaySlot className={ROW_SLOT}>
+                        {objetoscLabel(row.objetosc)}
+                      </DisplaySlot>
+                      <div className="product-col-koszt min-w-0 w-full">
+                        <DisplaySlot className={ROW_SLOT}>
+                          {formatPlMoney(kosztButWgWartosci(row, productRows, deliveryCostNumber))}
+                        </DisplaySlot>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
           </div>
         </div>
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
           <div className="flex items-center flex-nowrap gap-x-4 text-sm text-gray-700 font-sora overflow-x-auto min-w-0">
             <span className="inline-flex items-center shrink-0">
-              <span className="font-bold">Netto:</span>{' '}
-              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+              <span className="font-bold">Netto:</span>
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0 ml-2`}>
                 {kwotaNetto}
                 <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
             </span>
             <span className="inline-flex items-center shrink-0">
-              <span className="font-bold">Brutto:</span>{' '}
-              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+              <span className="font-bold">Brutto:</span>
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0 ml-2`}>
                 {sumaBrutto}
                 <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
