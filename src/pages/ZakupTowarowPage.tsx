@@ -388,7 +388,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         {/* Kalendarz płatności */}
         {activeSubTab === 'kalendarz' && (
           <div className="flex flex-col gap-4 mt-6">
-            <KalendarzPlatnosciList receipts={productReceipts} onDelete={handleDeleteReceipt} />
+            <KalendarzPlatnosciList receipts={productReceipts} />
           </div>
         )}
       </div>

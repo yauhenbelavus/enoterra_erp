@@ -1,11 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, Edit, X } from 'lucide-react';
-import toast from 'react-hot-toast';
-import Modal from 'react-modal';
+import { Eye } from 'lucide-react';
 import { SortIndicator } from './SortIndicator';
 import { compareSortValues, parseSortDate, useTableSort } from '../utils/tableSort';
-import { getZakupEdycjaPath, getZakupPodgladPath } from '../routes';
+import { getZakupPodgladPath } from '../routes';
 
 interface PaymentReceipt {
   id?: number;
@@ -16,7 +14,6 @@ interface PaymentReceipt {
 
 interface KalendarzPlatnosciListProps {
   receipts: PaymentReceipt[];
-  onDelete: (id: number) => void | Promise<void>;
 }
 
 const startOfLocalDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -55,14 +52,8 @@ const dniPozostaloClass = (days: number | null): string => {
   return 'text-gray-600';
 };
 
-export const KalendarzPlatnosciList: React.FC<KalendarzPlatnosciListProps> = ({ receipts, onDelete }) => {
+export const KalendarzPlatnosciList: React.FC<KalendarzPlatnosciListProps> = ({ receipts }) => {
   const navigate = useNavigate();
-  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-  const [receiptToDelete, setReceiptToDelete] = useState<PaymentReceipt | null>(null);
-  const [password, setPassword] = useState('');
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartPos = useRef({ x: 0, y: 0 });
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedSprzedawca, setSelectedSprzedawca] = useState('');
@@ -170,72 +161,6 @@ export const KalendarzPlatnosciList: React.FC<KalendarzPlatnosciListProps> = ({ 
     if (receipt.id == null) return;
     navigate(getZakupPodgladPath(receipt.id));
   };
-
-  const handleEdit = (receipt: PaymentReceipt) => {
-    if (receipt.id == null) return;
-    navigate(getZakupEdycjaPath(receipt.id));
-  };
-
-  const handleDeleteClick = (receipt: PaymentReceipt) => {
-    setReceiptToDelete(receipt);
-    setIsPasswordModalOpen(true);
-    setPassword('');
-  };
-
-  const handlePasswordClose = () => {
-    setIsPasswordModalOpen(false);
-    setReceiptToDelete(null);
-    setPassword('');
-    setPosition({ x: 0, y: 0 });
-  };
-
-  const handlePasswordSubmit = () => {
-    if (password === '5202') {
-      const id = receiptToDelete?.id;
-      handlePasswordClose();
-      if (id) void Promise.resolve(onDelete(id));
-    } else {
-      toast.error('Nieprawidłowe hasło');
-      setPassword('');
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handlePasswordSubmit();
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input')) {
-      return;
-    }
-    setIsDragging(true);
-    dragStartPos.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y,
-    };
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        requestAnimationFrame(() => {
-          setPosition({
-            x: e.clientX - dragStartPos.current.x,
-            y: e.clientY - dragStartPos.current.y,
-          });
-        });
-      }
-    };
-    const handleMouseUp = () => setIsDragging(false);
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
 
   const hasActiveFilters = selectedYear || selectedMonth || selectedSprzedawca;
 
@@ -382,30 +307,6 @@ export const KalendarzPlatnosciList: React.FC<KalendarzPlatnosciListProps> = ({ 
                     >
                       <Eye size={16} />
                     </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleEdit(receipt);
-                      }}
-                      className="text-green-600 hover:text-green-800 focus:outline-none"
-                      title="Edytuj"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleDeleteClick(receipt);
-                      }}
-                      className="text-red-600 hover:text-red-800 focus:outline-none"
-                      title="Usuń"
-                    >
-                      <X size={16} />
-                    </button>
                   </div>
                 </td>
               </tr>
@@ -413,81 +314,6 @@ export const KalendarzPlatnosciList: React.FC<KalendarzPlatnosciListProps> = ({ 
           </tbody>
         </table>
       </div>
-
-      <Modal
-        isOpen={isPasswordModalOpen}
-        onRequestClose={handlePasswordClose}
-        style={{
-          content: {
-            width: '400px',
-            height: '200px',
-            maxWidth: '90%',
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: `translate(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px))`,
-            margin: '0',
-            borderRadius: '0.5rem',
-            background: 'white',
-            overflow: 'hidden',
-            outline: 'none',
-            padding: '24px',
-            fontFamily: 'Sora',
-            cursor: 'grab',
-            userSelect: 'none',
-            zIndex: 9999,
-          },
-          overlay: {
-            backgroundColor: 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-          },
-        }}
-      >
-        <div
-          className="font-sora h-full flex flex-col overflow-hidden"
-          onMouseDown={handleMouseDown}
-          style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-        >
-          <div className="flex justify-between items-center mb-8 select-none">
-            <h2 className="text-base font-semibold text-gray-800">Hasło</h2>
-            <button onClick={handlePasswordClose} className="text-red-500 focus:outline-none">
-              <X size={20} />
-            </button>
-          </div>
-
-          <div className="space-y-6 flex-grow">
-            <div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Wprowadź hasło"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none font-sora text-xs"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end space-x-2 mt-6">
-            <button
-              onClick={handlePasswordClose}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 focus:outline-none text-sm"
-            >
-              Anuluj
-            </button>
-            <button
-              onClick={handlePasswordSubmit}
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none text-sm"
-            >
-              Usuń
-            </button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 };
