@@ -70,11 +70,18 @@ const SLOT =
 const HEADER_SLOT = `min-h-[30px] flex items-center justify-start ${SLOT}`;
 const ROW_SLOT = `w-full min-w-0 ${SLOT}`;
 const ROW_TYP_SLOT =
-  'w-full min-w-0 h-[30px] box-border px-2 py-0 rounded-md border font-sora text-xs leading-[28px] flex items-center truncate';
+  'w-full min-w-0 h-[24px] box-border px-2 py-0 rounded-md border font-sora text-xs leading-[22px] flex items-center truncate';
 const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-normal whitespace-nowrap leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
-const PRODUCT_ROW_COLS = '[grid-template-columns:max-content_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px]';
-const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:max-content_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px]';
+/** Typ col: 114px × 0.75 ≈ 86px; height 30→24 (−20%). */
+const PRODUCT_ROW_COLS_TAIL = 'minmax(0,1fr)_132px_68px_78px_91px_70px_91px_86px_84px_81px';
+const PRODUCT_ROW_COLS_RABAT_TAIL = 'minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_86px_84px_81px';
+const KOD_COL_MIN_PX = 90;
+/** text-xs ≈ 7px/char + pr padding so kod fits one line; shared across header+rows. */
+const kodColumnPx = (rows: { kod?: string }[]) => {
+  const longest = rows.reduce((max, row) => Math.max(max, String(row.kod || '').length), 3);
+  return Math.max(KOD_COL_MIN_PX, longest * 7 + 16);
+};
 
 const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => {
   const s = String(value || '').trim().toUpperCase();
@@ -257,7 +264,9 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
     0,
     productRows.reduce((sum, row) => sum + getRowLineValue(row), 0) - parsePlNumber(kwotaNetto)
   ));
-  const productRowGrid = `${PRODUCT_ROW_GRID_BASE} ${showRabatCol ? PRODUCT_ROW_COLS_RABAT : PRODUCT_ROW_COLS}`;
+  const kodColPx = kodColumnPx(productRows);
+  const productRowCols = `[grid-template-columns:${kodColPx}px_${showRabatCol ? PRODUCT_ROW_COLS_RABAT_TAIL : PRODUCT_ROW_COLS_TAIL}]`;
+  const productRowGrid = `${PRODUCT_ROW_GRID_BASE} ${productRowCols}`;
   const productRowHeader = `${productRowGrid} items-end justify-items-stretch`;
   const productRowFields = `${productRowGrid} items-start`;
   const productRowsInnerClass = `product-rows-inner${showRabatCol ? ' is-wide' : ''}`;
@@ -549,8 +558,8 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             </span>
             {parsePlNumber(kwotaVat) > 0 && (
             <span className="inline-flex items-center shrink-0">
-              <span className="font-bold">VAT:</span>{' '}
-              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+              <span className="font-bold">VAT:</span>
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0 ml-2`}>
                 {kwotaVat}
                 <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
@@ -558,8 +567,8 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             )}
             {showRabatCol && (
             <span className="inline-flex items-center shrink-0">
-              <span className="font-bold">Rabat:</span>{' '}
-              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+              <span className="font-bold">Rabat:</span>
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0 ml-2`}>
                 {formatPlMoney(rabatKwota)}
                 <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
