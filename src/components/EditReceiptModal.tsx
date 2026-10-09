@@ -198,7 +198,7 @@ interface ProductRow {
   showDataWaznosci: boolean;
   typ: string;
   objetosc: string;
-  vat: number;
+  vat?: number;
 }
 
 const emptyRow = (): ProductRow => ({
@@ -211,7 +211,6 @@ const emptyRow = (): ProductRow => ({
   showDataWaznosci: false,
   typ: '',
   objetosc: '',
-  vat: 0,
 });
 
 export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
@@ -355,7 +354,7 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
           showDataWaznosci: false,
           typ: product.typ || '',
           objetosc: product.objetosc != null ? String(product.objetosc) : '',
-          vat: Number(product.vat) || 0
+          vat: product.vat == null ? undefined : Number(product.vat),
         }));
         
         setProductRows(formattedProducts.length > 0 ? formattedProducts : [emptyRow()]);
@@ -1103,12 +1102,13 @@ export const EditReceiptModal: React.FC<EditReceiptModalProps> = ({
                 </div>
                 <div className="col-span-1 relative ml-1">
                   <AppSelect
-                    value={String(row.vat ?? 0)}
+                    value={row.vat != null ? String(row.vat) : ''}
                     onChange={(v) => handleVatChange(index, Number(v))}
                     options={VAT_RATES.map((vat) => ({ value: String(vat.value), label: vat.label }))}
                     allowEmpty={false}
-                    emptyMuted={false}
-                    className={`w-full ${ROW_SELECT} border border-gray-300 bg-white font-normal${(row.vat ?? 0) === 0 ? ' text-gray-400' : ' text-gray-900'}`}
+                    emptyMuted
+                    placeholder="0%"
+                    className={`w-full ${ROW_SELECT} border border-gray-300 bg-white font-normal${row.vat != null ? ' text-gray-900' : ''}`}
                   />
                 </div>
                 <div className="absolute right-0 top-[2px] flex flex-row items-center gap-1 z-50 pointer-events-auto" style={{transform: 'translateX(0%)'}}>

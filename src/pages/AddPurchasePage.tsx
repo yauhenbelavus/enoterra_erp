@@ -107,7 +107,7 @@ interface ProductRow {
   cenaPelna?: number;
   dataWaznosci?: Date | null;
   showDataWaznosci: boolean;
-  vat: number;
+  vat?: number;
   typ: string;
   objetosc: string;
 }
@@ -211,7 +211,6 @@ const emptyRow = (): ProductRow => ({
   cena: '',
   dataWaznosci: null,
   showDataWaznosci: false,
-  vat: 0,
   typ: '',
   objetosc: '',
 });
@@ -380,7 +379,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
           cenaPelna: p.cenaPelna,
           dataWaznosci: null,
           showDataWaznosci: false,
-          vat: Number(p.vat) > 0 ? Math.round(Number(p.vat)) : 0,
+          vat: Number(p.vat) > 0 ? Math.round(Number(p.vat)) : undefined,
           typ: p.typ?.trim() || '',
           objetosc: p.objetosc?.trim() || '',
         }))
@@ -1012,12 +1011,13 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   className="w-full min-w-0 px-3 py-1.5 border border-gray-300 rounded-md font-sora text-xs bg-gray-50"
                 />
                 <AppSelect
-                  value={String(row.vat ?? 0)}
+                  value={row.vat != null ? String(row.vat) : ''}
                   onChange={(v) => handleVatChange(index, Number(v))}
                   options={VAT_RATES.map((vat) => ({ value: String(vat.value), label: vat.label }))}
                   allowEmpty={false}
-                  emptyMuted={false}
-                  className={`${ROW_SELECT} border border-gray-300 bg-white font-normal${(row.vat ?? 0) === 0 ? ' text-gray-400' : ' text-gray-900'}`}
+                  emptyMuted
+                  placeholder="0%"
+                  className={`${ROW_SELECT} border border-gray-300 bg-white font-normal${row.vat != null ? ' text-gray-900' : ''}`}
                 />
                 <input
                   type="text"

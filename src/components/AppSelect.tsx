@@ -67,7 +67,11 @@ export function AppSelect({
         className={`relative w-full text-left ${className}`.trim()}
       >
         <span
-          className={`block truncate pr-1 ${isEmpty && emptyMuted ? 'text-center text-gray-400' : ''}`.trim()}
+          className={`block truncate pr-1 ${
+            isEmpty && emptyMuted
+              ? `text-gray-400${placeholder === '—' ? ' text-center' : ''}`
+              : ''
+          }`.trim()}
         >
           {label}
         </span>
