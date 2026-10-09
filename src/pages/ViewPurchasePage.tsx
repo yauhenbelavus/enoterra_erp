@@ -69,7 +69,7 @@ const SLOT =
   'box-border pl-0 pr-3 py-1.5 font-sora text-xs text-left text-gray-900 whitespace-normal break-words leading-tight';
 const HEADER_SLOT = `min-h-[30px] flex items-center justify-start ${SLOT}`;
 const ROW_SLOT = `w-full min-w-0 ${SLOT}`;
-const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-bold whitespace-nowrap leading-tight';
+const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-normal whitespace-nowrap leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
 const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px]';
 const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px]';
@@ -142,6 +142,15 @@ const DisplaySlot: React.FC<{
 }> = ({ className = '', children }) => (
   <div className={`${className}`.trim()}>{children ?? ''}</div>
 );
+
+/** Currency after value with exactly 2 spaces (whitespace-pre so flex won't collapse them). */
+const CurrencySuffix: React.FC<{ symbol?: string | null; className?: string }> = ({
+  symbol,
+  className = 'text-gray-500',
+}) => {
+  if (!symbol) return null;
+  return <span className={`whitespace-pre ${className}`}>{`  ${symbol}`}</span>;
+};
 
 export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId }) => {
   const navigate = useNavigate();
@@ -312,7 +321,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Wartość dostawy</label>
             <DisplaySlot className={`w-full ${HEADER_SLOT}`}>
               {kosztDostawy}
-              {walutaDostawySymbol ? <>{'  '}<span className="text-gray-500">{walutaDostawySymbol}</span></> : null}
+              <CurrencySuffix symbol={walutaDostawySymbol} />
             </DisplaySlot>
           </div>
 
@@ -361,7 +370,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
             <DisplaySlot className={`w-full ${HEADER_SLOT}`}>
               {deliveryPerUnitDisplay}
-              {walutaDostawySymbol ? <>{'  '}<span className="text-gray-500">{walutaDostawySymbol}</span></> : null}
+              <CurrencySuffix symbol={walutaDostawySymbol} />
             </DisplaySlot>
           </div>
 
@@ -387,7 +396,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
               <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
               <DisplaySlot className={HEADER_SLOT}>
                 {podatekAkcyzowy}
-                <>{'  '}<span className="text-gray-500">PLN</span></>
+                <CurrencySuffix symbol="PLN" />
               </DisplaySlot>
             </div>
             <div>
@@ -449,10 +458,10 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
         <div className="border-t border-gray-200" />
 
-        <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
+        <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 pt-6 pb-6 flex flex-col">
           <div className="product-table-hscroll flex flex-col">
           <div className={productRowsInnerClass}>
-          <div className={`product-row-head shrink-0 mb-2 border-b border-gray-200 bg-white ${productRowHeader}`}>
+          <div className={`product-row-head product-table-full-rule shrink-0 pb-6 bg-white ${productRowHeader}`}>
             <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod</span>
             <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Nazwa</span>
             <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod kreskowy</span>
@@ -476,7 +485,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
               return (
               <div
                 key={`${row.kod}-${index}`}
-                className={`${productRowFields} relative py-2${isLast ? '' : ' border-b-[0.5px] border-gray-200'}`}
+                className={`${productRowFields} relative py-2${isLast ? '' : ' product-table-full-rule product-table-full-rule-thin'}`}
               >
                 <DisplaySlot className={ROW_SLOT}>{row.kod}</DisplaySlot>
                 <DisplaySlot className={ROW_SLOT}>{row.nazwa}</DisplaySlot>
@@ -519,34 +528,34 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
           <div className="flex items-center flex-nowrap gap-x-4 text-sm text-gray-700 font-sora overflow-x-auto min-w-0">
             <span className="inline-flex items-center shrink-0">
-              Netto:{' '}
+              <span className="font-bold">Netto:</span>{' '}
               <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
                 {kwotaNetto}
-                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+                <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
             </span>
             <span className="inline-flex items-center shrink-0">
-              Brutto:{' '}
+              <span className="font-bold">Brutto:</span>{' '}
               <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
                 {sumaBrutto}
-                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+                <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
             </span>
             {parsePlNumber(kwotaVat) > 0 && (
             <span className="inline-flex items-center shrink-0">
-              VAT:{' '}
+              <span className="font-bold">VAT:</span>{' '}
               <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
                 {kwotaVat}
-                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+                <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
             </span>
             )}
             {showRabatCol && (
             <span className="inline-flex items-center shrink-0">
-              Rabat:{' '}
+              <span className="font-bold">Rabat:</span>{' '}
               <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
                 {formatPlMoney(rabatKwota)}
-                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+                <CurrencySuffix symbol={walutaFakturySymbol} className="text-xs font-normal text-gray-500" />
               </DisplaySlot>
             </span>
             )}

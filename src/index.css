@@ -54,6 +54,34 @@ body {
   background: #fff;
 }
 
+/* Full-bleed rules matching the section border-t (cancels product-table pl-8). */
+.product-table-full-rule {
+  position: relative;
+}
+.product-table-full-rule::after {
+  content: '';
+  position: absolute;
+  left: -2rem;
+  bottom: 0;
+  width: 100cqw;
+  border-bottom: 1px solid #e5e7eb;
+  pointer-events: none;
+}
+.product-table-full-rule-thin::after {
+  border-bottom-width: 0.5px;
+}
+.product-row-head.product-table-full-rule::before {
+  content: '';
+  position: absolute;
+  left: -2rem;
+  top: 0;
+  bottom: 0;
+  width: 100cqw;
+  background: #fff;
+  z-index: -1;
+  pointer-events: none;
+}
+
 .product-table-hscroll::-webkit-scrollbar-track {
   background: transparent;
 }
