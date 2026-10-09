@@ -28,6 +28,7 @@ interface ProductReceipt {
   }>;
   product_invoice?: string;
   transport_invoice?: string;
+  ead_pdf?: string;
 }
 
 type StanyMagazynoweSubTab = 'towary' | 'analiza_magazynu';

@@ -126,6 +126,11 @@ function discardRequestReceiptUploads(req, assigned) {
     unlinkReceiptUpload(assigned && assigned.transportInvoice);
     unlinkReceiptUpload(transportFile.filename);
   }
+  const eadFile = uploadedReceiptFile(req, 'ead_pdf');
+  if (eadFile) {
+    unlinkReceiptUpload(assigned && assigned.eadPdf);
+    unlinkReceiptUpload(eadFile.filename);
+  }
 }
 
 const ocrUpload = multer({
@@ -528,7 +533,7 @@ function formatProductCenaZakupu(row) {
 
 function mapProductReceiptApiRow(row) {
   if (!row) return row;
-  const { wartosc, waluta_faktury, walutaFaktury, kosztDostawy, products, aktualny_kurs, kurs_faktury, productInvoice, transportInvoice, podatek_akcyzowy, podatekAkcyzowy, ...rest } = row;
+  const { wartosc, waluta_faktury, walutaFaktury, kosztDostawy, products, aktualny_kurs, kurs_faktury, productInvoice, transportInvoice, eadPdf, podatek_akcyzowy, podatekAkcyzowy, ...rest } = row;
   return {
     ...rest,
     wartosc_przyjecia_netto: rest.wartosc_przyjecia_netto ?? wartosc ?? 0,
@@ -541,6 +546,7 @@ function mapProductReceiptApiRow(row) {
     kurs_2: rest.kurs_2 ?? 1,
     product_invoice: rest.product_invoice ?? productInvoice ?? null,
     transport_invoice: rest.transport_invoice ?? transportInvoice ?? null,
+    ead_pdf: rest.ead_pdf ?? eadPdf ?? null,
     stawka_podatek_akcyzowy: roundMoney(rest.stawka_podatek_akcyzowy ?? podatek_akcyzowy ?? podatekAkcyzowy),
     rabat: roundMoney(rest.rabat),
     products: [],
@@ -3058,6 +3064,7 @@ db.serialize(() => {
     termin_platnosci DATE,
     product_invoice TEXT,
     transport_invoice TEXT,
+    ead_pdf TEXT,
     version INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
@@ -3200,6 +3207,17 @@ db.serialize(() => {
           }
         } else {
           console.log('✅ Column termin_platnosci added to product_receipts');
+        }
+      });
+      db.run(`ALTER TABLE product_receipts ADD COLUMN ead_pdf TEXT`, (alterErr) => {
+        if (alterErr) {
+          if (alterErr.message.includes('duplicate column name') || alterErr.message.includes('already exists')) {
+            console.log('✅ Column ead_pdf already exists in product_receipts');
+          } else {
+            console.error('❌ Error adding ead_pdf column:', alterErr);
+          }
+        } else {
+          console.log('✅ Column ead_pdf added to product_receipts');
         }
       });
       db.run(`ALTER TABLE product_receipts ADD COLUMN numer_dokumentu_przyjecia TEXT`, (alterErr) => {
@@ -10590,6 +10608,7 @@ function readReceiptRequestPayload(req) {
     }
     const productFile = uploadedReceiptFile(req, 'product_invoice');
     const transportFile = uploadedReceiptFile(req, 'transport_invoice');
+    const eadFile = uploadedReceiptFile(req, 'ead_pdf');
     return {
       date: source.date,
       sprzedawca: source.sprzedawca,
@@ -10607,6 +10626,7 @@ function readReceiptRequestPayload(req) {
       walutaDostawy: source.waluta_dostawy ?? source.walutaDostawy,
       productInvoice: productFile ? productFile.filename : source.product_invoice,
       transportInvoice: transportFile ? transportFile.filename : source.transport_invoice,
+      eadPdf: eadFile ? eadFile.filename : source.ead_pdf,
       version: source.version,
       numer_dokumentu_przyjecia: source.numer_dokumentu_przyjecia,
       termin_platnosci: source.termin_platnosci || null,
@@ -10625,19 +10645,23 @@ function prepareReceiptWriteRequest(req, options = {}) {
 
   let {
     date, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, kosztDostawy, products,
-    productInvoice, transportInvoice, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury,
+    productInvoice, transportInvoice, eadPdf, aktualnyKurs, podatekAkcyzowy, rabat, walutaFaktury, kursFaktury,
     kursMode, walutaDostawy, version, numer_dokumentu_przyjecia, termin_platnosci,
   } = receiptPayload;
 
   const productFile = uploadedReceiptFile(req, 'product_invoice');
   const transportFile = uploadedReceiptFile(req, 'transport_invoice');
+  const eadFile = uploadedReceiptFile(req, 'ead_pdf');
   if (productFile && productFile.filename) {
     productInvoice = assignReceiptUploadName(productFile.filename, 'towar', sprzedawca);
   }
   if (transportFile && transportFile.filename) {
     transportInvoice = assignReceiptUploadName(transportFile.filename, 'transport', sprzedawca);
   }
-  const assigned = { productInvoice, transportInvoice };
+  if (eadFile && eadFile.filename) {
+    eadPdf = assignReceiptUploadName(eadFile.filename, 'ead', sprzedawca);
+  }
+  const assigned = { productInvoice, transportInvoice, eadPdf };
 
   walutaFaktury = normalizeWalutaFaktury(walutaFaktury);
   const walutaDostawyForDb = normalizeWalutaDostawy(walutaDostawy);
@@ -10728,6 +10752,7 @@ function prepareReceiptWriteRequest(req, options = {}) {
     productsForJson,
     productInvoice,
     transportInvoice,
+    eadPdf,
     aktualnyKurs,
     podatekAkcyzowy,
     rabat,
@@ -10761,7 +10786,8 @@ function rejectPreparedReceiptWrite(req, res, prepared) {
 
 const receiptUploadFields = upload.fields([
   { name: 'product_invoice', maxCount: 1 },
-  { name: 'transport_invoice', maxCount: 1 }
+  { name: 'transport_invoice', maxCount: 1 },
+  { name: 'ead_pdf', maxCount: 1 }
 ]);
 
 function withReceiptUploads(req, res, next) {
@@ -10793,6 +10819,7 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
     productsInternal,
     productInvoice,
     transportInvoice,
+    eadPdf,
     podatekAkcyzowy,
     rabat,
     walutaFaktury,
@@ -10826,8 +10853,8 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
       console.log(`📄 POST /api/product-receipts numer=${numerDokumentuPrzyjecia}`);
       const receiptId = await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, numer_dokumentu_przyjecia, termin_platnosci, product_invoice, transport_invoice, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, termin_platnosci || null, productInvoice || null, transportInvoice || null, date],
+          'INSERT INTO product_receipts (data_przyjecia, sprzedawca, wartosc_przyjecia_netto, vat, wartosc_przyjecia_brutto, wartosc_dostawy, kurs_1, stawka_podatek_akcyzowy, rabat, waluta_przyjecia, waluta_dostawy, kurs_2, numer_dokumentu_przyjecia, termin_platnosci, product_invoice, transport_invoice, ead_pdf, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, roundMoney(podatekAkcyzowy), rabat, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, termin_platnosci || null, productInvoice || null, transportInvoice || null, eadPdf || null, date],
           function(err) {
             if (err) {
               reject(err);
@@ -10952,7 +10979,7 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
             console.error('❌ Failed to rollback transaction:', rollbackError);
           }
 
-          discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+          discardRequestReceiptUploads(req, { productInvoice, transportInvoice, eadPdf });
           
           // Если ответ ещё не отправлен, отправляем ошибку
           if (!res.headersSent) {
@@ -10964,7 +10991,7 @@ app.post('/api/product-receipts', withReceiptUploads, (req, res) => {
   // Запускаем создание приёмки (документ + products + working_sheets — всё в одной транзакции)
   createReceiptWithProducts().catch((error) => {
     console.error('❌ Unhandled error creating product receipt:', error);
-    discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+    discardRequestReceiptUploads(req, { productInvoice, transportInvoice, eadPdf });
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to process products: ' + error.message });
     }
@@ -10975,12 +11002,13 @@ app.put('/api/product-receipts/:id/invoices', withReceiptUploads, (req, res) => 
   const { id } = req.params;
   const productFile = uploadedReceiptFile(req, 'product_invoice');
   const transportFile = uploadedReceiptFile(req, 'transport_invoice');
-  if (!productFile && !transportFile) {
+  const eadFile = uploadedReceiptFile(req, 'ead_pdf');
+  if (!productFile && !transportFile && !eadFile) {
     return res.status(400).json({ error: 'Brak pliku PDF' });
   }
 
   db.get(
-    'SELECT sprzedawca, product_invoice, transport_invoice FROM product_receipts WHERE id = ?',
+    'SELECT sprzedawca, product_invoice, transport_invoice, ead_pdf FROM product_receipts WHERE id = ?',
     [id],
     (err, oldReceipt) => {
       if (err) {
@@ -10995,6 +11023,7 @@ app.put('/api/product-receipts/:id/invoices', withReceiptUploads, (req, res) => 
 
       let productInvoice = null;
       let transportInvoice = null;
+      let eadPdf = null;
       try {
         if (productFile && productFile.filename) {
           productInvoice = assignReceiptUploadName(productFile.filename, 'towar', oldReceipt.sprzedawca);
@@ -11002,30 +11031,36 @@ app.put('/api/product-receipts/:id/invoices', withReceiptUploads, (req, res) => 
         if (transportFile && transportFile.filename) {
           transportInvoice = assignReceiptUploadName(transportFile.filename, 'transport', oldReceipt.sprzedawca);
         }
+        if (eadFile && eadFile.filename) {
+          eadPdf = assignReceiptUploadName(eadFile.filename, 'ead', oldReceipt.sprzedawca);
+        }
       } catch (assignErr) {
         console.error('❌ Receipt invoice rename:', assignErr);
-        discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+        discardRequestReceiptUploads(req, { productInvoice, transportInvoice, eadPdf });
         return res.status(500).json({ error: 'Nie udało się zapisać pliku PDF' });
       }
 
       const nextProduct = productInvoice || oldReceipt.product_invoice;
       const nextTransport = transportInvoice || oldReceipt.transport_invoice;
+      const nextEad = eadPdf || oldReceipt.ead_pdf;
       db.run(
-        'UPDATE product_receipts SET product_invoice = ?, transport_invoice = ? WHERE id = ?',
-        [nextProduct, nextTransport, id],
+        'UPDATE product_receipts SET product_invoice = ?, transport_invoice = ?, ead_pdf = ? WHERE id = ?',
+        [nextProduct, nextTransport, nextEad, id],
         function(updateErr) {
           if (updateErr) {
             console.error('❌ Receipt invoice update:', updateErr);
-            discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+            discardRequestReceiptUploads(req, { productInvoice, transportInvoice, eadPdf });
             return res.status(500).json({ error: 'Nie udało się zapisać pliku PDF' });
           }
           if (productInvoice) unlinkReplacedReceiptUpload(oldReceipt.product_invoice, productInvoice);
           if (transportInvoice) unlinkReplacedReceiptUpload(oldReceipt.transport_invoice, transportInvoice);
-          console.log(`📎 PUT /api/product-receipts/${id}/invoices product=${nextProduct || '-'} transport=${nextTransport || '-'}`);
+          if (eadPdf) unlinkReplacedReceiptUpload(oldReceipt.ead_pdf, eadPdf);
+          console.log(`📎 PUT /api/product-receipts/${id}/invoices product=${nextProduct || '-'} transport=${nextTransport || '-'} ead=${nextEad || '-'}`);
           res.json({
             message: 'Invoice files updated',
             product_invoice: nextProduct,
             transport_invoice: nextTransport,
+            ead_pdf: nextEad,
           });
         }
       );
@@ -11050,6 +11085,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
     products,
     productInvoice,
     transportInvoice,
+    eadPdf,
     podatekAkcyzowy,
     rabat,
     walutaFaktury,
@@ -11081,7 +11117,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
     try {
       // Сначала получаем старые данные для сравнения
       const oldReceipt = await new Promise((resolve, reject) => {
-        db.get('SELECT data_przyjecia, product_invoice, transport_invoice, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy, version, numer_dokumentu_przyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT data_przyjecia, product_invoice, transport_invoice, ead_pdf, stawka_podatek_akcyzowy, kurs_1, kurs_2, waluta_przyjecia, waluta_dostawy, wartosc_dostawy, version, numer_dokumentu_przyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
           if (err) reject(err);
           else resolve(row);
         });
@@ -11159,6 +11195,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
       // Сохраняем существующие файлы, если новые не загружены
       const finalProductInvoice = productInvoice || oldReceipt.product_invoice;
       const finalTransportInvoice = transportInvoice || oldReceipt.transport_invoice;
+      const finalEadPdf = eadPdf || oldReceipt.ead_pdf;
       
       // Вычисляем курс для обновления записи (парсим с заменой запятой на точку)
       const podatekAkcyzowyParsed = roundMoney(podatekAkcyzowy);
@@ -11172,8 +11209,8 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
 
       await new Promise((resolve, reject) => {
         db.run(
-          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, numer_dokumentu_przyjecia = ?, termin_platnosci = ?, product_invoice = ?, transport_invoice = ?, created_at = ?, version = version + 1 WHERE id = ? AND version = ?',
-          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, termin_platnosci || null, finalProductInvoice, finalTransportInvoice, date, id, expectedVersion],
+          'UPDATE product_receipts SET data_przyjecia = ?, sprzedawca = ?, wartosc_przyjecia_netto = ?, vat = ?, wartosc_przyjecia_brutto = ?, wartosc_dostawy = ?, kurs_1 = ?, stawka_podatek_akcyzowy = ?, rabat = ?, waluta_przyjecia = ?, waluta_dostawy = ?, kurs_2 = ?, numer_dokumentu_przyjecia = ?, termin_platnosci = ?, product_invoice = ?, transport_invoice = ?, ead_pdf = ?, created_at = ?, version = version + 1 WHERE id = ? AND version = ?',
+          [date, sprzedawca || '', wartosc_przyjecia_netto || 0, vat || 0, wartosc_przyjecia_brutto || 0, kosztDostawy || 0, aktualnyKursForDb, podatekAkcyzowyParsed, rabatParsed, walutaFaktury, walutaDostawyForDb, kursFaktury, numerDokumentuPrzyjecia, termin_platnosci || null, finalProductInvoice, finalTransportInvoice, finalEadPdf, date, id, expectedVersion],
           function(err) {
             if (err) {
               reject(err);
@@ -11201,6 +11238,9 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
       }
       if (transportInvoice && oldReceipt.transport_invoice && transportInvoice !== oldReceipt.transport_invoice) {
         replacedUploads.push(oldReceipt.transport_invoice);
+      }
+      if (eadPdf && oldReceipt.ead_pdf && eadPdf !== oldReceipt.ead_pdf) {
+        replacedUploads.push(oldReceipt.ead_pdf);
       }
 
       // Обновляем товары в working_sheets и products
@@ -11527,7 +11567,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
         console.error('❌ Failed to rollback transaction (PUT):', rollbackError);
       }
 
-      discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+      discardRequestReceiptUploads(req, { productInvoice, transportInvoice, eadPdf });
 
       if (!res.headersSent) {
         const statusCode = error.statusCode || 500;
@@ -11545,7 +11585,7 @@ app.put('/api/product-receipts/:id', withReceiptUploads, (req, res) => {
   // Запускаем обновление приёмки (документ + products + working_sheets — всё в одной транзакции)
   updateReceiptWithProducts().catch((error) => {
     console.error('❌ Unhandled error updating product receipt:', error);
-    discardRequestReceiptUploads(req, { productInvoice, transportInvoice });
+    discardRequestReceiptUploads(req, { productInvoice, transportInvoice, eadPdf });
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to update working sheets: ' + error.message });
     }
@@ -11574,7 +11614,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
   try {
     // 1) Считываем шапку приёмки и партии из таблицы products
     const receiptRow = await new Promise((resolve, reject) => {
-      db.get('SELECT data_przyjecia, product_invoice, transport_invoice, numer_dokumentu_przyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
+      db.get('SELECT data_przyjecia, product_invoice, transport_invoice, ead_pdf, numer_dokumentu_przyjecia FROM product_receipts WHERE id = ?', [id], (err, row) => {
         if (err) reject(err);
         else resolve(row);
       });
@@ -11688,6 +11728,7 @@ app.delete('/api/product-receipts/:id', async (req, res) => {
 
     unlinkReceiptUpload(receiptRow.product_invoice);
     unlinkReceiptUpload(receiptRow.transport_invoice);
+    unlinkReceiptUpload(receiptRow.ead_pdf);
 
     res.json({
       message: 'Product receipt deleted successfully',

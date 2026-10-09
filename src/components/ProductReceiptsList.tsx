@@ -39,6 +39,7 @@ interface ProductReceipt {
   }>;
   product_invoice?: string;
   transport_invoice?: string;
+  ead_pdf?: string;
 }
 
 const formatReceiptDate = (dateStr?: string | null) => {

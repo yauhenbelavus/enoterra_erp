@@ -85,6 +85,7 @@ interface ProductReceipt {
   }>;
   product_invoice?: string;
   transport_invoice?: string;
+  ead_pdf?: string;
   version?: number;
 }
 
@@ -297,6 +298,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       products: normalizeReceiptProductLines(receipt.products),
       product_invoice: receipt.product_invoice,
       transport_invoice: receipt.transport_invoice,
+      ead_pdf: receipt.ead_pdf,
     }));
   } catch {
     return [];
@@ -342,8 +344,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
   const [kosztDostawy, setKosztDostawy] = useState('');
   const [productInvoice, setProductInvoice] = useState<File | null>(null);
   const [transportInvoice, setTransportInvoice] = useState<File | null>(null);
+  const [eadPdf, setEadPdf] = useState<File | null>(null);
   const [existingProductInvoice, setExistingProductInvoice] = useState<string | null>(null);
   const [existingTransportInvoice, setExistingTransportInvoice] = useState<string | null>(null);
+  const [existingEadPdf, setExistingEadPdf] = useState<string | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
   const [rabat, setRabat] = useState('');
@@ -368,6 +372,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const transportFileInputRef = useRef<HTMLInputElement>(null);
+  const eadFileInputRef = useRef<HTMLInputElement>(null);
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -462,6 +467,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         setSumaBrutto(Number(receipt.wartosc_przyjecia_brutto) > 0 ? formatPlMoney(Number(receipt.wartosc_przyjecia_brutto)) : '');
         setExistingProductInvoice(receipt.product_invoice || null);
         setExistingTransportInvoice(receipt.transport_invoice || null);
+        setExistingEadPdf(receipt.ead_pdf || null);
         setReceiptVersion(Number(receipt.version) || 1);
         setNumerDokumentuPrzyjecia(receipt.numer_dokumentu_przyjecia || '');
         setLoadedNumerDokumentuPrzyjecia(receipt.numer_dokumentu_przyjecia || '');
@@ -469,6 +475,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
         setLoadedDateYearMonth(loadedDate ? yearMonthKeyFromDate(loadedDate) : '');
         setProductInvoice(null);
         setTransportInvoice(null);
+        setEadPdf(null);
         setProductRows(
           productsArray.length > 0
             ? productsArray.map((product) => ({
@@ -731,10 +738,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
     setIsSaving(true);
     try {
       let response: Response;
-      if (productInvoice || transportInvoice) {
+      if (productInvoice || transportInvoice || eadPdf) {
         response = await fetch(`${API_URL}/api/product-receipts/${receiptId}`, {
           method: 'PUT',
-          body: buildReceiptWriteFormData(receiptPayload, productInvoice, transportInvoice),
+          body: buildReceiptWriteFormData(receiptPayload, productInvoice, transportInvoice, eadPdf),
         });
       } else {
         response = await fetch(`${API_URL}/api/product-receipts/${receiptId}`, {
@@ -1055,8 +1062,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
               <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[77px] ${HEADER_FIELD}`} />
             </div>
-            <div className="ml-auto flex gap-2 shrink-0">
-              <div className="w-[75px]">
+            <div className="flex gap-2 shrink-0">
+              <div className="w-[53px]">
                 <input
                   type="file"
                   accept=".pdf"
@@ -1073,7 +1080,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   type="button"
                   onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(productInvoice, existingProductInvoice, productFileInputRef.current))}
                   onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(productInvoice, existingProductInvoice, productFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
                     productInvoice || existingProductInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
@@ -1084,10 +1091,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                       : INVOICE_FILE_BUTTON_TITLE_EMPTY
                   }
                 >
-                  <Grape className={`h-4 w-4 ${productInvoice || existingProductInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Grape className={`h-3 w-3 ${productInvoice || existingProductInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-              <div className="w-[75px]">
+              <div className="w-[53px]">
                 <input
                   type="file"
                   accept=".pdf"
@@ -1104,7 +1111,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   type="button"
                   onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(transportInvoice, existingTransportInvoice, transportFileInputRef.current))}
                   onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(transportInvoice, existingTransportInvoice, transportFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
                     transportInvoice || existingTransportInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
@@ -1115,7 +1122,38 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                       : INVOICE_FILE_BUTTON_TITLE_EMPTY
                   }
                 >
-                  <Car className={`h-4 w-4 ${transportInvoice || existingTransportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Car className={`h-3 w-3 ${transportInvoice || existingTransportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                </button>
+              </div>
+              <div className="w-[53px]">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
+                    setEadPdf(f);
+                  }}
+                  className="hidden"
+                  ref={eadFileInputRef}
+                />
+                <button
+                  type="button"
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(eadPdf, existingEadPdf, eadFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(eadPdf, existingEadPdf, eadFileInputRef.current))}
+                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white text-[10px] font-medium font-sora leading-none ${
+                    eadPdf || existingEadPdf
+                      ? 'border border-green-500 text-green-600 hover:bg-green-50'
+                      : 'border border-gray-300 text-gray-500 hover:bg-gray-50'
+                  }`}
+                  title={
+                    eadPdf || existingEadPdf
+                      ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE
+                      : 'Dodaj EAD PDF'
+                  }
+                >
+                  ead
                 </button>
               </div>
             </div>

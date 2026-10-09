@@ -585,6 +585,7 @@ interface InventoryStatusProps {
     }>;
     product_invoice?: string;
     transport_invoice?: string;
+    ead_pdf?: string;
   }>;
 }
 

@@ -78,6 +78,7 @@ interface ProductReceipt {
   }>;
   product_invoice?: string;
   transport_invoice?: string;
+  ead_pdf?: string;
 }
 
 interface AddPurchasePageProps {
@@ -249,6 +250,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       products: normalizeReceiptProductLines(receipt.products),
       product_invoice: receipt.product_invoice,
       transport_invoice: receipt.transport_invoice,
+      ead_pdf: receipt.ead_pdf,
     }));
   } catch {
     return [];
@@ -269,6 +271,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
   const [kosztDostawy, setKosztDostawy] = useState('');
   const [productInvoice, setProductInvoice] = useState<File | null>(null);
   const [transportInvoice, setTransportInvoice] = useState<File | null>(null);
+  const [eadPdf, setEadPdf] = useState<File | null>(null);
   const [kursDostawy, setKursDostawy] = useState('');
   const [podatekAkcyzowy, setPodatekAkcyzowy] = useState('');
   const [rabat, setRabat] = useState('');
@@ -285,6 +288,7 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
 
   const productFileInputRef = useRef<HTMLInputElement>(null);
   const transportFileInputRef = useRef<HTMLInputElement>(null);
+  const eadFileInputRef = useRef<HTMLInputElement>(null);
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
   const skipBruttoSyncRef = useRef(false);
   const invoiceClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -578,10 +582,10 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
     setIsSaving(true);
     try {
       let response: Response;
-      if (productInvoice || transportInvoice) {
+      if (productInvoice || transportInvoice || eadPdf) {
         response = await fetch(`${API_URL}/api/product-receipts`, {
           method: 'POST',
-          body: buildReceiptWriteFormData(receiptPayload, productInvoice, transportInvoice),
+          body: buildReceiptWriteFormData(receiptPayload, productInvoice, transportInvoice, eadPdf),
         });
       } else {
         response = await fetch(`${API_URL}/api/product-receipts`, {
@@ -871,8 +875,8 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
               <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[77px] ${HEADER_FIELD}`} />
             </div>
-            <div className="ml-auto flex gap-2 shrink-0">
-              <div className="w-[75px]">
+            <div className="flex gap-2 shrink-0">
+              <div className="w-[53px]">
                 <input
                   type="file"
                   accept=".pdf"
@@ -889,17 +893,17 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   type="button"
                   onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
                   onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(productInvoice, productFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
                     productInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
                   }`}
                   title={productInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
                 >
-                  <Grape className={`h-4 w-4 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Grape className={`h-3 w-3 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-              <div className="w-[75px]">
+              <div className="w-[53px]">
                 <input
                   type="file"
                   accept=".pdf"
@@ -916,14 +920,41 @@ export const AddPurchasePage: React.FC<AddPurchasePageProps> = ({
                   type="button"
                   onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
                   onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(transportInvoice, transportFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
                     transportInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
                   }`}
                   title={transportInvoice ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : INVOICE_FILE_BUTTON_TITLE_EMPTY}
                 >
-                  <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Car className={`h-3 w-3 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                </button>
+              </div>
+              <div className="w-[53px]">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!isPdfFile(f)) { toast.error('Wybierz plik PDF'); return; }
+                    setEadPdf(f);
+                  }}
+                  className="hidden"
+                  ref={eadFileInputRef}
+                />
+                <button
+                  type="button"
+                  onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(eadPdf, eadFileInputRef.current))}
+                  onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(eadPdf, eadFileInputRef.current))}
+                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white text-[10px] font-medium font-sora leading-none ${
+                    eadPdf
+                      ? 'border border-green-500 text-green-600 hover:bg-green-50'
+                      : 'border border-gray-300 text-gray-500 hover:bg-gray-50'
+                  }`}
+                  title={eadPdf ? INVOICE_FILE_BUTTON_TITLE_HAS_FILE : 'Dodaj EAD PDF'}
+                >
+                  ead
                 </button>
               </div>
             </div>

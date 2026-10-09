@@ -159,10 +159,12 @@ export const buildReceiptWriteFormData = (
   payload: object,
   productInvoice: File | null,
   transportInvoice: File | null,
+  eadPdf: File | null = null,
 ): FormData => {
   const formData = new FormData();
   formData.append('data', JSON.stringify(payload));
   if (productInvoice) formData.append('product_invoice', productInvoice);
   if (transportInvoice) formData.append('transport_invoice', transportInvoice);
+  if (eadPdf) formData.append('ead_pdf', eadPdf);
   return formData;
 };

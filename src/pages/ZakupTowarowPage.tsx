@@ -42,6 +42,7 @@ interface ProductReceipt {
   }>;
   product_invoice?: string;
   transport_invoice?: string;
+  ead_pdf?: string;
 }
 
 interface SheetData {
@@ -87,6 +88,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
       products: receipt.products || [],
       product_invoice: receipt.product_invoice,
       transport_invoice: receipt.transport_invoice,
+      ead_pdf: receipt.ead_pdf,
     }));
   } catch (error) {
     console.error('❌ Error loading product receipts:', error);
@@ -159,10 +161,11 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
     }>;
     product_invoice?: File | null;
     transport_invoice?: File | null;
+    ead_pdf?: File | null;
   }) => {
     try {
       let response;
-      if (data.product_invoice || data.transport_invoice) {
+      if (data.product_invoice || data.transport_invoice || data.ead_pdf) {
         const formData = new FormData();
         const jsonData = {
           date: data.date,
@@ -182,6 +185,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         formData.append('data', JSON.stringify(jsonData));
         if (data.product_invoice) formData.append('product_invoice', data.product_invoice);
         if (data.transport_invoice) formData.append('transport_invoice', data.transport_invoice);
+        if (data.ead_pdf) formData.append('ead_pdf', data.ead_pdf);
         response = await fetch(`${API_URL}/api/product-receipts`, { method: 'POST', body: formData });
       } else {
         response = await fetch(`${API_URL}/api/product-receipts`, {

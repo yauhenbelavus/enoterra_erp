@@ -75,6 +75,7 @@ interface ProductReceipt {
   }>;
   product_invoice?: string;
   transport_invoice?: string;
+  ead_pdf?: string;
 }
 
 interface SheetData {
@@ -483,7 +484,8 @@ function App() {
         stawka_podatek_akcyzowy: receipt.stawka_podatek_akcyzowy,
         products: receipt.products || [],
         product_invoice: receipt.product_invoice,
-        transport_invoice: receipt.transport_invoice
+        transport_invoice: receipt.transport_invoice,
+        ead_pdf: receipt.ead_pdf,
       }));
     } catch (error) {
       console.error('❌ Error loading product receipts:', error);
