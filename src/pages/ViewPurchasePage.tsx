@@ -406,43 +406,43 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                 {rabat}
               </DisplaySlot>
             </div>
-            <div className="flex gap-2 shrink-0">
-              <div className="w-[53px]">
+            <div className="flex gap-2 shrink-0 items-center self-end">
+              <div className="w-[53px] h-[30px]">
                 <button
                   type="button"
                   onClick={() => openInvoice(productInvoice)}
                   disabled={!productInvoice}
-                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     productInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300'
                   }`}
                   title={productInvoice ? invoiceTitleHasFile : undefined}
                 >
-                  <Grape className={`h-3 w-3 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Grape className={`h-4 w-4 ${productInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-              <div className="w-[53px]">
+              <div className="w-[53px] h-[30px]">
                 <button
                   type="button"
                   onClick={() => openInvoice(transportInvoice)}
                   disabled={!transportInvoice}
-                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     transportInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300'
                   }`}
                   title={transportInvoice ? invoiceTitleHasFile : undefined}
                 >
-                  <Car className={`h-3 w-3 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Car className={`h-4 w-4 ${transportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-              <div className="w-[53px]">
+              <div className="w-[53px] h-[30px]">
                 <button
                   type="button"
                   onClick={() => openInvoice(eadPdf)}
                   disabled={!eadPdf}
-                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white text-[10px] font-medium font-sora leading-none ${
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white text-xs font-medium font-sora leading-none ${
                     eadPdf
                       ? 'border border-green-500 text-green-600 hover:bg-green-50'
                       : 'border border-gray-300 text-gray-500'

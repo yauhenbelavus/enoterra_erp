@@ -1062,8 +1062,8 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
               <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
               <PlMoneyInput value={rabat} onChange={setRabat} placeholder="0,00" className={`w-[77px] ${HEADER_FIELD}`} />
             </div>
-            <div className="flex gap-2 shrink-0">
-              <div className="w-[53px]">
+            <div className="flex gap-2 shrink-0 items-center self-end">
+              <div className="w-[53px] h-[30px]">
                 <input
                   type="file"
                   accept=".pdf"
@@ -1080,7 +1080,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   type="button"
                   onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(productInvoice, existingProductInvoice, productFileInputRef.current))}
                   onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(productInvoice, existingProductInvoice, productFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     productInvoice || existingProductInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
@@ -1091,10 +1091,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                       : INVOICE_FILE_BUTTON_TITLE_EMPTY
                   }
                 >
-                  <Grape className={`h-3 w-3 ${productInvoice || existingProductInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Grape className={`h-4 w-4 ${productInvoice || existingProductInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-              <div className="w-[53px]">
+              <div className="w-[53px] h-[30px]">
                 <input
                   type="file"
                   accept=".pdf"
@@ -1111,7 +1111,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   type="button"
                   onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(transportInvoice, existingTransportInvoice, transportFileInputRef.current))}
                   onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(transportInvoice, existingTransportInvoice, transportFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white ${
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white ${
                     transportInvoice || existingTransportInvoice
                       ? 'border border-green-500 hover:bg-green-50'
                       : 'border border-gray-300 hover:bg-gray-50'
@@ -1122,10 +1122,10 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                       : INVOICE_FILE_BUTTON_TITLE_EMPTY
                   }
                 >
-                  <Car className={`h-3 w-3 ${transportInvoice || existingTransportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
+                  <Car className={`h-4 w-4 ${transportInvoice || existingTransportInvoice ? 'text-green-600' : 'text-gray-500'}`} />
                 </button>
               </div>
-              <div className="w-[53px]">
+              <div className="w-[53px] h-[30px]">
                 <input
                   type="file"
                   accept=".pdf"
@@ -1142,7 +1142,7 @@ export const EditPurchasePage: React.FC<EditPurchasePageProps> = ({
                   type="button"
                   onClick={(event) => handleReceiptInvoiceButtonClick(event, invoiceButtonRefs(eadPdf, existingEadPdf, eadFileInputRef.current))}
                   onDoubleClick={(event) => handleReceiptInvoiceButtonDoubleClick(event, invoiceButtonRefs(eadPdf, existingEadPdf, eadFileInputRef.current))}
-                  className={`inline-flex items-center justify-center h-[21px] w-full rounded-md bg-white text-[10px] font-medium font-sora leading-none ${
+                  className={`inline-flex items-center justify-center h-[30px] w-full rounded-md bg-white text-xs font-medium font-sora leading-none ${
                     eadPdf || existingEadPdf
                       ? 'border border-green-500 text-green-600 hover:bg-green-50'
                       : 'border border-gray-300 text-gray-500 hover:bg-gray-50'
