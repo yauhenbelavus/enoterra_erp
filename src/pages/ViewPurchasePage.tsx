@@ -73,14 +73,14 @@ const ROW_TYP_SLOT =
   'w-full min-w-0 h-[24px] box-border px-2 py-0 rounded-md border font-sora text-xs leading-[22px] flex items-center truncate';
 const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-normal whitespace-nowrap leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
-/** Typ col: 114px × 0.75 ≈ 86px. (inline style — Tailwind can't see dynamic arbitrary classes) */
-const PRODUCT_ROW_COLS_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 70px 91px 86px 84px 81px';
-const PRODUCT_ROW_COLS_RABAT_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 91px 70px 91px 86px 84px 81px';
+/** Typ col: 86px × 1.2 ≈ 103px. (inline style — Tailwind can't see dynamic arbitrary classes) */
+const PRODUCT_ROW_COLS_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 70px 91px 103px 84px 81px';
+const PRODUCT_ROW_COLS_RABAT_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 91px 70px 91px 103px 84px 81px';
 const KOD_COL_MIN_PX = 90;
-/** text-xs ≈ 7px/char + pr padding so kod fits one line; shared across header+rows. */
+/** text-xs ≈ 7px/char + pr; then +20% breathing room vs соседних колонок. */
 const kodColumnPx = (rows: { kod?: string }[]) => {
   const longest = rows.reduce((max, row) => Math.max(max, String(row.kod || '').length), 3);
-  return Math.max(KOD_COL_MIN_PX, longest * 7 + 16);
+  return Math.round(Math.max(KOD_COL_MIN_PX, longest * 7 + 16) * 1.2);
 };
 
 const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => {
