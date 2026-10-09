@@ -66,13 +66,13 @@ const OBJETOSCI_WINA = [
 ];
 
 const SLOT =
-  'box-border px-3 py-1.5 font-sora text-xs text-gray-900 whitespace-normal break-words leading-tight';
-const HEADER_SLOT = `min-h-[30px] flex items-center ${SLOT}`;
+  'box-border pl-0 pr-3 py-1.5 font-sora text-xs text-left text-gray-900 whitespace-normal break-words leading-tight';
+const HEADER_SLOT = `min-h-[30px] flex items-center justify-start ${SLOT}`;
 const ROW_SLOT = `w-full min-w-0 ${SLOT}`;
-const FOOTER_SLOT = 'w-full min-h-[36px] box-border px-3 py-1.5 pr-12 flex items-center justify-end font-sora text-sm text-right font-bold whitespace-normal break-words leading-tight';
+const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-bold whitespace-nowrap leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
-const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px_52px]';
-const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px_52px]';
+const PRODUCT_ROW_COLS = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_70px_91px_114px_84px_81px]';
+const PRODUCT_ROW_COLS_RABAT = '[grid-template-columns:90px_minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_114px_84px_81px]';
 
 const parseWalutaSelection = (value?: string | null): WalutaFakturySelection => {
   const s = String(value || '').trim().toUpperCase();
@@ -292,7 +292,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             </button>
             <span className="text-lg font-medium text-gray-800 select-none">Szczegóły przyjęcia</span>
             <DisplaySlot
-              className="min-h-[30px] ml-4 w-[124px] px-2 py-1.5 flex items-center justify-center font-sora text-xs text-center text-gray-800 whitespace-normal break-words leading-tight"
+              className="min-h-[30px] ml-4 w-[124px] pl-0 pr-2 py-1.5 flex items-center justify-start font-sora text-xs text-left text-gray-800 whitespace-normal break-words leading-tight"
             >
               {numerDokumentuPrzyjecia}
             </DisplaySlot>
@@ -302,34 +302,30 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
         <div className="shrink-0 px-8 py-6">
         <div className="grid grid-cols-[300px_136px_119px_1fr] gap-x-8 gap-y-5 items-end">
           <div className="w-[300px]">
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Data zakupu</label>
+            <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Data zakupu</label>
             <DisplaySlot className={`w-[200px] ${HEADER_SLOT}`}>
               {formatDateDdMmYyyy(selectedDate)}
             </DisplaySlot>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Wartość dostawy</label>
-            <div className="relative">
-              <DisplaySlot className={`w-full ${HEADER_SLOT} pr-9`}>
-                {kosztDostawy}
-              </DisplaySlot>
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                {walutaDostawySymbol}
-              </span>
-            </div>
+            <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Wartość dostawy</label>
+            <DisplaySlot className={`w-full ${HEADER_SLOT}`}>
+              {kosztDostawy}
+              {walutaDostawySymbol ? <>{'  '}<span className="text-gray-500">{walutaDostawySymbol}</span></> : null}
+            </DisplaySlot>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta dostawy</label>
-            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs whitespace-normal break-words leading-tight ${walutaDostawy ? 'text-gray-900' : 'justify-center text-gray-400'}`}>
+            <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta dostawy</label>
+            <DisplaySlot className={`w-full min-h-[30px] pl-0 pr-2 py-1.5 flex items-center justify-start font-sora text-xs text-left whitespace-normal break-words leading-tight ${walutaDostawy ? 'text-gray-900' : 'text-gray-400'}`}>
               {walutaDostawy || '—'}
             </DisplaySlot>
           </div>
 
           <div className="flex gap-8 min-w-0 items-end w-full">
             <div className="w-[112px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
+              <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(1, kurs1Active ? walutaDostawy : '')}</label>
               {kurs1Active ? (
                 <DisplaySlot className={`w-[112px] ${HEADER_SLOT} pr-6`}>
                   {kursDostawy}
@@ -340,13 +336,13 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
             </div>
             <div className="flex items-end gap-2">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
-                <DisplaySlot className={`w-[200px] ${HEADER_SLOT} ${terminPlatnosci ? '' : 'justify-center text-gray-400'}`}>
+                <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Termin płatności</label>
+                <DisplaySlot className={`w-[200px] ${HEADER_SLOT} ${terminPlatnosci ? '' : 'text-gray-400'}`}>
                   {terminPlatnosci ? formatDateDdMmYyyy(terminPlatnosci) : '—'}
                 </DisplaySlot>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
+                <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Dni</label>
                 <DisplaySlot className={`w-[78px] ${HEADER_SLOT} text-left`}>
                   {terminDni}
                 </DisplaySlot>
@@ -355,34 +351,30 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
           </div>
 
           <div className="w-[300px]">
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Sprzedawca</label>
+            <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Sprzedawca</label>
             <DisplaySlot className={`w-[300px] ${HEADER_SLOT}`}>
               {sprzedawca}
             </DisplaySlot>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
-            <div className="relative">
-              <DisplaySlot className={`w-full ${HEADER_SLOT} pr-9`}>
-                {deliveryPerUnitDisplay}
-              </DisplaySlot>
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                {walutaDostawySymbol}
-              </span>
-            </div>
+            <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Koszt/but. (średnie)</label>
+            <DisplaySlot className={`w-full ${HEADER_SLOT}`}>
+              {deliveryPerUnitDisplay}
+              {walutaDostawySymbol ? <>{'  '}<span className="text-gray-500">{walutaDostawySymbol}</span></> : null}
+            </DisplaySlot>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
-            <DisplaySlot className={`w-full min-h-[30px] px-2 py-1.5 flex items-center font-sora text-xs whitespace-normal break-words leading-tight ${walutaFaktury ? 'text-gray-900' : 'justify-center text-gray-400'}`}>
+            <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Waluta faktury</label>
+            <DisplaySlot className={`w-full min-h-[30px] pl-0 pr-2 py-1.5 flex items-center justify-start font-sora text-xs text-left whitespace-normal break-words leading-tight ${walutaFaktury ? 'text-gray-900' : 'text-gray-400'}`}>
               {walutaFaktury || '—'}
             </DisplaySlot>
           </div>
 
           <div className="flex gap-8 min-w-0 items-end w-full">
             <div className="w-[112px] shrink-0">
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
+              <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">{getKursToPlnLabel(2, kurs2Active ? walutaFaktury : '')}</label>
               {kurs2Active ? (
                 <DisplaySlot className={`w-[112px] ${HEADER_SLOT} pr-6`}>
                   {kursFaktury}
@@ -392,16 +384,14 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
               )}
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
-              <div className="relative">
-                <DisplaySlot className={`w-[112px] ${HEADER_SLOT} pr-10`}>
-                  {podatekAkcyzowy}
-                </DisplaySlot>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">PLN</span>
-              </div>
+              <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Podatek akcyz. /l</label>
+              <DisplaySlot className={HEADER_SLOT}>
+                {podatekAkcyzowy}
+                <>{'  '}<span className="text-gray-500">PLN</span></>
+              </DisplaySlot>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
+              <label className="block text-xs font-bold text-gray-700 mb-2 font-sora whitespace-nowrap">Rabat (%)</label>
               <DisplaySlot className={`w-[77px] ${HEADER_SLOT}`}>
                 {rabat}
               </DisplaySlot>
@@ -462,32 +452,31 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
         <div className="product-table flex-1 min-h-0 min-w-0 pl-8 pr-0 py-6 flex flex-col">
           <div className="product-table-hscroll flex flex-col">
           <div className={productRowsInnerClass}>
-          <div className={`product-row-head shrink-0 mb-2 bg-white ${productRowHeader}`}>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Nazwa</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Kod kreskowy</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Ilość</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Cena</span>
+          <div className={`product-row-head shrink-0 mb-2 border-b border-gray-200 bg-white ${productRowHeader}`}>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Nazwa</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod kreskowy</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Ilość</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Cena</span>
             {showRabatCol && (
-              <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora whitespace-nowrap">Cena po rab.</span>
+              <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora whitespace-nowrap">Cena po rab.</span>
             )}
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. netto</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">VAT</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Wart. brutto</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Typ</span>
-            <span className="block w-full text-left text-xs font-medium text-gray-700 font-sora">Objętość</span>
-            <span className="product-col-koszt block w-full text-left text-xs font-medium text-gray-700 font-sora">Koszt/but.</span>
-            <span className="product-col-actions" />
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Wart. netto</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">VAT</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Wart. brutto</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Typ</span>
+            <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Objętość</span>
+            <span className="product-col-koszt block w-full text-left text-xs font-bold text-gray-700 font-sora">Koszt/but.</span>
           </div>
 
             <div>
             {productRows.map((row, index) => {
               const typMeta = TYPY_TOWARU.find((item) => item.value === row.typ);
-              const dataWaznosciText = row.dataWaznosci ? formatDateDdMmYyyy(row.dataWaznosci) : '';
+              const isLast = index === productRows.length - 1;
               return (
               <div
                 key={`${row.kod}-${index}`}
-                className={`${productRowFields} relative py-2 border-b border-gray-200`}
+                className={`${productRowFields} relative py-2${isLast ? '' : ' border-b-[0.5px] border-gray-200'}`}
               >
                 <DisplaySlot className={ROW_SLOT}>{row.kod}</DisplaySlot>
                 <DisplaySlot className={ROW_SLOT}>{row.nazwa}</DisplaySlot>
@@ -519,11 +508,6 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                     {formatPlMoney(kosztButWgWartosci(row, productRows, deliveryCostNumber))}
                   </DisplaySlot>
                 </div>
-                <div className="product-col-actions min-w-0 w-full">
-                  <DisplaySlot className={ROW_SLOT}>
-                    {dataWaznosciText}
-                  </DisplaySlot>
-                </div>
               </div>
             );
             })}
@@ -534,50 +518,36 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
         <div className="shrink-0 border-t border-gray-200 px-8 min-h-[90px] py-4 flex items-center justify-between gap-6">
           <div className="flex items-center flex-nowrap gap-x-4 text-sm text-gray-700 font-sora overflow-x-auto min-w-0">
-            <span className="inline-flex items-center gap-2 shrink-0">
-              Netto:
-              <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className={FOOTER_SLOT}>
-                  {kwotaNetto}
-                </DisplaySlot>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                  {walutaFakturySymbol}
-                </span>
-              </span>
+            <span className="inline-flex items-center shrink-0">
+              Netto:{' '}
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+                {kwotaNetto}
+                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+              </DisplaySlot>
             </span>
-            <span className="inline-flex items-center gap-2 shrink-0">
-              Brutto:
-              <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className={FOOTER_SLOT}>
-                  {sumaBrutto}
-                </DisplaySlot>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                  {walutaFakturySymbol}
-                </span>
-              </span>
+            <span className="inline-flex items-center shrink-0">
+              Brutto:{' '}
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+                {sumaBrutto}
+                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+              </DisplaySlot>
             </span>
-            <span className="inline-flex items-center gap-2 shrink-0">
-              VAT:
-              <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className={FOOTER_SLOT}>
-                  {kwotaVat}
-                </DisplaySlot>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                  {walutaFakturySymbol}
-                </span>
-              </span>
+            {parsePlNumber(kwotaVat) > 0 && (
+            <span className="inline-flex items-center shrink-0">
+              VAT:{' '}
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+                {kwotaVat}
+                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+              </DisplaySlot>
             </span>
+            )}
             {showRabatCol && (
-            <span className="inline-flex items-center gap-2 shrink-0">
-              Rabat:
-              <span className="relative w-[148px] shrink-0">
-                <DisplaySlot className={FOOTER_SLOT}>
-                  {formatPlMoney(rabatKwota)}
-                </DisplaySlot>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 pointer-events-none">
-                  {walutaFakturySymbol}
-                </span>
-              </span>
+            <span className="inline-flex items-center shrink-0">
+              Rabat:{' '}
+              <DisplaySlot className={`${FOOTER_SLOT} shrink-0`}>
+                {formatPlMoney(rabatKwota)}
+                {walutaFakturySymbol ? <>{'  '}<span className="text-xs font-normal text-gray-500">{walutaFakturySymbol}</span></> : null}
+              </DisplaySlot>
             </span>
             )}
           </div>
