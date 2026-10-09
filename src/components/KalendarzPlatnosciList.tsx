@@ -173,11 +173,11 @@ export const KalendarzPlatnosciList: React.FC<KalendarzPlatnosciListProps> = ({ 
     minWidth: '145px',
     maxWidth: '145px',
   };
-  // ~30% szersze niż auto-fit z px-8 (typ. ~150px → ~195px)
+  // +30% + kolejne 20% względem auto-fit (12.2rem × 1.2 ≈ 14.6rem)
   const fitHeadClass =
-    'px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap w-[1%] min-w-[12.2rem]';
+    'px-8 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200 font-sora cursor-pointer hover:bg-gray-100 bg-gray-50 whitespace-nowrap w-[1%] min-w-[14.6rem]';
   const fitCellClass =
-    'px-8 py-3 text-left text-sm text-gray-600 font-sora whitespace-nowrap w-[1%] min-w-[12.2rem]';
+    'px-8 py-3 text-left text-sm text-gray-600 font-sora whitespace-nowrap w-[1%] min-w-[14.6rem]';
   const headInnerClass = 'flex items-center gap-1 whitespace-nowrap';
 
   return (
