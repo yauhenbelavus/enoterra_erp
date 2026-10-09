@@ -73,9 +73,9 @@ const ROW_TYP_SLOT =
   'w-full min-w-0 h-[24px] box-border px-2 py-0 rounded-md border font-sora text-xs leading-[22px] flex items-center truncate';
 const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-normal whitespace-nowrap leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
-/** Typ col: 114px × 0.75 ≈ 86px; height 30→24 (−20%). */
-const PRODUCT_ROW_COLS_TAIL = 'minmax(0,1fr)_132px_68px_78px_91px_70px_91px_86px_84px_81px';
-const PRODUCT_ROW_COLS_RABAT_TAIL = 'minmax(0,1fr)_132px_68px_78px_91px_91px_70px_91px_86px_84px_81px';
+/** Typ col: 114px × 0.75 ≈ 86px. (inline style — Tailwind can't see dynamic arbitrary classes) */
+const PRODUCT_ROW_COLS_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 70px 91px 86px 84px 81px';
+const PRODUCT_ROW_COLS_RABAT_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 91px 70px 91px 86px 84px 81px';
 const KOD_COL_MIN_PX = 90;
 /** text-xs ≈ 7px/char + pr padding so kod fits one line; shared across header+rows. */
 const kodColumnPx = (rows: { kod?: string }[]) => {
@@ -265,10 +265,11 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
     productRows.reduce((sum, row) => sum + getRowLineValue(row), 0) - parsePlNumber(kwotaNetto)
   ));
   const kodColPx = kodColumnPx(productRows);
-  const productRowCols = `[grid-template-columns:${kodColPx}px_${showRabatCol ? PRODUCT_ROW_COLS_RABAT_TAIL : PRODUCT_ROW_COLS_TAIL}]`;
-  const productRowGrid = `${PRODUCT_ROW_GRID_BASE} ${productRowCols}`;
-  const productRowHeader = `${productRowGrid} items-end justify-items-stretch`;
-  const productRowFields = `${productRowGrid} items-start`;
+  const productRowGridStyle = {
+    gridTemplateColumns: `${kodColPx}px ${showRabatCol ? PRODUCT_ROW_COLS_RABAT_TAIL : PRODUCT_ROW_COLS_TAIL}`,
+  } as const;
+  const productRowHeader = `${PRODUCT_ROW_GRID_BASE} items-end justify-items-stretch`;
+  const productRowFields = `${PRODUCT_ROW_GRID_BASE} items-start`;
   const productRowsInnerClass = `product-rows-inner${showRabatCol ? ' is-wide' : ''}`;
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
@@ -472,7 +473,10 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
         <div className="product-table flex-1 min-h-0 min-w-0 flex flex-col pt-6 pb-6">
           <div className="product-table-hscroll flex flex-col">
             <div className={`${productRowsInnerClass} !w-full max-w-none`}>
-              <div className={`product-row-head product-table-full-rule shrink-0 px-8 pb-6 bg-white ${productRowHeader}`}>
+              <div
+                className={`product-row-head product-table-full-rule shrink-0 px-8 pb-6 bg-white ${productRowHeader}`}
+                style={productRowGridStyle}
+              >
                 <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod</span>
                 <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Nazwa</span>
                 <span className="block w-full text-left text-xs font-bold text-gray-700 font-sora">Kod kreskowy</span>
@@ -497,6 +501,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
                     <div
                       key={`${row.kod}-${index}`}
                       className={`px-8 ${productRowFields} relative py-2${isLast ? '' : ' product-table-full-rule product-table-full-rule-thin'}`}
+                      style={productRowGridStyle}
                     >
                       <DisplaySlot className={`${ROW_SLOT} whitespace-nowrap`}>{row.kod}</DisplaySlot>
                       <DisplaySlot className={ROW_SLOT}>{row.nazwa}</DisplaySlot>
