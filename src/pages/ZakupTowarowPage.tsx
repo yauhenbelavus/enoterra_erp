@@ -5,6 +5,7 @@ import { ExcelFileUploadModal } from '../components/ExcelFileUploadModal';
 import { ReplaceFileModal } from '../components/ReplaceFileModal';
 import { ProductReceiptsList } from '../components/ProductReceiptsList';
 import { AnalizaZakupowList } from '../components/AnalizaZakupowList';
+import { KalendarzPlatnosciList } from '../components/KalendarzPlatnosciList';
 import { DataTable } from '../components/DataTable';
 import { openExcelModal } from '../utils/modalUtils';
 import toast from 'react-hot-toast';
@@ -16,6 +17,7 @@ const API_URL = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_URL || 'ht
 interface ProductReceipt {
   id?: number;
   data_przyjecia: string;
+  termin_platnosci?: string | null;
   sprzedawca: string;
   numer_dokumentu_przyjecia?: string;
   wartosc_przyjecia_netto: number;
@@ -73,6 +75,7 @@ const loadProductReceiptsFromDb = async (): Promise<ProductReceipt[]> => {
     return data.map((receipt: any) => ({
       id: receipt.id,
       data_przyjecia: receipt.data_przyjecia,
+      termin_platnosci: receipt.termin_platnosci || null,
       sprzedawca: receipt.sprzedawca || '',
       numer_dokumentu_przyjecia: receipt.numer_dokumentu_przyjecia || '',
       wartosc_przyjecia_netto: receipt.wartosc_przyjecia_netto ?? 0,
@@ -385,10 +388,7 @@ export const ZakupTowarowPage: React.FC<ZakupTowarowPageProps> = ({
         {/* Kalendarz płatności */}
         {activeSubTab === 'kalendarz' && (
           <div className="flex flex-col gap-4 mt-6">
-            <div className="bg-white p-6 rounded-lg border">
-              <h2 className="text-lg font-bold text-gray-900 font-sora mb-4">Kalendarz płatności</h2>
-              <p className="text-gray-600 font-sora">Funkcja kalendarza płatności będzie dostępna wkrótce.</p>
-            </div>
+            <KalendarzPlatnosciList receipts={productReceipts} />
           </div>
         )}
       </div>
