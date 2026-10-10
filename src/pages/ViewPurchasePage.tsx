@@ -74,8 +74,14 @@ const ROW_TYP_SLOT =
 const FOOTER_SLOT = 'min-h-[36px] box-border pl-0 pr-3 py-1.5 flex items-center justify-start font-sora text-sm text-left font-normal whitespace-nowrap leading-tight';
 const PRODUCT_ROW_GRID_BASE = 'grid gap-2 min-w-0';
 /** Typ col: 86px × 1.2 ≈ 103px. (inline style — Tailwind can't see dynamic arbitrary classes) */
-const PRODUCT_ROW_COLS_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 70px 91px 103px 84px 81px';
-const PRODUCT_ROW_COLS_RABAT_TAIL = 'minmax(0, 1fr) 132px 68px 78px 91px 91px 70px 91px 103px 84px 81px';
+const NAZWA_COL_MIN_PX = 160;
+const PRODUCT_ROW_COLS_TAIL = `minmax(${NAZWA_COL_MIN_PX}px, 1fr) 132px 68px 78px 91px 70px 91px 103px 84px 81px`;
+const PRODUCT_ROW_COLS_RABAT_TAIL = `minmax(${NAZWA_COL_MIN_PX}px, 1fr) 132px 68px 78px 91px 91px 70px 91px 103px 84px 81px`;
+/** Fixed tracks in each tail (everything except the flexible Nazwa column). */
+const TAIL_FIXED_PX = 132 + 68 + 78 + 91 + 70 + 91 + 103 + 84 + 81;
+const RABAT_COL_PX = 91;
+const GRID_GAP_PX = 8;
+const ROW_PADDING_X_PX = 64; // px-8 on head and rows
 const KOD_COL_MIN_PX = 90;
 /** text-xs ≈ 7px/char + pr; then +20% breathing room vs соседних колонок. */
 const kodColumnPx = (rows: { kod?: string }[]) => {
@@ -265,12 +271,16 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
     productRows.reduce((sum, row) => sum + getRowLineValue(row), 0) - parsePlNumber(kwotaNetto)
   ));
   const kodColPx = kodColumnPx(productRows);
+  const productColCount = showRabatCol ? 12 : 11;
+  const productTableMinWidth =
+    kodColPx + NAZWA_COL_MIN_PX + TAIL_FIXED_PX + (showRabatCol ? RABAT_COL_PX : 0) +
+    (productColCount - 1) * GRID_GAP_PX + ROW_PADDING_X_PX;
   const productRowGridStyle = {
     gridTemplateColumns: `${kodColPx}px ${showRabatCol ? PRODUCT_ROW_COLS_RABAT_TAIL : PRODUCT_ROW_COLS_TAIL}`,
   } as const;
   const productRowHeader = `${PRODUCT_ROW_GRID_BASE} items-end justify-items-stretch`;
   const productRowFields = `${PRODUCT_ROW_GRID_BASE} items-start`;
-  const productRowsInnerClass = `product-rows-inner${showRabatCol ? ' is-wide' : ''}`;
+  const productRowsInnerClass = 'product-rows-inner';
   const kurs1Active = isKursDostawyInputActive(walutaDostawy);
   const kurs2Active = isKursFakturyInputActive(walutaDostawy, walutaFaktury);
 
@@ -472,7 +482,7 @@ export const ViewPurchasePage: React.FC<ViewPurchasePageProps> = ({ receiptId })
 
         <div className="product-table flex-1 min-h-0 min-w-0 flex flex-col pt-6 pb-6">
           <div className="product-table-hscroll flex flex-col">
-            <div className={`${productRowsInnerClass} !w-full max-w-none`}>
+            <div className={productRowsInnerClass} style={{ minWidth: productTableMinWidth }}>
               <div
                 className={`product-row-head product-table-full-rule shrink-0 px-8 pb-6 bg-white ${productRowHeader}`}
                 style={productRowGridStyle}

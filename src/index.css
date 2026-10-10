@@ -39,12 +39,8 @@ body {
 }
 
 .product-rows-inner {
-  width: calc(100cqw - 8px);
-}
-
-.product-rows-inner.is-wide {
-  /* 91px «Cena po rab.» + 8px gap — other columns keep the same width */
-  width: calc(100cqw - 8px + 91px + 0.5rem);
+  /* Fills the panel; min-width (inline, from column sizes) triggers horizontal scroll when too narrow. */
+  width: 100%;
 }
 
 .product-row-head {
@@ -55,7 +51,7 @@ body {
 }
 
 /* Full-width rule across the white panel (row/head is full width; content uses px-8). */
-.product-table-full-rule {
+.product-table-full-rule:not(.product-row-head) {
   position: relative;
 }
 .product-table-full-rule::after {
